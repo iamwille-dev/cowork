@@ -25,6 +25,7 @@ jobs:
           case "$status" in
             finished) state=success; description="Live on cowork.iamwille.xyz"; target="https://cowork.iamwille.xyz" ;;
             failed) state=failure; description="Coolify production deployment failed" ;;
+            unhealthy) state=failure; description="Coolify finished but production health could not be verified" ;;
             cancelled|canceled) state=error; description="Coolify production deployment was cancelled" ;;
             *) exit 1 ;;
           esac
