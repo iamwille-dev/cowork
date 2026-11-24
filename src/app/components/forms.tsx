@@ -1,30 +1,96 @@
 'use client';
 
 import { useState, type ReactNode } from 'react';
+import { ChatBubbleLeftRightIcon, ClipboardDocumentListIcon, CodeBracketIcon, MegaphoneIcon, UserGroupIcon } from '@heroicons/react/24/outline';
 import { Dialog, DialogBackdrop, DialogPanel, DialogTitle } from '@headlessui/react';
 
-const roles = ['Developer', 'Product Manager', 'Sales Lead', 'Social Media'];
+const roles = [
+  { name: 'Developer', detail: 'Plans, previews, and screenshots', icon: CodeBracketIcon },
+  { name: 'Product Manager', detail: 'Briefs, priorities, and next steps', icon: ClipboardDocumentListIcon },
+  { name: 'Sales Lead', detail: 'Prospect research and follow-ups', icon: UserGroupIcon },
+  { name: 'Social Media', detail: 'Content ideas and review reminders', icon: MegaphoneIcon },
+] as const;
 
-export function AuthForm({ submit, busy }: { submit: (mode: string, values: object) => void; busy: boolean }) {
-  const [mode, setMode] = useState('signup');
+type Details = { Name?: FormDataEntryValue; Email?: FormDataEntryValue; Password?: FormDataEntryValue; Invite?: FormDataEntryValue };
+
+export function AuthForm({ submit, busy, initialMode = 'login' }: {
+  submit: (mode: string, values: object) => void; busy: boolean; initialMode?: 'signup' | 'login';
+}) {
+  const [mode, setMode] = useState<string>(initialMode);
+  const [step, setStep] = useState<'details' | 'agent'>('details');
+  const [details, setDetails] = useState<Details>({});
+  const [role, setRole] = useState<(typeof roles)[number]['name']>('Developer');
+  const [joining, setJoining] = useState(false);
   const signup = mode === 'signup';
-  return <section className="auth">
-    <div className="auth-intro"><span className="auth-mark" aria-hidden="true">✳</span><h1>Meet your<br />AI coworker.</h1><p>Chat with an agent, assign tasks, and share the work with your team.</p></div>
-    <form className="panel stack auth-panel" onSubmit={(event) => {
-      event.preventDefault();
-      submit(mode, Object.fromEntries(new FormData(event.currentTarget)));
-    }}>
-      <h2>{signup ? 'Create your workspace' : 'Sign in'}</h2>
-      {signup && <label>Your name<input name="Name" autoComplete="name" maxLength={80} required /></label>}
-      <label>Email<input name="Email" type="email" autoComplete="email" maxLength={254} required /></label>
-      <label>Password<input name="Password" type="password" autoComplete={signup ? 'new-password' : 'current-password'} minLength={8} maxLength={128} required /></label>
-      {signup && <>
-        <label>Choose an agent<select name="Role">{roles.map((role) => <option key={role}>{role}</option>)}</select></label>
-        <details><summary>Joining a teammate?</summary><label>Workspace invite code<input name="Invite" autoComplete="off" /></label></details>
-      </>}
-      <button className="primary" disabled={busy}>{signup ? 'Create workspace' : 'Sign in'}</button>
-      <button type="button" className="quiet" onClick={() => setMode(signup ? 'login' : 'signup')}>{signup ? 'Already have an account? Sign in' : 'Create an account'}</button>
-    </form>
+  const choosing = signup && step === 'agent';
+
+  function changeMode(next: string) {
+    setMode(next);
+    setStep('details');
+    setDetails({});
+    setJoining(false);
+  }
+
+  return <section className={signup ? "onboarding" : "onboarding sign-in-gate"}>
+    <div className="onboarding-story">
+      <div>
+        {signup ? <>
+          <h1>Good work<br /> has <em>company.</em></h1>
+          <p>Give your team a shared place to talk with an AI coworker, delegate work, and keep track of what comes next.</p>
+        </> : <>
+          <span className="sign-in-section-label">Conversations</span>
+          <h1>Pick up where<br /> you <em>left off.</em></h1>
+          <p>Your threads, teammates, and agent are all in your workspace.</p>
+        </>}
+      </div>
+      <div className="onboarding-preview">
+        <span className="onboarding-preview-icon" aria-hidden="true"><ChatBubbleLeftRightIcon className="size-5" /></span>
+        <div><strong>One conversation, shared by the team</strong><small>Ask questions, assign tasks, and set reminders in chat.</small></div>
+      </div>
+    </div>
+    <div className="onboarding-form-side">
+      <div className="onboarding-form-wrap">
+        <div className="onboarding-switch" role="group" aria-label="Account access">
+          <button type="button" aria-pressed={!signup} onClick={() => changeMode('login')}>Sign in</button>
+          <button type="button" aria-pressed={signup} onClick={() => changeMode('signup')}>Create account</button>
+        </div>
+        <form className="onboarding-form" key={mode + step} onSubmit={(event) => {
+          event.preventDefault();
+          if (choosing) { submit(mode, { ...details, Role: role }); return; }
+          const values = Object.fromEntries(new FormData(event.currentTarget));
+          if (!signup || joining) { submit(mode, values); return; }
+          setDetails(values);
+          setStep('agent');
+        }}>
+          <header>
+            {signup && !joining && <p className="onboarding-step">{choosing ? 'Step 2 of 2' : 'Step 1 of 2'}</p>}
+            <h2>{choosing ? 'Choose your agent' : signup ? (joining ? 'Join your workspace' : 'Create your account') : 'Sign in to Cowork'}</h2>
+            <p>{choosing ? 'Pick a role that matches the work you want to delegate.' : signup ? (joining ? 'Use the invite code your teammate shared.' : 'Start with your details to set up a workspace.') : 'Use your account to open your conversations.'}</p>
+          </header>
+          {choosing ? <>
+            <fieldset className="onboarding-roles">
+              <legend className="sr-only">Choose an agent</legend>
+              {roles.map(({ name, detail, icon: Icon }) => (
+                <label key={name} className="onboarding-role">
+                  <Icon aria-hidden="true" className="size-5" />
+                  <span><strong>{name}</strong><small>{detail}</small></span>
+                  <input type="radio" name="Role" value={name} checked={role === name} onChange={() => setRole(name)} />
+                </label>
+              ))}
+            </fieldset>
+            <button className="primary" disabled={busy}>{busy ? 'Creating workspace…' : 'Create workspace'}</button>
+            <button type="button" className="onboarding-link" onClick={() => setStep('details')} disabled={busy}>Back to your details</button>
+          </> : <>
+            {signup && <label>Your name<input name="Name" autoComplete="name" maxLength={80} defaultValue={String(details.Name ?? '')} required /></label>}
+            <label>Email<input name="Email" type="email" autoComplete="email" maxLength={254} defaultValue={String(details.Email ?? '')} required /></label>
+            <label>Password<input name="Password" type="password" autoComplete={signup ? 'new-password' : 'current-password'} minLength={8} maxLength={128} defaultValue={String(details.Password ?? '')} required /></label>
+            {signup && joining && <label>Workspace invite code<input name="Invite" autoComplete="off" required /></label>}
+            <button className="primary" disabled={busy}>{busy ? 'Please wait…' : signup ? (joining ? 'Join workspace' : 'Continue') : 'Sign in'}</button>
+            {signup && <button type="button" className="onboarding-link" onClick={() => setJoining(!joining)}>{joining ? 'Create a workspace instead' : 'I have a workspace invite'}</button>}
+          </>}
+        </form>
+      </div>
+    </div>
   </section>;
 }
 

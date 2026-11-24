@@ -100,18 +100,18 @@ export function WorkspaceShell(props: ShellProps) {
         </div>
       </Dialog>
 
-      <aside className="shell-sidebar fixed inset-y-0 z-50 hidden w-72 flex-col lg:flex">
+      {account && <aside className="shell-sidebar fixed inset-y-0 z-50 hidden w-72 flex-col lg:flex">
         <SidebarNavigation {...props} />
-      </aside>
+      </aside>}
 
-      <div className="shell-content min-w-0">
+      <div className={`shell-content min-w-0 ${account ? "shell-member" : ""}`}>
         <div className="shell-topbar sticky top-0 z-40 flex h-16 shrink-0 items-center gap-4 px-4 sm:px-6 lg:px-8">
           {account && (
             <button type="button" onClick={() => setSidebarOpen(true)} className="shell-icon-button shell-mobile-toggle" aria-label="Open sidebar">
               <Bars3Icon aria-hidden="true" className="size-6" />
             </button>
           )}
-          <div className={account ? 'sm:hidden' : 'lg:hidden'}>{!account && <Brand />}</div>
+          {!account && <Brand />}
           {account && (
             <form className="shell-search relative min-w-0 flex-1" role="search" onSubmit={(event) => {
               event.preventDefault();

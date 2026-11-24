@@ -1,23 +1,13 @@
-import { SESv2Client, SendEmailCommand, SESv2ServiceException } from '@aws-sdk/client-sesv2';
+import { SESv2ServiceException } from '@aws-sdk/client-sesv2';
 import type { NextRequest } from 'next/server';
+import { appLink, emailConfig, sendEmail } from '../../../../lib/email';
 
 export const runtime = 'nodejs';
 
 const encore = 'http://127.0.0.1:4000/api/thread/invite/email';
-let ses: SESv2Client | undefined;
 
 function reply(data: object, status = 200) {
   return Response.json(data, { status, headers: { 'Cache-Control': 'no-store' } });
-}
-
-function configuredLink(request: NextRequest) {
-  const publicURL = process.env.COWORK_PUBLIC_URL || process.env.NEXT_PUBLIC_COWORK_URL || request.nextUrl.origin;
-  try {
-    const url = new URL('/guest', publicURL);
-    return ['https:', 'http:'].includes(url.protocol) && !url.username && !url.password ? url : undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 export async function POST(request: NextRequest) {
@@ -32,12 +22,9 @@ export async function POST(request: NextRequest) {
     return reply({ error: 'Choose a conversation and enter a valid email address.' }, 400);
   }
 
-  const sender = process.env.AWS_SES_FROM_EMAIL?.trim();
-  const region = process.env.AWS_SES_REGION?.trim() || process.env.AWS_REGION?.trim();
-  const accessKeyId = process.env.AWS_SES_ACCESS_KEY?.trim();
-  const secretAccessKey = process.env.AWS_SES_SECRET_KEY?.trim();
-  const link = configuredLink(request);
-  if (!sender || !region || !link || Boolean(accessKeyId) !== Boolean(secretAccessKey)) {
+  const config = emailConfig();
+  const link = appLink('/guest', request.nextUrl.origin);
+  if (!config || !link) {
     return reply({ error: 'Invitation email is unavailable. Check the server’s SES settings and Cowork URL.' }, 503);
   }
 
@@ -56,24 +43,11 @@ export async function POST(request: NextRequest) {
   }
 
   link.hash = new URLSearchParams({ invite: grant.token }).toString();
-  ses ??= new SESv2Client({
-    region,
-    maxAttempts: 1,
-    ...(accessKeyId && secretAccessKey ? {
-      credentials: { accessKeyId, secretAccessKey, sessionToken: process.env.AWS_SES_SESSION_TOKEN },
-    } : {}),
-  });
   try {
-    await ses.send(new SendEmailCommand({
-      FromEmailAddress: sender,
-      Destination: { ToAddresses: [grant.email] },
-      Content: { Simple: {
-        Subject: { Data: 'Invitation to chat in Cowork', Charset: 'UTF-8' },
-        Body: { Text: { Charset: 'UTF-8', Data:
-          `You’ve been invited to join “${grant.title}” in Cowork.\n\n${link.href}\n\nThis single-use link grants access to that conversation only and expires in seven days. If you weren’t expecting it, you can ignore this email.`,
-        } },
-      } },
-    }), { abortSignal: AbortSignal.timeout(12000) });
+    await sendEmail(config, grant.email, {
+      subject: 'Invitation to chat in Cowork',
+      text: `You’ve been invited to join “${grant.title}” in Cowork.\n\n${link.href}\n\nThis single-use link grants access to that conversation only and expires in seven days. If you weren’t expecting it, you can ignore this email.`,
+    });
   } catch (error) {
     const status = error instanceof SESv2ServiceException ? error.$metadata.httpStatusCode ?? 0 : 0;
     if (status >= 400 && status < 500) {

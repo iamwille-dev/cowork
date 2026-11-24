@@ -32,6 +32,10 @@ func makeGuestInvite(w http.ResponseWriter, d *database, space *Workspace, issue
 		fail(w, 404, "Conversation not found.")
 		return
 	}
+	if d.AgentConnectionThreads[space.ID][threadID] {
+		fail(w, 409, "This conversation can contain work email. Choose another conversation for guest access.")
+		return
+	}
 	if d.GuestGrants == nil {
 		d.GuestGrants = make(map[string]guestGrant)
 	}

@@ -41,6 +41,14 @@ For local agent and workflow development, run `npm run dev` from the project roo
 
 Copy `.env.example` to `.env` in the project root and set `OPENROUTER_API_KEY` to your [OpenRouter key](https://openrouter.ai/settings/keys). Restart `npm start` to load it. The same server-side key serves all four roles. Set `OPENROUTER_MODEL` to an OpenRouter model ID such as `openai/gpt-4.1-mini` to override the default. Chat and its tools require a key. The manual task form can still use the built-in Developer planning and preview runner.
 
+## Connect a work Gmail mailbox
+
+In Agent Connections, connect the work mailbox and create a **Gmail read credential** for the agent. In Cowork, the workspace owner opens **Settings → Agent Connection**, enables the integration, pastes the named agent key, and saves. The workspace agent can search and read the mailbox from an internal Cowork conversation. Use **Remove key** to clear the saved credential and disable access. Revoke the credential in Agent Connections to invalidate it at the gateway.
+
+The worker talks to the deployed Agent Connections MCP endpoint. Workspace keys stay in the server's private `backend/.cowork/state.json` file, which contains secrets and should be protected along with its backups. Cowork shows a saved-key indicator in Settings. Agent Connection chat requires a conversation without an active guest invitation or guest session. Conversations where the integration has been made available cannot be shared with external guests later.
+
+For a deployment-managed key, set `AGENT_CONNECTION_KEY` and `AGENT_CONNECTION_WORKSPACE_ID` in the agent worker environment and restart the worker. Use the workspace ID returned as `workspace.ID` by the authenticated `/api/workspace` endpoint. Enable Agent Connection in that workspace's settings. A key saved in the workspace takes precedence over the deployment key. Other workspaces configure their own keys through Settings.
+
 ## Create work from a conversation
 
 Type `Create a task to draft the launch page` or `Remind me to review the launch tomorrow at 10 am`. When required details are missing, the agent asks in the conversation. The `createTask` and `createReminder` Mastra tools submit validated inputs to Encore under the caller’s current session. Dates and times are interpreted in the browser’s time zone. Developer tasks run the workflow, while assignments in other roles are recorded for tracking.

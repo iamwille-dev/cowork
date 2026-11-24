@@ -4,6 +4,7 @@ const sections = [
   { id: 'appearance', title: 'Appearance' },
   { id: 'members', title: 'Members' },
   { id: 'channels', title: 'Messaging channels' },
+  { id: 'agent-connection', title: 'Agent Connection' },
 ] as const;
 
 const providers = ['Slack', 'Telegram', 'WhatsApp'] as const;
@@ -18,6 +19,8 @@ type SettingsProps = {
   channels: Partial<Record<Provider, string>>;
   changeTheme: (theme: Theme) => void;
   saveChannel: (provider: Provider, destination: string, button: HTMLButtonElement) => void;
+  agentConnection: { enabled: boolean; hasKey: boolean };
+  saveAgentConnection: (settings: { Enabled: boolean; Key?: string; RemoveKey?: boolean }) => Promise<boolean>;
   announce: (message: string) => void;
 };
 
@@ -111,6 +114,49 @@ function ChannelForm({ provider, destination, owner, saveChannel }: {
   );
 }
 
+function AgentConnectionForm({ owner, agentConnection, saveAgentConnection }: Pick<SettingsProps, 'owner' | 'agentConnection' | 'saveAgentConnection'>) {
+  const [enabled, setEnabled] = useState(agentConnection.enabled);
+  const [saving, setSaving] = useState(false);
+  const keyInput = useRef<HTMLInputElement>(null);
+
+  async function save(removeKey = false) {
+    setSaving(true);
+    try {
+      const saved = await saveAgentConnection(removeKey
+        ? { Enabled: false, RemoveKey: true }
+        : { Enabled: enabled, Key: keyInput.current?.value });
+      if (!saved) return;
+      if (removeKey) setEnabled(false);
+      if (keyInput.current) keyInput.current.value = '';
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!owner) return <p>{agentConnection.enabled ? 'Enabled' : 'Disabled'}. The workspace owner manages this connection.</p>;
+
+  return (
+    <form className="grid gap-4" onSubmit={(event) => { event.preventDefault(); void save(); }}>
+      <label className="flex items-center gap-2">
+        <input className="!w-auto" type="checkbox" checked={enabled} disabled={saving} onChange={(event) => setEnabled(event.target.checked)} />
+        Enable Agent Connection
+      </label>
+      <label>
+        Agent key
+        <input ref={keyInput} type="password" autoComplete="new-password" spellCheck={false} maxLength={268} disabled={saving}
+          placeholder={agentConnection.hasKey ? 'Enter a new key to replace the saved key' : 'Paste a named agent key'} />
+      </label>
+      <p className="text-sm">{agentConnection.hasKey
+        ? 'A workspace key is saved.'
+        : 'Add a key from Agent Connections, or leave this blank if your deployment has assigned a key to this workspace.'}</p>
+      <div className="flex flex-wrap gap-3">
+        <button className="primary" type="submit" disabled={saving}>Save</button>
+        {agentConnection.hasKey && <button className="quiet" type="button" disabled={saving} onClick={() => void save(true)}>Remove key</button>}
+      </div>
+    </form>
+  );
+}
+
 export function Settings(props: SettingsProps) {
   const [active, setActive] = useState<(typeof sections)[number]['id']>('appearance');
   return (
@@ -144,6 +190,11 @@ export function Settings(props: SettingsProps) {
             </SettingsSection>
           )}
         </>
+      )}
+      {active === 'agent-connection' && (
+        <SettingsSection title="Agent Connection" description="Let your Cowork agent search and read a connected work Gmail mailbox. Use a conversation without guest access.">
+          <AgentConnectionForm owner={props.owner} agentConnection={props.agentConnection} saveAgentConnection={props.saveAgentConnection} />
+        </SettingsSection>
       )}
       {active === 'channels' && (
         <SettingsSection title="Channel destinations" description="Set the channel or conversation ID for each provider. Message delivery is pending provider setup.">

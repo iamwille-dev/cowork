@@ -57,12 +57,15 @@ type Workspace struct {
 	Tasks                   []Task
 	Reminders               []Reminder
 	Channels                map[string]string
+	AgentConnectionEnabled  bool `json:",omitempty"`
 }
 type database struct {
-	Accounts    map[string]Account
-	Sessions    map[string]string
-	Workspaces  map[string]*Workspace
-	GuestGrants map[string]guestGrant `json:",omitempty"`
+	Accounts               map[string]Account
+	Sessions               map[string]string
+	Workspaces             map[string]*Workspace
+	GuestGrants            map[string]guestGrant      `json:",omitempty"`
+	AgentConnectionKeys    map[string]string          `json:",omitempty"`
+	AgentConnectionThreads map[string]map[string]bool `json:",omitempty"`
 }
 
 var roles = map[string]bool{"Developer": true, "Product Manager": true, "Sales Lead": true, "Social Media": true}
@@ -160,7 +163,7 @@ func view(w http.ResponseWriter, d *database, a Account) {
 	if !isOwner {
 		space.Invite = ""
 	}
-	jsonReply(w, 200, map[string]any{"name": a.Name, "admin": isOwner, "workspace": space, "members": members, "directory": directory, "viewerId": a.ID, "threadInvitations": invitations})
+	jsonReply(w, 200, map[string]any{"name": a.Name, "admin": isOwner, "workspace": space, "members": members, "directory": directory, "viewerId": a.ID, "threadInvitations": invitations, "agentConnectionHasKey": isOwner && d.AgentConnectionKeys[space.ID] != ""})
 }
 
 type credentials struct{ Name, Email, Password, Role, Invite string }
@@ -216,12 +219,14 @@ func authenticate(w http.ResponseWriter, r *http.Request, d *database, action st
 }
 
 type workerRequest struct {
-	Guest    bool   `json:",omitempty"`
-	ThreadID string `json:",omitempty"`
-	Task     Task
-	Role     string
-	TimeZone string
-	Messages []Message
+	Guest                    bool   `json:",omitempty"`
+	AgentConnectionWorkspace string `json:",omitempty"`
+	AgentConnectionKey       string `json:",omitempty"`
+	ThreadID                 string `json:",omitempty"`
+	Task                     Task
+	Role                     string
+	TimeZone                 string
+	Messages                 []Message
 }
 type workerResponse struct {
 	Reply     string
@@ -315,6 +320,10 @@ func API(w http.ResponseWriter, r *http.Request) {
 	}
 	if route == "task" || route == "chat" {
 		runAgent(w, r, d, account, space, route)
+		return
+	}
+	if route == "agent-connection" {
+		updateAgentConnection(w, r, d, account, space)
 		return
 	}
 	var input struct {
@@ -477,6 +486,11 @@ func runAgent(w http.ResponseWriter, r *http.Request, d *database, a Account, sp
 			view(w, d, a)
 			return
 		}
+	}
+
+	if route == "chat" && space.AgentConnectionEnabled && protectAgentConnectionThread(d, space.ID, input.ThreadID) {
+		request.AgentConnectionWorkspace = space.ID
+		request.AgentConnectionKey = d.AgentConnectionKeys[space.ID]
 	}
 
 	if save(d) != nil {

@@ -20,7 +20,7 @@ export default function Home() {
         <div className="landing-hero-copy">
           <h1 id="landing-heading">Good work<br />has <em>company.</em></h1>
           <p>Give your team an AI coworker that can share a conversation, take on a task, and remember what comes next.</p>
-          <Link href="/conversations" className="landing-cta">Get started</Link>
+          <Link href="/conversations?signup=1" className="landing-cta">Get started</Link>
         </div>
         <div className="landing-role-scene" aria-label="Four Cowork agent roles">
           {roles.map((role) => (

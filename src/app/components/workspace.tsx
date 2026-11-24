@@ -15,11 +15,13 @@ type Reminder = { ID: string; Text: string; Due: string; Author: string; Done: b
 type WorkspaceData = {
   name: string;
   admin: boolean;
+  agentConnectionHasKey?: boolean;
   viewerId: string;
   members: string[];
   directory: { ID: string; Name: string; Email: string; Role: string }[];
   threadInvitations: { ID: string; ThreadID: string; From: string }[];
   workspace: {
+    AgentConnectionEnabled?: boolean;
     Role: string; Invite?: string; Messages?: Message[]; Threads?: Thread[];
     Tasks?: Task[]; Reminders?: Reminder[]; Channels?: Record<string, string>;
   };
@@ -36,7 +38,7 @@ const dataOf = (event: FormEvent<HTMLFormElement>) => {
   return Object.fromEntries(new FormData(event.currentTarget));
 };
 
-export function Workspace({ view, threadId }: { view: View; threadId?: string }) {
+export function Workspace({ view, threadId, initialMode }: { view: View; threadId?: string; initialMode?: 'signup' | 'login' }) {
   const router = useRouter();
   const [state, setState] = useState<WorkspaceData | null>();
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
@@ -65,12 +67,12 @@ export function Workspace({ view, threadId }: { view: View; threadId?: string })
   }, []);
 
   async function run(action: () => Promise<void>) {
-    if (pending.current) return;
+    if (pending.current) return false;
     pending.current = true;
     setBusy(true);
     setNotice('');
-    try { await action(); }
-    catch (error) { setNotice((error as Error).message); }
+    try { await action(); return true; }
+    catch (error) { setNotice((error as Error).message); return false; }
     finally { pending.current = false; setBusy(false); }
   }
 
@@ -117,10 +119,10 @@ export function Workspace({ view, threadId }: { view: View; threadId?: string })
     <main data-view={contentMode}>
       {notice && !modal && <div id="notice" role="status">{notice}</div>}
       {state === undefined && <p className="p-6" role="status">Loading workspace…</p>}
-      {state === null && <AuthForm busy={busy} submit={(mode, data) => void run(async () => { await write(mode, data); })} />}
+      {state === null && <AuthForm initialMode={initialMode} busy={busy} submit={(mode, data) => void run(async () => { await write(mode, data); })} />}
       {state && workspace && <section id="workspace">
         <header className="workspace-header">
-          <div><h1>{current?.Title || titles[view]}</h1>{current && state.members.length > 1 && <span id="chat-members-count">{state.members.length} workspace members</span>}</div>
+          <div><h1>{current?.Title || titles[view]}</h1>{view === 'conversations' && threadId === undefined && <p className="workspace-page-description">Chat with your agent and keep your team in the loop.</p>}{current && state.members.length > 1 && <span id="chat-members-count">{state.members.length} workspace members</span>}</div>
           <div className="flex flex-wrap justify-end gap-2">
             {view === 'conversations' && threadId === undefined && <button className="primary" onClick={() => setModal('thread')}>New conversation</button>}
             {view === 'conversations' && threadId !== undefined && <button className="quiet" onClick={() => router.push('/conversations')}>All conversations</button>}
@@ -131,9 +133,11 @@ export function Workspace({ view, threadId }: { view: View; threadId?: string })
         {view === 'conversations' && <section id="chat" className="page">
           {current ? <div id="conversation-root">
             <Conversation key={current.ID} role={workspace.Role} viewer={state.name} threadId={current.ID} messages={current.Messages ?? []}
-              send={(transport) => run(async () => {
-                try { await transport(); } finally { setState(await api<WorkspaceData>('workspace')); }
-              })} />
+              send={async (transport) => {
+                await run(async () => {
+                  try { await transport(); } finally { setState(await api<WorkspaceData>('workspace')); }
+                });
+              }} />
           </div> : threadId !== undefined ? <p className="p-6">Conversation not found.</p> : <>
             {invitations.length > 0 && <section className="panel thread-invitations">
               <h2>Conversation invitations</h2>
@@ -144,7 +148,7 @@ export function Workspace({ view, threadId }: { view: View; threadId?: string })
                 })}>Join conversation</button>
               </li>)}</ul>
             </section>}
-            <ConversationIndex threads={threads} tasks={tasks} open={route} />
+            <ConversationIndex threads={threads} tasks={tasks} role={workspace.Role} open={route} />
           </>}
         </section>}
         {view === 'tasks' && <section className="page"><TaskList tasks={tasks} /></section>}
@@ -153,6 +157,11 @@ export function Workspace({ view, threadId }: { view: View; threadId?: string })
           complete={(id) => void run(async () => { await write('reminder/done', { ID: id }); })} /></section>}
         {view === 'settings' && <section className="page"><Settings theme={theme} members={state.directory} owner={state.admin}
           invite={workspace.Invite || ''} channels={workspace.Channels ?? {}} changeTheme={changeTheme} announce={setNotice}
+          agentConnection={{ enabled: Boolean(workspace.AgentConnectionEnabled), hasKey: Boolean(state.agentConnectionHasKey) }}
+          saveAgentConnection={(settings) => run(async () => {
+            await write('agent-connection', settings);
+            setNotice('Agent Connection settings saved.');
+          })}
           saveChannel={(channel, destination, button) => {
             button.disabled = true;
             void run(async () => {
