@@ -1,0 +1,85 @@
+name: Build and deploy Cowork
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: cowork-production
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          cache: false
+      - name: Check Encore backend
+        working-directory: backend
+        run: go test ./...
+      - name: Install Encore CLI
+        shell: bash
+        run: |
+          curl --fail --silent --show-error --location https://encore.dev/install.sh -o "$RUNNER_TEMP/encore-install.sh"
+          bash "$RUNNER_TEMP/encore-install.sh" 1.58.10
+          echo "$HOME/.encore/bin" >> "$GITHUB_PATH"
+      - name: Build production image
+        id: image
+        shell: bash
+        run: |
+          release="$(deploy/package.sh)"
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          docker build --tag "$image:$GITHUB_SHA" --tag "$image:main" "$release"
+          echo "repository=$image" >> "$GITHUB_OUTPUT"
+      - name: Verify production container
+        env:
+          IMAGE: ${{ steps.image.outputs.repository }}
+        shell: bash
+        run: |
+          docker run -d --name cowork-smoke -p 127.0.0.1:4400:4400 "$IMAGE:$GITHUB_SHA"
+          trap 'docker rm -f cowork-smoke >/dev/null' EXIT
+          for attempt in {1..25}; do
+            if curl --silent --fail http://127.0.0.1:4400/api/health; then
+              curl --silent --fail http://127.0.0.1:4400/ -o "$RUNNER_TEMP/cowork-landing.html"
+              grep -q 'Get started' "$RUNNER_TEMP/cowork-landing.html"
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs cowork-smoke >&2
+          exit 1
+      - name: Publish image
+        env:
+          IMAGE: ${{ steps.image.outputs.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker push "$IMAGE:$GITHUB_SHA"
+          docker push "$IMAGE:main"
+      - name: Trigger Coolify deployment
+        env:
+          COOLIFY_API_URL: ${{ vars.COOLIFY_API_URL }}
+          COOLIFY_APP_UUID: ${{ vars.COOLIFY_APP_UUID }}
+          COOLIFY_DEPLOY_TOKEN: ${{ secrets.COOLIFY_DEPLOY_TOKEN }}
+        shell: bash
+        run: |
+          if [[ -z "$COOLIFY_API_URL" || -z "$COOLIFY_APP_UUID" || -z "$COOLIFY_DEPLOY_TOKEN" ]]; then
+            echo "Image published. Coolify deployment is disabled until the deployment settings are configured." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          curl --fail-with-body --silent --show-error --max-time 30 \
+            --request POST \
+            --header "Authorization: Bearer $COOLIFY_DEPLOY_TOKEN" \
+            --header 'Content-Type: application/json' \
+            --data "$(jq -nc --arg uuid "$COOLIFY_APP_UUID" '{uuid: $uuid, force: true}')" \
+            "${COOLIFY_API_URL%/}/deploy" > "$RUNNER_TEMP/cowork-deploy.json"
+          jq -e '.deployments | length > 0' "$RUNNER_TEMP/cowork-deploy.json" > /dev/null

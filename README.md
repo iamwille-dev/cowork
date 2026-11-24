@@ -84,3 +84,11 @@ Framework references are available in the [Mastra quickstart](https://mastra.ai/
 Cowork runs as one container with Next.js on port 4400 and the Encore and Mastra services on loopback. `deploy/package.sh` builds the Encore Linux/amd64 release and prints a temporary release directory. Build locally with `docker build -f RELEASE/Dockerfile RELEASE`. For a Coolify build without a Git checkout, stage `RELEASE/cowork-release.tar.xz` on a private endpoint reachable from the build server. Replace the Dockerfile’s copy step with a checksum-verified archive download and extraction into `/app`. The package includes source and the compiled backend. It omits `.env` and local workspace data.
 
 Mount persistent storage at `/app/backend/.cowork` for workspace data and artifacts. Configure OpenRouter and SES as runtime-only variables, set `COWORK_PUBLIC_URL` to the public HTTPS URL, and use `/api/health` on port 4400 for health checks. When Cloudflare Tunnel provides HTTPS, set the Coolify application URL to `http://cowork.iamwille.xyz:4400` so the proxy targets Cowork’s internal port. Set `COWORK_PUBLIC_URL=https://cowork.iamwille.xyz` for guest links.
+
+### Deploy from GitHub main
+
+The [Cowork release workflow](.github/workflows/coolify.yml) builds the Encore backend and container, checks the landing and health endpoints, and publishes `ghcr.io/iamwille-dev/cowork:main` and a commit SHA tag.
+
+Once Coolify can pull the image, switch the existing Cowork application to **Docker Image** and select `ghcr.io/iamwille-dev/cowork:main`. Keep the domain, internal port, runtime variables, and persistent storage configured on that application. For a private GHCR package, configure a read-only registry login on the Coolify server first.
+
+In the GitHub repository’s Actions settings, set the `COOLIFY_API_URL` variable to the Coolify API base URL ending in `/api/v1`, set `COOLIFY_APP_UUID` to the existing Cowork application UUID, and add `COOLIFY_DEPLOY_TOKEN` as a secret with permission to deploy that application. The workflow queues a deployment after each successful image build on `main`.
