@@ -19,9 +19,10 @@ type database struct {
 	Accounts               map[string]Account
 	Sessions               map[string]string
 	Workspaces             map[string]*Workspace
-	GuestGrants            map[string]guestGrant      `json:",omitempty"`
-	AgentConnectionKeys    map[string]string          `json:",omitempty"`
-	AgentConnectionThreads map[string]map[string]bool `json:",omitempty"`
+	GuestGrants            map[string]guestGrant        `json:",omitempty"`
+	AgentConnectionKeys    map[string]string            `json:",omitempty"`
+	AgentConnectionThreads map[string]map[string]bool   `json:",omitempty"`
+	GitTokens              map[string]map[string]string `json:",omitempty"`
 	revision               int64
 }
 
@@ -39,14 +40,16 @@ CREATE TABLE IF NOT EXISTS cowork_storage_revision (
 	revision bigint NOT NULL
 );
 CREATE TABLE IF NOT EXISTS cowork_records (
-	kind text NOT NULL CHECK (kind IN (
-		'Accounts', 'Sessions', 'Workspaces', 'GuestGrants',
-		'AgentConnectionKeys', 'AgentConnectionThreads'
-	)),
+	kind text NOT NULL,
 	record_key text NOT NULL,
 	payload jsonb NOT NULL,
 	PRIMARY KEY (kind, record_key)
 );
+ALTER TABLE cowork_records DROP CONSTRAINT IF EXISTS cowork_records_kind_check;
+ALTER TABLE cowork_records ADD CONSTRAINT cowork_records_kind_check CHECK (kind IN (
+	'Accounts', 'Sessions', 'Workspaces', 'GuestGrants',
+	'AgentConnectionKeys', 'AgentConnectionThreads', 'GitTokens'
+));
 INSERT INTO cowork_storage_revision (singleton, revision)
 VALUES (true, 0) ON CONFLICT DO NOTHING;
 `

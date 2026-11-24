@@ -120,7 +120,7 @@ func view(w http.ResponseWriter, d *database, a Account) {
 	if !isOwner {
 		space.Invite = ""
 	}
-	jsonReply(w, 200, map[string]any{"name": a.Name, "admin": isOwner, "workspace": space, "members": members, "directory": directory, "viewerId": a.ID, "threadInvitations": invitations, "agentConnectionHasKey": isOwner && d.AgentConnectionKeys[space.ID] != ""})
+	jsonReply(w, 200, map[string]any{"name": a.Name, "admin": isOwner, "workspace": space, "members": members, "directory": directory, "viewerId": a.ID, "threadInvitations": invitations, "gitTokenStatus": gitTokenStatus(d.GitTokens[space.ID]), "agentConnectionHasKey": isOwner && d.AgentConnectionKeys[space.ID] != ""})
 }
 
 type credentials struct{ Name, Email, Password, Role, Invite string }
@@ -176,10 +176,11 @@ func authenticate(w http.ResponseWriter, r *http.Request, d *database, action st
 }
 
 type workerRequest struct {
-	Guest                    bool   `json:",omitempty"`
-	AgentConnectionWorkspace string `json:",omitempty"`
-	AgentConnectionKey       string `json:",omitempty"`
-	ThreadID                 string `json:",omitempty"`
+	GitTokens                map[string]string `json:",omitempty"`
+	Guest                    bool              `json:",omitempty"`
+	AgentConnectionWorkspace string            `json:",omitempty"`
+	AgentConnectionKey       string            `json:",omitempty"`
+	ThreadID                 string            `json:",omitempty"`
 	Task                     Task
 	Role                     string
 	TimeZone                 string
@@ -287,6 +288,10 @@ func API(w http.ResponseWriter, r *http.Request) {
 	}
 	if route == "agent-connection" {
 		updateAgentConnection(w, r, d, account, space)
+		return
+	}
+	if route == "git-token" {
+		updateGitToken(w, r, d, account, space)
 		return
 	}
 	var input struct {
@@ -451,7 +456,7 @@ func runAgent(w http.ResponseWriter, r *http.Request, d *database, a Account, sp
 		}
 	}
 
-	if route == "chat" && space.AgentConnectionEnabled && protectAgentConnectionThread(d, space.ID, input.ThreadID) {
+	if route == "chat" && space.AgentConnectionEnabled && protectCredentialThread(d, space.ID, input.ThreadID) {
 		request.AgentConnectionWorkspace = space.ID
 		if stored := d.AgentConnectionKeys[space.ID]; stored != "" {
 			aead, err := agentConnectionCipher(false)
@@ -463,6 +468,15 @@ func runAgent(w http.ResponseWriter, r *http.Request, d *database, a Account, sp
 				return
 			}
 		}
+	}
+
+	if route == "chat" && len(d.GitTokens[space.ID]) > 0 && protectCredentialThread(d, space.ID, input.ThreadID) {
+		tokens, err := unlockGitTokens(space.ID, d.GitTokens[space.ID])
+		if err != nil {
+			fail(w, 500, "Could not unlock the saved Git tokens.")
+			return
+		}
+		request.GitTokens = tokens
 	}
 
 	if save(d) != nil {

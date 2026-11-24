@@ -30,7 +30,7 @@ func updateAgentConnection(w http.ResponseWriter, r *http.Request, d *database, 
 	if input.RemoveKey {
 		delete(d.AgentConnectionKeys, space.ID)
 	} else if credential != "" {
-		aead, err := agentConnectionCipher(len(d.AgentConnectionKeys) == 0)
+		aead, err := agentConnectionCipher(len(d.AgentConnectionKeys) == 0 && len(d.GitTokens) == 0)
 		for workspaceID, stored := range d.AgentConnectionKeys {
 			if err == nil {
 				_, err = openAgentConnectionKey(aead, workspaceID, stored)
@@ -54,7 +54,7 @@ func updateAgentConnection(w http.ResponseWriter, r *http.Request, d *database, 
 	view(w, d, account)
 }
 
-func protectAgentConnectionThread(d *database, workspaceID, threadID string) bool {
+func protectCredentialThread(d *database, workspaceID, threadID string) bool {
 	now := time.Now()
 	for _, grant := range d.GuestGrants {
 		if grant.WorkspaceID == workspaceID && grant.ThreadID == threadID && grant.Expires.After(now) {

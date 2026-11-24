@@ -4,7 +4,7 @@ Cowork is a local prototype of a shared agent workspace. Encore.go owns accounts
 
 ## Run locally
 
-Install Node.js 22.18 or newer, Go 1.25 or newer, the Encore CLI, and PostgreSQL. From the project root:
+Install Node.js 22.18 or newer, Go 1.25 or newer, the Encore CLI, Git, and PostgreSQL. From the project root:
 
 ```sh
 npm ci
@@ -65,6 +65,12 @@ The worker talks to the deployed Agent Connections MCP endpoint. Cowork encrypts
 For production, set `AGENT_CONNECTION_ENCRYPTION_KEY` on the **Encore backend** to a stable 32-byte base64 secret, generated with `openssl rand -base64 32`, before the first save or migration. Keep it in the deployment secret store separately from state backups. Without that variable, Cowork creates `backend/.cowork/agent-connection.key` with owner-only permissions and reuses it across restarts. Preserve that file if using the local fallback. To move from the fallback file to a deployment secret, use the same key value. Backups made before migration can still contain plaintext credentials.
 
 For a deployment-managed key, set `AGENT_CONNECTION_KEY` and `AGENT_CONNECTION_WORKSPACE_ID` in the agent worker environment and restart the worker. Use the workspace ID returned as `workspace.ID` by the authenticated `/api/workspace` endpoint. Enable Agent Connection in that workspace's settings. A key saved in the workspace takes precedence over the deployment key. Other workspaces configure their own keys through Settings.
+
+## Git repository access
+
+A workspace owner can save, replace, or remove GitHub.com and GitLab.com access tokens under **Settings → Git tokens**. Use read-only tokens scoped to the repositories workspace members may access. Cowork encrypts tokens in PostgreSQL using the same encryption key as Agent Connection.
+
+In an internal conversation, ask the agent to pull a repository by its HTTPS URL, for example, “Pull https://github.com/my-org/my-repo and summarize the README.” The agent fetches the latest default branch and can read text files during that turn. Cowork deletes temporary checkouts when the turn ends. Conversations where the tools have been made available are protected from guest invitations.
 
 ## Create work from a conversation
 

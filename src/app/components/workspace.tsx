@@ -6,7 +6,7 @@ import { WorkspaceShell } from '../../sidebar';
 import { Conversation } from '../../chat';
 import { ConversationIndex, type Message, type Thread } from '../../conversations';
 import { ReminderCalendar } from '../../reminders';
-import { Settings } from '../../settings';
+import { Settings, type GitProvider } from '../../settings';
 import { api, initials, localDay } from './api';
 import { AuthForm, Modal } from './forms';
 import { TaskList, type Task } from './tasks';
@@ -16,6 +16,7 @@ type WorkspaceData = {
   name: string;
   admin: boolean;
   agentConnectionHasKey?: boolean;
+  gitTokenStatus?: Partial<Record<GitProvider, boolean>>;
   viewerId: string;
   members: string[];
   directory: { ID: string; Name: string; Email: string; Role: string }[];
@@ -161,6 +162,11 @@ export function Workspace({ view, threadId, initialMode }: { view: View; threadI
           saveAgentConnection={(settings) => run(async () => {
             await write('agent-connection', settings);
             setNotice('Agent Connection settings saved.');
+          })}
+          gitTokenStatus={state.gitTokenStatus ?? {}}
+          saveGitToken={(settings) => run(async () => {
+            await write('git-token', settings);
+            setNotice(settings.Remove ? 'Git token removed.' : 'Git token saved.');
           })}
           saveChannel={(channel, destination, button) => {
             button.disabled = true;

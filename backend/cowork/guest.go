@@ -33,7 +33,7 @@ func makeGuestInvite(w http.ResponseWriter, d *database, space *Workspace, issue
 		return
 	}
 	if d.AgentConnectionThreads[space.ID][threadID] {
-		fail(w, 409, "This conversation can contain work email. Choose another conversation for guest access.")
+		fail(w, 409, "This conversation can contain private workspace data. Choose another conversation for guest access.")
 		return
 	}
 	if d.GuestGrants == nil {
