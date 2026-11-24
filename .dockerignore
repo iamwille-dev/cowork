@@ -1,0 +1,12 @@
+.env
+.env.*
+.git
+.next
+.mastra
+node_modules
+dist
+backend/.cowork
+backend/.encore
+*.tsbuildinfo
+next-env.d.ts
+cowork-release.tar.xz

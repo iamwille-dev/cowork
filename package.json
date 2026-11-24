@@ -1,0 +1,49 @@
+{
+  "name": "cowork",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "concurrently --kill-others-on-fail \"npm run agent\" \"next start -p 4400\"",
+    "check": "tsc --noEmit",
+    "dev": "mastra dev",
+    "build": "next build",
+    "agent": "node --env-file-if-exists=.env src/server.ts",
+    "dev:web": "concurrently --kill-others-on-fail \"npm run agent\" \"next dev -p 4400\""
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@ai-sdk/react": "^4.0.186",
+    "@assistant-ui/react": "^0.15.38",
+    "@assistant-ui/react-markdown": "^0.14.26",
+    "@aws-sdk/client-sesv2": "^3.1176.0",
+    "@chat-adapter/state-memory": "^4.45.0",
+    "@chat-adapter/web": "^4.45.0",
+    "@headlessui/react": "^2.2.10",
+    "@heroicons/react": "^2.2.0",
+    "@mastra/core": "^1.85.0",
+    "@tailwindcss/postcss": "^4.3.5",
+    "ai": "^7.0.181",
+    "chat": "^4.45.0",
+    "mastra": "^1.40.1",
+    "next": "^16.4.6",
+    "playwright": "^1.65.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.3.5",
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "concurrently": "^10.0.7",
+    "esbuild": "^0.28.2",
+    "tailwindcss": "^4.3.5",
+    "typescript": "^7.0.2"
+  }
+}

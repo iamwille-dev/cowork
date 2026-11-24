@@ -1,0 +1,9 @@
+node_modules/
+backend/.cowork/
+.env
+backend/.encore/
+dist/
+.mastra/
+.next/
+next-env.d.ts
+*.tsbuildinfo
