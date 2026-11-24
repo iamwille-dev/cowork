@@ -74,7 +74,8 @@ def production_is_healthy(sha):
     if app["docker_registry_image_tag"] != sha or app["status"] != "running:healthy":
         return False
     try:
-        with urlopen("https://cowork.iamwille.xyz/api/health", timeout=8) as response:
+        request = Request("https://cowork.iamwille.xyz/api/health", headers={"User-Agent": "Cowork-Deployment/1.0"})
+        with urlopen(request, timeout=8) as response:
             return json.load(response).get("status") == "ok"
     except (OSError, ValueError):
         return False
