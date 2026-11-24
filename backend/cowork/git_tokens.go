@@ -61,7 +61,7 @@ func updateGitToken(w http.ResponseWriter, r *http.Request, d *database, account
 			fail(w, 400, "Enter a valid access token.")
 			return
 		}
-		aead, err := agentConnectionCipher(len(d.AgentConnectionKeys) == 0 && len(d.GitTokens) == 0)
+		aead, err := agentConnectionCipher(len(d.AgentConnectionKeys) == 0 && len(d.GitTokens) == 0 && len(d.TelegramBots) == 0)
 		if err != nil {
 			fail(w, 500, "Could not encrypt the Git token.")
 			return

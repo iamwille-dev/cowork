@@ -56,6 +56,15 @@ Keep using the original `AGENT_CONNECTION_ENCRYPTION_KEY` or the original `.cowo
 
 Copy `.env.example` to `.env` in the project root and set `OPENROUTER_API_KEY` to your [OpenRouter key](https://openrouter.ai/settings/keys). Restart `npm start` to load it. The same server-side key serves all four roles. Set `OPENROUTER_MODEL` to an OpenRouter model ID such as `openai/gpt-4.1-mini` to override the default. Chat and its tools require a key. The manual task form can still use the built-in Developer planning and preview runner.
 
+## Telegram group conversations
+
+1. Create a dedicated bot with [BotFather](https://t.me/BotFather), disable group privacy with `/setprivacy`, and add the bot to your test group. Let the group know that Cowork mirrors its messages to the workspace.
+2. Set a random `COWORK_TELEGRAM_BRIDGE_SECRET` on the Mastra worker and Encore. In Coolify, set it once as a runtime variable on the Cowork application. Bot tokens are managed in Cowork.
+3. As the workspace owner, open **Settings → Messaging channels → Telegram** and save the BotFather token and numeric group ID, including its leading minus sign. Cowork checks and encrypts the token and starts polling within a few seconds. Use a dedicated bot for each workspace.
+4. Send text from two Telegram accounts and mention the bot or reply to its message. Open **Conversations** in Cowork to see both participants and the agent's reply. Replies are sent from Telegram. The bot mirrors new text messages it receives and keeps forum topics separate.
+
+Mastra Channels uses the [Telegram adapter](https://mastra.ai/blog/introducing-channels) in polling mode. Run one worker per deployment. Telegram turns have no workspace tools or connected credentials.
+
 ## Connect a work Gmail mailbox
 
 In Agent Connections, connect the work mailbox and create a **Gmail read credential** for the agent. In Cowork, the workspace owner opens **Settings → Agent Connection**, enables the integration, pastes the named agent key, and saves. The workspace agent can search and read the mailbox from an internal Cowork conversation. Use **Remove key** to clear the saved credential and disable access. Revoke the credential in Agent Connections to invalidate it at the gateway.
@@ -86,7 +95,7 @@ Set `AWS_SES_REGION` and `AWS_SES_FROM_EMAIL` on the frontend server. You can su
 
 ## Extend the prototype
 
-The role selector supports four roles. Developer has an implemented chat agent and task workflow. Product Manager, Sales Lead, and Social Media use the same workspace and each has a role-specific chat agent. Chat history is shared by workspace and attributed to the person who sent each message. Reminders can be scheduled and marked complete in the workspace. Slack, Telegram, and WhatsApp settings persist destination IDs. Provider authorization, inbound webhooks, outbound messages, and reminder delivery are pending.
+The role selector supports four roles. Developer has an implemented chat agent and task workflow. Product Manager, Sales Lead, and Social Media use the same workspace and each has a role-specific chat agent. Chat history is shared by workspace and attributed to the person who sent each message. Reminders can be scheduled and marked complete in the workspace. Telegram group conversations appear in Conversations through Mastra Channels. Slack and WhatsApp settings persist destination IDs. Reminder delivery is pending.
 
 Set `COWORK_RUNNER` to the path of a trusted ES module to enable repository-backed work. Its default export implements these methods:
 

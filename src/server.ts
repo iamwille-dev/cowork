@@ -3,6 +3,8 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { dataRoot } from './mastra/workflows/developer.ts';
 import { respond, runTask } from './mastra/cowork.ts';
+import { mastra } from './mastra/index.ts';
+import { startTelegram } from './mastra/telegram.ts';
 import { handleWebChat } from './chat-web.ts';
 
 const types: Record<string, string> = {
@@ -65,3 +67,5 @@ createServer(async (request, response) => {
     else if (!response.writableEnded) response.end();
   }
 }).listen(4402, '127.0.0.1');
+
+startTelegram(mastra);

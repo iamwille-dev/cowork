@@ -32,6 +32,10 @@ func makeGuestInvite(w http.ResponseWriter, d *database, space *Workspace, issue
 		fail(w, 404, "Conversation not found.")
 		return
 	}
+	if telegramThread(space, threadID) {
+		fail(w, 403, "Invite participants through Telegram.")
+		return
+	}
 	if d.AgentConnectionThreads[space.ID][threadID] {
 		fail(w, 409, "This conversation can contain private workspace data. Choose another conversation for guest access.")
 		return

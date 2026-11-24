@@ -22,15 +22,17 @@ import (
 
 type Account struct{ ID, Name, Email, Salt, Password, Workspace string }
 type Message struct {
-	Author, Text string
-	At           time.Time
-	SenderID     string `json:",omitempty"`
+	Author, Text    string
+	At              time.Time
+	SenderID        string `json:",omitempty"`
+	TelegramMessage string `json:",omitempty"`
 }
 type Artifact struct{ Name, URL string }
 type Thread struct {
 	ID, Title, Author string
 	CreatedAt         time.Time
 	Messages          []Message
+	TelegramTopic     string `json:",omitempty"`
 }
 type Task struct {
 	ID, Title, Brief, Repository, Author, Status, Error string
@@ -120,7 +122,7 @@ func view(w http.ResponseWriter, d *database, a Account) {
 	if !isOwner {
 		space.Invite = ""
 	}
-	jsonReply(w, 200, map[string]any{"name": a.Name, "admin": isOwner, "workspace": space, "members": members, "directory": directory, "viewerId": a.ID, "threadInvitations": invitations, "gitTokenStatus": gitTokenStatus(d.GitTokens[space.ID]), "agentConnectionHasKey": isOwner && d.AgentConnectionKeys[space.ID] != ""})
+	jsonReply(w, 200, map[string]any{"name": a.Name, "admin": isOwner, "workspace": space, "members": members, "directory": directory, "viewerId": a.ID, "threadInvitations": invitations, "gitTokenStatus": gitTokenStatus(d.GitTokens[space.ID]), "telegramBot": d.TelegramBots[space.ID].Username, "agentConnectionHasKey": isOwner && d.AgentConnectionKeys[space.ID] != ""})
 }
 
 type credentials struct{ Name, Email, Password, Role, Invite string }
@@ -290,6 +292,10 @@ func API(w http.ResponseWriter, r *http.Request) {
 		updateAgentConnection(w, r, d, account, space)
 		return
 	}
+	if route == "telegram" {
+		updateTelegramBot(w, r, d, account, space)
+		return
+	}
 	if route == "git-token" {
 		updateGitToken(w, r, d, account, space)
 		return
@@ -377,11 +383,15 @@ func API(w http.ResponseWriter, r *http.Request) {
 			fail(w, 403, "Workspace owner access required.")
 			return
 		}
-		if input.Channel != "Slack" && input.Channel != "Telegram" && input.Channel != "WhatsApp" {
+		if input.Channel != "Slack" && input.Channel != "WhatsApp" {
 			fail(w, 400, "Unknown messaging channel.")
 			return
 		}
-		space.Channels[input.Channel] = strings.TrimSpace(input.Destination)
+		destination := strings.TrimSpace(input.Destination)
+		if space.Channels == nil {
+			space.Channels = make(map[string]string)
+		}
+		space.Channels[input.Channel] = destination
 	default:
 		fail(w, 404, "Unknown endpoint.")
 		return
@@ -421,6 +431,10 @@ func runAgent(w http.ResponseWriter, r *http.Request, d *database, a Account, sp
 	}
 	request := workerRequest{Role: space.Role, ThreadID: input.ThreadID}
 	if route == "chat" {
+		if telegramThread(space, input.ThreadID) {
+			fail(w, 403, "Reply to this conversation in Telegram.")
+			return
+		}
 		input.Text = strings.TrimSpace(input.Text)
 		if input.Text == "" || len(input.Text) > 4000 {
 			fail(w, 400, "Enter a message of up to 4,000 characters.")

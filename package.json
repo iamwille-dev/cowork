@@ -26,6 +26,7 @@
     "@headlessui/react": "^2.2.10",
     "@heroicons/react": "^2.2.0",
     "@mastra/core": "^1.85.0",
+    "@mastra/telegram": "^0.2.5",
     "@modelcontextprotocol/sdk": "1.32.2",
     "@tailwindcss/postcss": "^4.3.5",
     "ai": "^7.0.181",

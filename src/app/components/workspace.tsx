@@ -16,6 +16,7 @@ type WorkspaceData = {
   name: string;
   admin: boolean;
   agentConnectionHasKey?: boolean;
+  telegramBot?: string;
   gitTokenStatus?: Partial<Record<GitProvider, boolean>>;
   viewerId: string;
   members: string[];
@@ -127,13 +128,13 @@ export function Workspace({ view, threadId, initialMode }: { view: View; threadI
           <div className="flex flex-wrap justify-end gap-2">
             {view === 'conversations' && threadId === undefined && <button className="primary" onClick={() => setModal('thread')}>New conversation</button>}
             {view === 'conversations' && threadId !== undefined && <button className="quiet" onClick={() => router.push('/conversations')}>All conversations</button>}
-            {current && <button className="primary" onClick={() => { setInviteMode('email'); setModal('invite'); }}>Invite people</button>}
+            {current && !current.TelegramTopic && <button className="primary" onClick={() => { setInviteMode('email'); setModal('invite'); }}>Invite people</button>}
             {view === 'tasks' && <button className="primary" onClick={() => setModal('task')}>Assign task</button>}
           </div>
         </header>
         {view === 'conversations' && <section id="chat" className="page">
           {current ? <div id="conversation-root">
-            <Conversation key={current.ID} role={workspace.Role} viewer={state.name} threadId={current.ID} messages={current.Messages ?? []}
+            <Conversation key={current.ID} role={workspace.Role} viewer={state.name} threadId={current.ID} readOnly={Boolean(current.TelegramTopic)} messages={current.Messages ?? []}
               send={async (transport) => {
                 await run(async () => {
                   try { await transport(); } finally { setState(await api<WorkspaceData>('workspace')); }
@@ -167,6 +168,11 @@ export function Workspace({ view, threadId, initialMode }: { view: View; threadI
           saveGitToken={(settings) => run(async () => {
             await write('git-token', settings);
             setNotice(settings.Remove ? 'Git token removed.' : 'Git token saved.');
+          })}
+          telegramBot={state.telegramBot}
+          saveTelegram={(settings) => run(async () => {
+            await write('telegram', settings);
+            setNotice(settings.Remove ? 'Telegram bot disconnected.' : 'Telegram settings saved.');
           })}
           saveChannel={(channel, destination, button) => {
             button.disabled = true;

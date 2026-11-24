@@ -8,7 +8,7 @@ const sections = [
   { id: 'git-tokens', title: 'Git tokens' },
 ] as const;
 
-const providers = ['Slack', 'Telegram', 'WhatsApp'] as const;
+const providers = ['Slack', 'WhatsApp'] as const;
 type Provider = typeof providers[number];
 const gitProviders = { github: 'GitHub', gitlab: 'GitLab' } as const;
 export type GitProvider = keyof typeof gitProviders;
@@ -19,7 +19,9 @@ type SettingsProps = {
   members: { ID: string; Name: string; Email: string; Role: string }[];
   owner: boolean;
   invite: string;
-  channels: Partial<Record<Provider, string>>;
+  channels: Partial<Record<Provider | 'Telegram', string>>;
+  telegramBot?: string;
+  saveTelegram: (settings: { Token?: string; Destination?: string; Remove?: boolean }) => Promise<boolean>;
   changeTheme: (theme: Theme) => void;
   saveChannel: (provider: Provider, destination: string, button: HTMLButtonElement) => void;
   agentConnection: { enabled: boolean; hasKey: boolean };
@@ -117,6 +119,40 @@ function ChannelForm({ provider, destination, owner, saveChannel }: {
       {owner && <button className="primary" type="submit" ref={submit}>Save</button>}
     </form>
   );
+}
+
+function TelegramForm({ owner, channels, telegramBot, saveTelegram }: Pick<SettingsProps, 'owner' | 'channels' | 'telegramBot' | 'saveTelegram'>) {
+  const [busy, setBusy] = useState(false);
+  const token = useRef<HTMLInputElement>(null);
+  async function save(settings: Parameters<SettingsProps['saveTelegram']>[0]) {
+    setBusy(true);
+    try {
+      if (await saveTelegram(settings) && token.current) token.current.value = '';
+    } finally {
+      setBusy(false);
+    }
+  }
+  return <div className="grid gap-y-3">
+    <h3 className="font-semibold">Telegram</h3>
+    <p>{telegramBot ? `Saved bot @${telegramBot}` : 'Add the workspace bot to your Telegram group and disable group privacy in BotFather.'}</p>
+    {owner && <form className="settings-channel-form grid gap-y-3" onSubmit={(event) => {
+      event.preventDefault();
+      const data = new FormData(event.currentTarget);
+      void save({ Token: String(data.get('Token')), Destination: String(data.get('Destination')) });
+    }}>
+      <label>BotFather token
+        <input ref={token} name="Token" type="password" autoComplete="off" required={!telegramBot}
+          placeholder={telegramBot ? 'Enter a token to replace the saved bot' : 'Paste the bot token'} />
+      </label>
+      <label>Telegram group ID
+        <input name="Destination" defaultValue={channels.Telegram ?? ''} required placeholder="Negative group ID" />
+      </label>
+      <div className="flex flex-wrap gap-3">
+        <button className="primary" type="submit" disabled={busy}>Save Telegram settings</button>
+        {telegramBot && <button className="quiet" type="button" disabled={busy} onClick={() => void save({ Remove: true })}>Disconnect bot</button>}
+      </div>
+    </form>}
+  </div>;
 }
 
 function AgentConnectionForm({ owner, agentConnection, saveAgentConnection }: Pick<SettingsProps, 'owner' | 'agentConnection' | 'saveAgentConnection'>) {
@@ -248,8 +284,9 @@ export function Settings(props: SettingsProps) {
         </SettingsSection>
       )}
       {active === 'channels' && (
-        <SettingsSection title="Channel destinations" description="Set the channel or conversation ID for each provider. Message delivery is pending provider setup.">
+        <SettingsSection title="Channel destinations" description="Connect a Telegram bot for this workspace. Slack and WhatsApp currently save destination IDs for future use.">
           <div className="grid gap-y-5">
+            <TelegramForm key={JSON.stringify([props.telegramBot, props.channels.Telegram])} {...props} />
             {providers.map((provider) => (
               <ChannelForm key={JSON.stringify([provider, props.channels[provider]])}
                 provider={provider} destination={props.channels[provider] ?? ''}

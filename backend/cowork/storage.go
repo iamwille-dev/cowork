@@ -23,6 +23,7 @@ type database struct {
 	AgentConnectionKeys    map[string]string            `json:",omitempty"`
 	AgentConnectionThreads map[string]map[string]bool   `json:",omitempty"`
 	GitTokens              map[string]map[string]string `json:",omitempty"`
+	TelegramBots           map[string]telegramBot       `json:",omitempty"`
 	revision               int64
 }
 
@@ -48,7 +49,7 @@ CREATE TABLE IF NOT EXISTS cowork_records (
 ALTER TABLE cowork_records DROP CONSTRAINT IF EXISTS cowork_records_kind_check;
 ALTER TABLE cowork_records ADD CONSTRAINT cowork_records_kind_check CHECK (kind IN (
 	'Accounts', 'Sessions', 'Workspaces', 'GuestGrants',
-	'AgentConnectionKeys', 'AgentConnectionThreads', 'GitTokens'
+	'AgentConnectionKeys', 'AgentConnectionThreads', 'GitTokens', 'TelegramBots'
 ));
 INSERT INTO cowork_storage_revision (singleton, revision)
 VALUES (true, 0) ON CONFLICT DO NOTHING;
