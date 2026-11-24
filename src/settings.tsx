@@ -5,10 +5,13 @@ const sections = [
   { id: 'members', title: 'Members' },
   { id: 'channels', title: 'Messaging channels' },
   { id: 'agent-connection', title: 'Agent Connection' },
+  { id: 'git-tokens', title: 'Git tokens' },
 ] as const;
 
 const providers = ['Slack', 'Telegram', 'WhatsApp'] as const;
 type Provider = typeof providers[number];
+const gitProviders = { github: 'GitHub', gitlab: 'GitLab' } as const;
+export type GitProvider = keyof typeof gitProviders;
 type Theme = 'light' | 'dark';
 
 type SettingsProps = {
@@ -21,6 +24,8 @@ type SettingsProps = {
   saveChannel: (provider: Provider, destination: string, button: HTMLButtonElement) => void;
   agentConnection: { enabled: boolean; hasKey: boolean };
   saveAgentConnection: (settings: { Enabled: boolean; Key?: string; RemoveKey?: boolean }) => Promise<boolean>;
+  gitTokenStatus: Partial<Record<GitProvider, boolean>>;
+  saveGitToken: (settings: { Provider: GitProvider; Token?: string; Remove?: boolean }) => Promise<boolean>;
   announce: (message: string) => void;
 };
 
@@ -157,6 +162,42 @@ function AgentConnectionForm({ owner, agentConnection, saveAgentConnection }: Pi
   );
 }
 
+function GitTokenForm({ provider, configured, owner, saveGitToken }: {
+  provider: GitProvider; configured: boolean; owner: boolean; saveGitToken: SettingsProps['saveGitToken'];
+}) {
+  const [saving, setSaving] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
+
+  async function save(remove = false) {
+    setSaving(true);
+    try {
+      const saved = await saveGitToken(remove
+        ? { Provider: provider, Remove: true }
+        : { Provider: provider, Token: input.current?.value });
+      if (saved && input.current) input.current.value = '';
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const name = gitProviders[provider];
+  if (!owner) return <p>{name} · {configured ? 'Token saved' : 'No token saved'}</p>;
+  return (
+    <form className="grid gap-3" onSubmit={(event) => { event.preventDefault(); void save(); }}>
+      <label>
+        {name} access token
+        <input ref={input} type="password" autoComplete="new-password" spellCheck={false} maxLength={1024}
+          required disabled={saving} placeholder={configured ? 'Enter a new token to replace the saved token' : 'Paste an access token'} />
+      </label>
+      <div className="flex flex-wrap items-center gap-3">
+        <button className="primary" type="submit" disabled={saving}>Save token</button>
+        {configured && <button className="quiet" type="button" disabled={saving} onClick={() => void save(true)}>Remove token</button>}
+        <span className="text-sm">{configured ? 'Token saved' : 'No token saved'}</span>
+      </div>
+    </form>
+  );
+}
+
 export function Settings(props: SettingsProps) {
   const [active, setActive] = useState<(typeof sections)[number]['id']>('appearance');
   return (
@@ -194,6 +235,16 @@ export function Settings(props: SettingsProps) {
       {active === 'agent-connection' && (
         <SettingsSection title="Agent Connection" description="Let your Cowork agent search and read a connected work Gmail mailbox. Use a conversation without guest access.">
           <AgentConnectionForm owner={props.owner} agentConnection={props.agentConnection} saveAgentConnection={props.saveAgentConnection} />
+        </SettingsSection>
+      )}
+      {active === 'git-tokens' && (
+        <SettingsSection title="Git provider access" description="Workspace owners manage these tokens. Workspace members can ask the agent to read repositories the tokens can access in conversations without guests. Use tokens with read-only repository access.">
+          <div className="grid gap-y-6">
+            {(['github', 'gitlab'] as const).map((provider) => (
+              <GitTokenForm key={provider} provider={provider} configured={Boolean(props.gitTokenStatus[provider])}
+                owner={props.owner} saveGitToken={props.saveGitToken} />
+            ))}
+          </div>
         </SettingsSection>
       )}
       {active === 'channels' && (

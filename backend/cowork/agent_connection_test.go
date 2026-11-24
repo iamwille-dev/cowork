@@ -72,11 +72,11 @@ func TestAgentConnectionGuestIsolation(t *testing.T) {
 	d := &database{GuestGrants: map[string]guestGrant{
 		"guest": {WorkspaceID: space.ID, Expires: time.Now().Add(time.Hour)},
 	}}
-	if protectAgentConnectionThread(d, space.ID, "") {
+	if protectCredentialThread(d, space.ID, "") {
 		t.Fatal("a conversation with an active guest grant must not get email access")
 	}
 	delete(d.GuestGrants, "guest")
-	if !protectAgentConnectionThread(d, space.ID, "") {
+	if !protectCredentialThread(d, space.ID, "") {
 		t.Fatal("an internal conversation should get email access")
 	}
 	reply := httptest.NewRecorder()

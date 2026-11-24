@@ -2,7 +2,8 @@ FROM node:24-bookworm-slim
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1 PLAYWRIGHT_BROWSERS_PATH=/opt/cowork-browsers
 COPY . .
-RUN npm ci && npm run build && npx playwright install --with-deps chromium \
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
+    && npm ci && npm run build && npx playwright install --with-deps chromium \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /app/backend/.cowork \
     && chown -R node:node /app/backend/.cowork /app/.next
