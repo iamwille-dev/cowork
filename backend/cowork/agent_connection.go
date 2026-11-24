@@ -30,10 +30,21 @@ func updateAgentConnection(w http.ResponseWriter, r *http.Request, d *database, 
 	if input.RemoveKey {
 		delete(d.AgentConnectionKeys, space.ID)
 	} else if credential != "" {
+		aead, err := agentConnectionCipher(len(d.AgentConnectionKeys) == 0)
+		for workspaceID, stored := range d.AgentConnectionKeys {
+			if err == nil {
+				_, err = openAgentConnectionKey(aead, workspaceID, stored)
+			}
+			break
+		}
+		if err != nil {
+			fail(w, 500, "Could not encrypt the Agent Connection key.")
+			return
+		}
 		if d.AgentConnectionKeys == nil {
 			d.AgentConnectionKeys = make(map[string]string)
 		}
-		d.AgentConnectionKeys[space.ID] = credential
+		d.AgentConnectionKeys[space.ID] = sealAgentConnectionKey(aead, space.ID, credential)
 	}
 	space.AgentConnectionEnabled = input.Enabled && !input.RemoveKey
 	if save(d) != nil {

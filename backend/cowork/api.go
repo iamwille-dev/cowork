@@ -13,7 +13,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -59,51 +58,9 @@ type Workspace struct {
 	Channels                map[string]string
 	AgentConnectionEnabled  bool `json:",omitempty"`
 }
-type database struct {
-	Accounts               map[string]Account
-	Sessions               map[string]string
-	Workspaces             map[string]*Workspace
-	GuestGrants            map[string]guestGrant      `json:",omitempty"`
-	AgentConnectionKeys    map[string]string          `json:",omitempty"`
-	AgentConnectionThreads map[string]map[string]bool `json:",omitempty"`
-}
 
 var roles = map[string]bool{"Developer": true, "Product Manager": true, "Sales Lead": true, "Social Media": true}
 var mutex sync.Mutex
-var stateFile = filepath.Join(".cowork", "state.json")
-
-func load() (*database, error) {
-	d := &database{Accounts: map[string]Account{}, Sessions: map[string]string{}, Workspaces: map[string]*Workspace{}}
-	data, err := os.ReadFile(stateFile)
-	if errors.Is(err, os.ErrNotExist) {
-		return d, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	return d, json.Unmarshal(data, d)
-}
-
-func save(d *database) error {
-	if err := os.MkdirAll(filepath.Dir(stateFile), 0700); err != nil {
-		return err
-	}
-	data, err := json.Marshal(d)
-	if err != nil {
-		return err
-	}
-	f, err := os.CreateTemp(filepath.Dir(stateFile), "state-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(f.Name())
-	_, writeErr := f.Write(data)
-	closeErr := f.Close()
-	if err := errors.Join(writeErr, closeErr); err != nil {
-		return err
-	}
-	return os.Rename(f.Name(), stateFile)
-}
 
 func key() string { var b [24]byte; rand.Read(b[:]); return hex.EncodeToString(b[:]) }
 func digest(password, salt string) string {
@@ -272,6 +229,12 @@ func API(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == "GET" && route == "health" {
+		ctx, cancel := context.WithTimeout(r.Context(), 1500*time.Millisecond)
+		defer cancel()
+		if err := storage.ready(ctx); err != nil {
+			fail(w, 503, "Workspace database unavailable.")
+			return
+		}
 		jsonReply(w, 200, map[string]string{"status": "ok"})
 		return
 	}
@@ -490,7 +453,16 @@ func runAgent(w http.ResponseWriter, r *http.Request, d *database, a Account, sp
 
 	if route == "chat" && space.AgentConnectionEnabled && protectAgentConnectionThread(d, space.ID, input.ThreadID) {
 		request.AgentConnectionWorkspace = space.ID
-		request.AgentConnectionKey = d.AgentConnectionKeys[space.ID]
+		if stored := d.AgentConnectionKeys[space.ID]; stored != "" {
+			aead, err := agentConnectionCipher(false)
+			if err == nil {
+				request.AgentConnectionKey, err = openAgentConnectionKey(aead, space.ID, stored)
+			}
+			if err != nil {
+				fail(w, 500, "Could not unlock the saved Agent Connection key.")
+				return
+			}
+		}
 	}
 
 	if save(d) != nil {

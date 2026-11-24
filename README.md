@@ -4,18 +4,27 @@ Cowork is a local prototype of a shared agent workspace. Encore.go owns accounts
 
 ## Run locally
 
-Install Node.js 22.18 or newer, Go 1.25 or newer, and the Encore CLI. From the project root:
+Install Node.js 22.18 or newer, Go 1.25 or newer, the Encore CLI, and PostgreSQL. From the project root:
 
 ```sh
 npm ci
 npx playwright install chromium
 ```
 
-Start Encore from the backend directory:
+Create an empty PostgreSQL database for Cowork. Use a database role that can create tables in its schema. For a local PostgreSQL instance with Docker, run:
+
+```sh
+docker run -d --name cowork-postgres -p 127.0.0.1:5432:5432 \
+  -e POSTGRES_USER=cowork -e POSTGRES_PASSWORD=cowork -e POSTGRES_DB=cowork \
+  -v cowork-postgres:/var/lib/postgresql/data postgres:17-alpine
+```
+
+Start Encore from the backend directory with the connection URL:
 
 ```sh
 cd backend
-encore run --listen 127.0.0.1:4000
+DATABASE_URL='postgres://cowork:cowork@127.0.0.1:5432/cowork?sslmode=disable' \
+  encore run --listen 127.0.0.1:4000
 ```
 
 In a second terminal, start the frontend and agent from the project root:
@@ -26,9 +35,15 @@ npm run dev:web
 
 For a production-mode local preview, run `npm run build` followed by `npm start`.
 
-Open http://localhost:4400. Account records and artifacts live under `backend/.cowork/`.
+Open http://localhost:4400. Workspace records live in PostgreSQL. Task artifacts and the local Agent Connection encryption key live under `backend/.cowork/`.
 
 For local agent and workflow development, run `npm run dev` from the project root and open Mastra Studio at http://localhost:4111. The TypeScript entry point is `src/mastra/index.ts`. Studio can inspect agents, tools, and workflows. Workspace writes require an authenticated Cowork chat session.
+
+## Upgrade an existing installation
+
+Stop the old backend and back up its `.cowork` directory. Keep that directory mounted at the same path, set `DATABASE_URL` to a fresh Cowork database, set `COWORK_REQUIRE_LEGACY_STATE=1`, and start the updated backend. The first database connection creates the tables and imports `backend/.cowork/state.json` in a single transaction. The backend verifies the imported records before committing and logs aggregate counts after the commit. PostgreSQL records the completed import, so restarts keep using the current database records. Verify that an existing account can sign in and open its conversations before archiving the original file. The import leaves `state.json` on disk, so protect it as a backup. It may contain plaintext Agent Connection credentials.
+
+Keep using the original `AGENT_CONNECTION_ENCRYPTION_KEY` or the original `.cowork/agent-connection.key` file so existing encrypted credentials remain readable. Back up PostgreSQL and the artifact volume after cutover.
 
 ## Try the Developer workflow
 
@@ -45,7 +60,9 @@ Copy `.env.example` to `.env` in the project root and set `OPENROUTER_API_KEY` t
 
 In Agent Connections, connect the work mailbox and create a **Gmail read credential** for the agent. In Cowork, the workspace owner opens **Settings → Agent Connection**, enables the integration, pastes the named agent key, and saves. The workspace agent can search and read the mailbox from an internal Cowork conversation. Use **Remove key** to clear the saved credential and disable access. Revoke the credential in Agent Connections to invalidate it at the gateway.
 
-The worker talks to the deployed Agent Connections MCP endpoint. Workspace keys stay in the server's private `backend/.cowork/state.json` file, which contains secrets and should be protected along with its backups. Cowork shows a saved-key indicator in Settings. Agent Connection chat requires a conversation without an active guest invitation or guest session. Conversations where the integration has been made available cannot be shared with external guests later.
+The worker talks to the deployed Agent Connections MCP endpoint. Cowork encrypts workspace keys with AES-256-GCM before writing them to PostgreSQL. The backend encrypts any plaintext Agent Connection keys during the legacy import. Cowork shows a saved-key indicator in Settings. Agent Connection chat requires a conversation without an active guest invitation or guest session. Conversations where the integration has been made available cannot be shared with external guests later.
+
+For production, set `AGENT_CONNECTION_ENCRYPTION_KEY` on the **Encore backend** to a stable 32-byte base64 secret, generated with `openssl rand -base64 32`, before the first save or migration. Keep it in the deployment secret store separately from state backups. Without that variable, Cowork creates `backend/.cowork/agent-connection.key` with owner-only permissions and reuses it across restarts. Preserve that file if using the local fallback. To move from the fallback file to a deployment secret, use the same key value. Backups made before migration can still contain plaintext credentials.
 
 For a deployment-managed key, set `AGENT_CONNECTION_KEY` and `AGENT_CONNECTION_WORKSPACE_ID` in the agent worker environment and restart the worker. Use the workspace ID returned as `workspace.ID` by the authenticated `/api/workspace` endpoint. Enable Agent Connection in that workspace's settings. A key saved in the workspace takes precedence over the deployment key. Other workspaces configure their own keys through Settings.
 
@@ -76,14 +93,16 @@ Set `COWORK_RUNNER` to the path of a trusted ES module to enable repository-back
 
 The workflow calls the runner in that order, saves the plan before implementation, and validates the screenshot and preview before calling the pull request step. The built-in runner skips pull request creation for standalone preview tasks. Repository-backed tasks require a runner that supplies isolated execution, authorized repository access, and Git credentials. No repository service is configured by default.
 
-The local prototype stores data on disk and executes work during the task request. Deploying it to multiple backend instances would require shared storage and durable job execution.
+Cowork stores workspace records in PostgreSQL and executes work during the task request. The backend is configured for a single instance with a persistent artifact volume.
 
 ## Checks
 
 ```sh
 npm run check
-(cd backend && go test ./...)
+(cd backend && TEST_DATABASE_URL='postgres://cowork:cowork@127.0.0.1:5432/cowork?sslmode=disable' go test ./...)
 ```
+
+PostgreSQL integration tests create and drop isolated schemas in the database specified by `TEST_DATABASE_URL`.
 
 Framework references are available in the [Mastra quickstart](https://mastra.ai/docs), [Chat SDK Web adapter docs](https://chat-sdk.dev/adapters/official/web), and [Encore.go API docs](https://encore.dev/docs/go/primitives/defining-apis).
 
@@ -91,7 +110,7 @@ Framework references are available in the [Mastra quickstart](https://mastra.ai/
 
 Cowork runs as one container with Next.js on port 4400 and the Encore and Mastra services on loopback. `deploy/package.sh` builds the Encore Linux/amd64 release and prints a temporary release directory. Build locally with `docker build -f RELEASE/Dockerfile RELEASE`. For a Coolify build without a Git checkout, stage `RELEASE/cowork-release.tar.xz` on a private endpoint reachable from the build server. Replace the Dockerfile’s copy step with a checksum-verified archive download and extraction into `/app`. The package includes source and the compiled backend. It omits `.env` and local workspace data.
 
-Mount persistent storage at `/app/backend/.cowork` for workspace data and artifacts. Configure OpenRouter and SES as runtime-only variables, set `COWORK_PUBLIC_URL` to the public HTTPS URL, and use `/api/health` on port 4400 for health checks. When Cloudflare Tunnel provides HTTPS, set the Coolify application URL to `http://cowork.iamwille.xyz:4400` so the proxy targets Cowork’s internal port. Set `COWORK_PUBLIC_URL=https://cowork.iamwille.xyz` for guest links.
+Before deploying this version, configure a PostgreSQL database reachable from the app container and set its connection URL as the runtime-only `DATABASE_URL`. For a PostgreSQL service on the same Coolify network, use its internal hostname. Mount persistent storage at `/app/backend/.cowork` for artifacts, the local encryption key, and the legacy import. Configure OpenRouter and SES as runtime-only variables, set `COWORK_PUBLIC_URL` to the public HTTPS URL, and use `/api/health` on port 4400 for health checks. When Cloudflare Tunnel provides HTTPS, set the Coolify application URL to `http://cowork.iamwille.xyz:4400` so the proxy targets Cowork’s internal port. Set `COWORK_PUBLIC_URL=https://cowork.iamwille.xyz` for guest links.
 
 ### Deploy from GitHub main
 

@@ -16,6 +16,20 @@ jobs:
     permissions:
       contents: read
       packages: write
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: cowork
+          POSTGRES_PASSWORD: cowork
+          POSTGRES_DB: cowork
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cowork -d cowork"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v6
@@ -24,6 +38,8 @@ jobs:
           cache: false
       - name: Check Encore backend
         working-directory: backend
+        env:
+          TEST_DATABASE_URL: postgres://cowork:cowork@127.0.0.1:5432/cowork?sslmode=disable
         run: go test ./...
       - name: Install Encore CLI
         shell: bash
@@ -44,7 +60,9 @@ jobs:
           IMAGE: ${{ steps.image.outputs.repository }}
         shell: bash
         run: |
-          docker run -d --name cowork-smoke -p 127.0.0.1:4400:4400 "$IMAGE:$GITHUB_SHA"
+          docker run -d --name cowork-smoke --network host \
+            -e 'DATABASE_URL=postgres://cowork:cowork@127.0.0.1:5432/cowork?sslmode=disable' \
+            "$IMAGE:$GITHUB_SHA"
           trap 'docker rm -f cowork-smoke >/dev/null' EXIT
           for attempt in {1..25}; do
             if curl --silent --fail http://127.0.0.1:4400/api/health; then
