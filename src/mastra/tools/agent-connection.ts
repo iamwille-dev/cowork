@@ -30,7 +30,7 @@ export function agentConnection(workspaceId?: string, savedKey?: string) {
   async function call(name: string, args: Record<string, unknown>) {
     try {
       const result = await connect((client) => client.callTool({ name, arguments: args }, undefined, { timeout: 12_000 }));
-      if (result.isError) return { error: 'Agent Connections could not complete the Gmail request. Check the mailbox grant or reconnect it.' };
+      if (result.isError) return { error: 'Agent Connections could not complete the request. Check the connection grant in Settings.' };
       return result.structuredContent ?? result.content;
     } catch (error) {
       if ((error as { code?: number }).code === 401) {

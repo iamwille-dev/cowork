@@ -2,7 +2,7 @@ import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import type { agentConnection } from './agent-connection.ts';
-import type { GitTokens } from './repositories.ts';
+import { repositoryURL, type GitTokens } from './repositories.ts';
 
 const githubRepo = z.object({ full_name: z.string(), html_url: z.string() });
 const gitlabRepo = z.object({ path_with_namespace: z.string(), web_url: z.string() });
@@ -20,6 +20,21 @@ type Provider = keyof GitTokens;
 type Repo = { name: string; url: string };
 type Inventory = { source: string; provider: Provider; repositories: Map<string, Repo>; complete: boolean };
 type Connection = ReturnType<typeof agentConnection>;
+
+function mcpReader(client: Client) {
+  const signal = AbortSignal.timeout(30_000);
+  const call = async (name: string, args: Record<string, unknown>) => {
+    const response = await client.callTool({ name, arguments: args }, undefined, { timeout: 8_000, signal });
+    if (response.isError) throw new Error('Agent Connections declined the repository query.');
+    return response.structuredContent;
+  };
+  return { call, signal };
+}
+
+async function githubConnections(call: ReturnType<typeof mcpReader>['call']) {
+  const { connections } = connectionList.parse(await call('list_connections', {}));
+  return (connections ?? []).filter(({ kind }) => kind === 'github');
+}
 
 function inventory(source: string, provider: Provider): Inventory {
   return { source, provider, repositories: new Map(), complete: true };
@@ -42,15 +57,8 @@ async function mcpPages<T>(read: (page: number) => Promise<{ total: number; rows
 }
 
 async function connectedGithub(client: Client, result: Inventory) {
-  const signal = AbortSignal.timeout(30_000);
-  const call = async (name: string, args: Record<string, unknown>) => {
-    const response = await client.callTool({ name, arguments: args }, undefined, { timeout: 8_000, signal });
-    if (response.isError) throw new Error('Agent Connections declined the repository query.');
-    return response.structuredContent;
-  };
-
-  const { connections } = connectionList.parse(await call('list_connections', {}));
-  const github = (connections ?? []).filter(({ kind }) => kind === 'github');
+  const { call, signal } = mcpReader(client);
+  const github = await githubConnections(call);
   if (!github.length) return false;
   let scannedInstallation = false;
   for (const { id } of github) {
@@ -138,6 +146,66 @@ export function repositoryInventory(connection: Connection, tokens: GitTokens = 
         truncated: repositories.size > 200,
         repositories: [...repositories.values()].slice(0, 200),
       })) };
+    },
+  });
+}
+
+const githubMetadata = githubRepo.extend({
+  description: z.string().nullable().optional(),
+  default_branch: z.string().optional(),
+  private: z.boolean().optional(),
+});
+const gitlabMetadata = gitlabRepo.extend({
+  description: z.string().nullable().optional(),
+  default_branch: z.string().nullable().optional(),
+  visibility: z.string().optional(),
+});
+
+export function repositoryMetadata(connection: Connection, tokens: GitTokens = {}) {
+  return createTool({
+    id: 'get_repository',
+    description: 'Look up repository metadata such as default branch, description, or visibility. Checks the Agent Connections GitHub grant first, then Cowork’s saved token for the same provider. Use pull_repository when you need file contents.',
+    inputSchema: z.object({ url: z.string().max(500).describe('GitHub.com or GitLab.com repository URL.') }),
+    execute: async ({ url }) => {
+      const repository = repositoryURL(url);
+      if (!repository) return { error: 'Use a GitHub.com or GitLab.com HTTPS repository URL.' };
+      const { provider, parts } = repository;
+      if (provider === 'github' && connection) {
+        const metadata = await connection.connect(async (client) => {
+          const { call, signal } = mcpReader(client);
+          const [owner, repo] = parts;
+          for (const { id } of await githubConnections(call)) {
+            try {
+              const { data } = z.object({ data: githubMetadata }).parse(await call('github_get_repository', {
+                connection_id: id, owner, repo,
+              }));
+              return data;
+            } catch {
+              if (signal.aborted) break;
+            }
+          }
+        }).catch(() => undefined);
+        if (metadata) return { source: 'Agent Connections GitHub App', repository: metadata };
+      }
+
+      const token = tokens[provider];
+      if (!token) return { error: 'No usable connection or saved workspace token could read this repository.' };
+      const path = parts.join('/');
+      const endpoint = provider === 'github'
+        ? `https://api.github.com/repos/${path}`
+        : `https://gitlab.com/api/v4/projects/${encodeURIComponent(path)}`;
+      try {
+        const response = await fetch(endpoint, {
+          headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+          redirect: 'error',
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (response.ok) {
+          const schema = provider === 'github' ? githubMetadata : gitlabMetadata;
+          return { source: 'Cowork workspace token', repository: schema.parse(await response.json()) };
+        }
+      } catch { /* Report connection and permission failures without disclosing credentials. */ }
+      return { error: 'The saved workspace token could not read this repository. Check its repository permissions.' };
     },
   });
 }

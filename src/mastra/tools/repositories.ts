@@ -11,13 +11,13 @@ const hosts = { github: 'github.com', gitlab: 'gitlab.com' } as const;
 type Provider = keyof typeof hosts;
 export type GitTokens = Partial<Record<Provider, string>>;
 
-function repositoryURL(input: string) {
+export function repositoryURL(input: string) {
   const match = /^https:\/\/(github\.com|gitlab\.com)\/([\w.-]+(?:\/[\w.-]+)+)\/?$/.exec(input);
   if (!match) return;
   const provider: Provider = match[1] === hosts.github ? 'github' : 'gitlab';
   const parts = match[2].replace(/\.git$/, '').split('/');
   if (parts.some((part) => !part || part === '.' || part === '..') || (provider === 'github' && parts.length !== 2)) return;
-  return { provider, url: `https://${hosts[provider]}/${parts.join('/')}.git` };
+  return { provider, parts, url: `https://${hosts[provider]}/${parts.join('/')}.git` };
 }
 
 export function repositoryTools(tokens: GitTokens) {
