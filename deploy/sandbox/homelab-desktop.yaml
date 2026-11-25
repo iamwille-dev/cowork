@@ -1,0 +1,48 @@
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: developer-desktop
+spec:
+  runStrategy: Manual
+  template:
+    metadata:
+      labels:
+        app: developer-desktop
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: vm-k3s-desktop
+      tolerations:
+      - key: homelab.iamwille.xyz/desktop
+        value: "true"
+        effect: NoSchedule
+      domain:
+        cpu:
+          cores: 2
+        resources:
+          requests:
+            memory: 3Gi
+        devices:
+          disks:
+          - name: root
+            disk:
+              bus: virtio
+          - name: init
+            disk:
+              bus: virtio
+          interfaces:
+          - name: default
+            masquerade: {}
+            macAddress: "02:8a:17:71:20:02"
+            ports:
+            - port: 8765
+      networks:
+      - name: default
+        pod: {}
+      volumes:
+      - name: root
+        persistentVolumeClaim:
+          claimName: desktop-disk
+      - name: init
+        cloudInitNoCloud:
+          secretRef:
+            name: cloud-init

@@ -45,7 +45,7 @@ async function worker(request: IncomingMessage, response: ServerResponse) {
     const payload = JSON.parse(Buffer.concat(chunks).toString());
     const session = request.headers['x-cowork-session'];
     let result;
-    if (url === '/task') result = await runTask(payload.Task);
+    if (url === '/task') result = await runTask({ ...payload.Task, WorkspaceID: payload.WorkspaceID });
     else if (url === '/scheduled-task') result = await runScheduledTask(payload);
     else result = await respond(payload, typeof session === 'string' && /^[a-f0-9]{48}$/.test(session) ? session : undefined);
     response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(result));

@@ -120,6 +120,8 @@ The workflow calls the runner in that order, saves the plan before implementatio
 
 Cowork stores workspace records in PostgreSQL and runs immediate Developer work during the task request. The backend is configured for a single instance with a persistent artifact volume.
 
+The [Developer sandbox pilot](deploy/sandbox/README.md) documents the KubeVirt-backed runner for one workspace.
+
 ## Checks
 
 ```sh

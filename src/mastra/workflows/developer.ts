@@ -17,6 +17,7 @@ const taskSchema = z.object({
   Brief: z.string(),
   Repository: z.string(),
   UI: z.boolean(),
+  WorkspaceID: z.string().optional(),
 });
 export type Task = z.infer<typeof taskSchema>;
 
@@ -27,6 +28,8 @@ interface Implementation {
   previewUrl?: string;
 }
 interface Runner {
+  standalone?: boolean;
+  supports?(task: Task): boolean;
   create(task: Task, directory: string): Promise<unknown>;
   checkout(sandbox: unknown, repository: string): Promise<void>;
   implement(sandbox: unknown, task: Task, plan: string): Promise<Implementation>;
@@ -58,7 +61,7 @@ const fixtureRunner: Runner = {
   },
 };
 
-const runner: Runner = process.env.COWORK_RUNNER
+const configuredRunner: Runner = process.env.COWORK_RUNNER
   ? (await import(pathToFileURL(resolve(process.env.COWORK_RUNNER)).href)).default
   : fixtureRunner;
 
@@ -73,6 +76,7 @@ const execute = createStep({
   inputSchema: taskSchema,
   outputSchema: resultSchema,
   execute: async ({ inputData: task }) => {
+    const runner = configuredRunner.supports?.(task) === false ? fixtureRunner : configuredRunner;
     const directory = resolve(dataRoot, task.ID);
     const result: z.infer<typeof resultSchema> = { Steps: [], Artifacts: [], Error: '' };
     const publish = async (file: string, label: string, data: string | Buffer) => {
@@ -83,7 +87,7 @@ const execute = createStep({
     try {
       await mkdir(directory, { recursive: true, mode: 0o700 });
       const sandbox = await runner.create(task, directory);
-      result.Steps.push('Created sandbox');
+      result.Steps.push(runner.standalone ? 'Selected workspace sandbox' : 'Created sandbox');
       if (task.Repository) {
         await runner.checkout(sandbox, task.Repository);
         result.Steps.push('Checked out latest repository revision');
@@ -130,7 +134,7 @@ const execute = createStep({
       if (pullRequest && webURL(pullRequest)) {
         result.Artifacts.push({ Name: 'Pull request', URL: pullRequest });
         result.Steps.push('Opened pull request');
-      } else if (task.Repository || runner !== fixtureRunner) {
+      } else if (task.Repository || pullRequest || (runner !== fixtureRunner && !runner.standalone)) {
         throw new Error('The sandbox runner did not return a pull request URL.');
       } else {
         result.Steps.push('Pull request requires a repository runner');
