@@ -60,12 +60,16 @@ jobs:
           IMAGE: ${{ steps.image.outputs.repository }}
         shell: bash
         run: |
+          state_dir="$(mktemp -d)"
+          chmod 755 "$state_dir"
+          sudo chown root:root "$state_dir"
           docker run -d --name cowork-smoke --network host \
+            --mount "type=bind,src=$state_dir,dst=/app/backend/.cowork" \
             -e 'DATABASE_URL=postgres://cowork:cowork@127.0.0.1:5432/cowork?sslmode=disable' \
             "$IMAGE:$GITHUB_SHA"
           trap 'docker rm -f cowork-smoke >/dev/null' EXIT
           for attempt in {1..25}; do
-            if curl --silent --fail http://127.0.0.1:4400/api/health; then
+            if [[ -f "$state_dir/memory.db" ]] && curl --silent --fail http://127.0.0.1:4400/api/health; then
               curl --silent --fail http://127.0.0.1:4400/ -o "$RUNNER_TEMP/cowork-landing.html"
               grep -q 'Get started' "$RUNNER_TEMP/cowork-landing.html"
               exit 0
