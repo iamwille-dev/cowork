@@ -9,4 +9,3 @@ backend/.cowork
 backend/.encore
 *.tsbuildinfo
 next-env.d.ts
-cowork-release.tar.xz

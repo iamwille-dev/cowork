@@ -148,14 +148,16 @@ Framework references are available in the [Mastra quickstart](https://mastra.ai/
 
 ## Coolify deployment
 
-Cowork runs as one container with Next.js on port 4400 and the Encore and Mastra services on loopback. `deploy/package.sh` builds the Encore Linux/amd64 release and prints a temporary release directory. Build locally with `docker build -f RELEASE/Dockerfile RELEASE`. For a Coolify build without a Git checkout, stage `RELEASE/cowork-release.tar.xz` on a private endpoint reachable from the build server. Replace the Dockerfile’s copy step with a checksum-verified archive download and extraction into `/app`. The package includes source and the compiled backend. It omits `.env` and local workspace data.
+Cowork runs as one container with Next.js on port 4400 and Encore and Mastra on loopback. Coolify clones `main` from GitHub and builds the root Dockerfile, which compiles Encore and builds Next.js. You can build the same image locally with `docker build -t cowork:local .`.
 
-Before deploying this version, configure a PostgreSQL database reachable from the app container and set its connection URL as the runtime-only `DATABASE_URL`. For a PostgreSQL service on the same Coolify network, use its internal hostname. Mount persistent storage at `/app/backend/.cowork` for artifacts, conversation memory, the local encryption key, and the legacy import. Configure OpenRouter and SES as runtime-only variables, set `COWORK_PUBLIC_URL` to the public HTTPS URL, and use `/api/health` on port 4400 for health checks. When Cloudflare Tunnel provides HTTPS, set the Coolify application URL to `http://cowork.iamwille.xyz:4400` so the proxy targets Cowork’s internal port. Set `COWORK_PUBLIC_URL=https://cowork.iamwille.xyz` for guest links.
+### Production settings
 
-### Deploy from GitHub main
+Configure the existing Coolify application with repository `https://github.com/iamwille-dev/cowork.git`, branch `main`, build pack **Dockerfile**, base directory `/`, and Dockerfile location `/Dockerfile`. Clear the registry image name and tag so the deployment uses the image built from source.
 
-The [Cowork release workflow](.github/workflows/coolify.yml) builds the Encore backend and container, checks the landing and health endpoints, and publishes `ghcr.io/iamwille-dev/cowork:main` and a commit SHA tag.
+Keep the application domain, internal port 4400, health check `/api/health`, runtime variables, and persistent storage. Set `DATABASE_URL` to the PostgreSQL service's internal connection URL and mount persistent storage at `/app/backend/.cowork` for artifacts, memory, and local encryption keys. Set `COWORK_PUBLIC_URL=https://cowork.iamwille.xyz` for guest links. When Cloudflare Tunnel provides HTTPS, use `http://cowork.iamwille.xyz:4400` as the application URL in Coolify.
 
-Once Coolify can pull the image, switch the existing Cowork application to **Docker Image** and select `ghcr.io/iamwille-dev/cowork:main`. Keep the domain, internal port, runtime variables, and persistent storage configured on that application. For a private GHCR package, configure a read-only registry login on the Coolify server first.
+### Automatic deployment
 
-In the GitHub repository’s Actions settings, set the `COOLIFY_API_URL` variable to the Coolify API base URL ending in `/api/v1`, set `COOLIFY_APP_UUID` to the existing Cowork application UUID, and add `COOLIFY_DEPLOY_TOKEN` as a secret with permission to deploy that application. The workflow queues a deployment after each successful image build on `main`.
+For a webhook endpoint reachable from GitHub, use Coolify's [manual GitHub push webhook](https://coolify.io/docs/applications/deployments/manual-webhooks). For the private Coolify API, install `deploy/coolify-auto-deploy.py` at `/usr/local/lib/cowork/coolify-auto-deploy.py` on the worker and use the existing `cowork-auto-deploy.timer`. The worker polls GitHub `main`, sets the commit to build in Coolify, and records deployment results in its systemd journal. Use one trigger per application. For the webhook setup, disable the worker timer and set Coolify's Git commit setting to `HEAD`.
+
+For an existing registry deployment, verify the first Coolify build and check that the public health endpoint returns `{"status":"ok"}`. Retain the last working registry image and tag for rollback.
