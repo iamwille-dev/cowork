@@ -155,6 +155,7 @@ export function Workspace({ view, threadId, initialMode }: { view: View; threadI
         {view === 'conversations' && <section id="chat" className="page">
           {current ? <div id="conversation-root">
             <Conversation key={current.ID} role={workspace.Role} viewer={state.name} threadId={current.ID} readOnly={Boolean(current.TelegramTopic)} messages={current.Messages ?? []}
+              tasks={tasks.filter((task) => (task.ThreadID ?? '') === current.ID && (task.Status === 'Ready for review' || task.Status === 'Failed' || task.Status === 'Blocked'))}
               send={async (transport) => {
                 await run(async () => {
                   try { await transport(); } finally { setState(await api<WorkspaceData>('workspace')); }

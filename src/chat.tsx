@@ -6,6 +6,7 @@ import { useChat } from '@chat-adapter/web/react';
 import { MarkdownTextPrimitive } from '@assistant-ui/react-markdown';
 import { SparklesIcon } from '@heroicons/react/24/outline';
 import { useRef, useState } from 'react';
+import { ConversationTaskReview, type Task } from './app/components/tasks';
 
 type WorkspaceMessage = { Author: string; Text: string; At: string; SenderID?: string };
 type ConversationProps = {
@@ -15,6 +16,7 @@ type ConversationProps = {
   guest?: boolean;
   readOnly?: boolean;
   messages: WorkspaceMessage[];
+  tasks?: Task[];
   send: (transport: () => Promise<void>) => Promise<void>;
 };
 
@@ -76,7 +78,7 @@ function ConversationStart({ role }: { role: string }) {
   );
 }
 
-export function Conversation({ role, viewer, threadId, guest, readOnly, messages, send }: ConversationProps) {
+export function Conversation({ role, viewer, threadId, guest, readOnly, messages, tasks = [], send }: ConversationProps) {
   const [pending, setPending] = useState<{ message: WorkspaceMessage; before: number } | null>(null);
   const error = useRef<Error | undefined>(undefined);
   const chat = useChat({ api: '/api/web-chat', onError: (failure) => { error.current = failure; } });
@@ -130,6 +132,7 @@ export function Conversation({ role, viewer, threadId, guest, readOnly, messages
               </div>
             </ThreadPrimitive.If>
           </div>
+          {!guest && <ConversationTaskReview tasks={tasks} />}
         </ThreadPrimitive.Viewport>
         <div className="chat-dock">
           <ThreadPrimitive.ScrollToBottom className="chat-latest" behavior="smooth">Latest messages</ThreadPrimitive.ScrollToBottom>

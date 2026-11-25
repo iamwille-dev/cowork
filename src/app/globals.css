@@ -142,8 +142,8 @@ main { @apply min-w-0; }
 .task-details p { margin-top: 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .task-details ol { list-style: decimal; padding-left: 22px; margin-top: 8px; color: var(--muted); }
 .artifact-list { @apply flex flex-wrap gap-2; }
-.artifact-list a { @apply rounded-lg border px-2.5 py-1.5 text-sm font-semibold; border-color: var(--line); color: var(--accent-text); }
-.artifact-list a:hover { background: var(--tint); }
+.artifact-list :is(a, button) { @apply rounded-lg border px-2.5 py-1.5 text-sm font-semibold; border-color: var(--line); color: var(--accent-text); }
+.artifact-list :is(a, button):hover { background: var(--tint); }
 
 .reminder-layout { align-items: start; }
 .calendar-picker { @apply p-5; }
@@ -510,3 +510,12 @@ main[data-view="chat-list"] #chat { max-width: 1200px; }
   .sign-in-gate .onboarding-story { padding: 40px 21px; }
   .sign-in-gate .onboarding-story h1 { font-size: clamp(2.35rem, 9vw, 3.5rem); }
 }
+
+.chat-task-reviews { width: 100%; max-width: calc(var(--chat-width) + var(--chat-gutter) * 2); margin-inline: auto; padding: 0 var(--chat-gutter) 20px; display: grid; gap: 10px; }
+.chat-task-review { overflow: hidden; }
+.chat-task-review summary { padding: 14px 16px; cursor: pointer; overflow-wrap: anywhere; }
+.chat-task-review summary .status { margin-inline-start: .75em; }
+.chat-task-review-body { display: grid; min-width: 0; gap: 12px; padding: 0 16px 14px; }
+.task-review-image { display: block; width: fit-content; max-width: 100%; }
+.task-review-image img { display: block; max-width: 100%; max-height: 340px; object-fit: contain; border: 1px solid var(--line); border-radius: 8px; }
+.task-review-preview { width: 100%; height: min(55vh, 480px); background: white; border: 1px solid var(--line); border-radius: 8px; }

@@ -4,6 +4,45 @@ import { useState } from 'react';
 
 export type Task = { ID: string; Title: string; Author: string; Status: string; Brief: string; Error?: string; ThreadID?: string; Repository?: string; Steps?: string[]; Artifacts?: { Name: string; URL: string }[]; ScheduledFor?: string; ScheduledTimeZone?: string; Recurrence?: 'daily' | 'weekly'; Result?: string };
 
+export function TaskArtifacts({ task, inline = false }: { task: Task; inline?: boolean }) {
+  const prefix = `/api/artifact/${task.ID}/`;
+  const artifacts = (task.Artifacts ?? []).filter(({ URL }) =>
+    URL.startsWith('https://') || (URL.startsWith(prefix) && /^[-\w]+\.(md|png|html)$/.test(URL.slice(prefix.length))),
+  );
+  const screenshot = artifacts.find(({ URL }) => URL === prefix + 'screenshot.png');
+  const preview = artifacts.find(({ URL }) => URL === prefix + 'preview.html');
+  const [showPreview, setShowPreview] = useState(false);
+
+  if (!artifacts.length) return null;
+  return <>
+    {inline && screenshot && <a className="task-review-image" href={screenshot.URL} target="_blank" rel="noopener">
+      {/* Authenticated artifact URLs are served directly by Cowork. */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={screenshot.URL} alt={`Screenshot of ${task.Title}`} loading="lazy" />
+    </a>}
+    {inline && showPreview && preview && <iframe className="task-review-preview" src={preview.URL} sandbox="" title={`Preview of ${task.Title}`} />}
+    <div className="artifact-list">
+      {artifacts.map(({ URL, Name }) => inline && URL === preview?.URL
+        ? <button key={URL} type="button" aria-expanded={showPreview} onClick={() => setShowPreview(!showPreview)}>{showPreview ? 'Hide preview' : 'View preview'}</button>
+        : <a key={URL} href={URL} target="_blank" rel="noopener">{Name}</a>)}
+    </div>
+  </>;
+}
+
+export function ConversationTaskReview({ tasks }: { tasks: Task[] }) {
+  if (!tasks.length) return null;
+  return <section className="chat-task-reviews" aria-label="Task reviews">
+    {[...tasks].reverse().map((task, index) => <details className="chat-task-review panel" key={task.ID} open={index === 0}>
+      <summary><strong>{task.Title}</strong><span className={'status ' + taskGroup(task.Status)}>{task.Status}</span></summary>
+      <div className="chat-task-review-body">
+        {task.Error && <p className="task-error">{task.Error}</p>}
+        {task.Result && <p className="whitespace-pre-wrap break-words">{task.Result}</p>}
+        <TaskArtifacts task={task} inline />
+      </div>
+    </details>)}
+  </section>;
+}
+
 const filters = [
   ['all', 'All tasks'], ['scheduled', 'Scheduled'], ['open', 'In progress'], ['review', 'Ready for review'], ['attention', 'Needs attention'],
 ];
@@ -40,7 +79,7 @@ export function TaskList({ tasks, busy, manageSchedule }: {
         </div>}
         {task.Error && <p className="task-error">{task.Error}</p>}
         {task.Result && <details className="task-details" open><summary>Agent result</summary><p className="whitespace-pre-wrap break-words">{task.Result}</p></details>}
-        {Boolean(task.Artifacts?.length) && <div className="artifact-list">{task.Artifacts?.filter((file) => /^https:\/\/|^\/api\/artifact\//.test(file.URL)).map((file) => <a key={file.URL} href={file.URL} target="_blank" rel="noopener">{file.Name}</a>)}</div>}
+        <TaskArtifacts task={task} />
         <details className="task-details"><summary>Task details</summary><p>{task.Brief}</p>{task.Repository && <p>{task.Repository}</p>}
           {Boolean(task.Steps?.length) && <ol>{task.Steps?.map((step) => <li key={step}>{step}</li>)}</ol>}
         </details>
