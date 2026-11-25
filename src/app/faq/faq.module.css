@@ -41,7 +41,7 @@
   padding: 12px;
   font-size: .875rem;
   font-weight: 650;
-  color: #566174;
+  color: #62615b;
 }
 
 .item {
@@ -56,7 +56,6 @@
   gap: 12px;
   padding: 10px 12px;
   cursor: pointer;
-  color: var(--public-ink);
   list-style: none;
   font-weight: 600;
 }

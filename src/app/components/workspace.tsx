@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
+import { PlusIcon, UserPlusIcon } from '@heroicons/react/24/outline';
 import { WorkspaceShell } from '../../sidebar';
 import { Conversation } from '../../chat';
 import { ConversationIndex, type Message, type Thread } from '../../conversations';
@@ -32,6 +33,12 @@ type View = 'conversations' | 'tasks' | 'reminders' | 'settings';
 type ModalName = 'thread' | 'invite' | 'task' | 'reminder' | 'edit-schedule' | 'cancel-schedule';
 
 const titles: Record<View, string> = { conversations: 'Conversations', tasks: 'Tasks', reminders: 'Reminders', settings: 'Workspace settings' };
+const descriptions: Record<View, string> = {
+  conversations: 'Chat with your agent and keep your team in the loop.',
+  tasks: 'Track assigned work, scheduled runs, and results ready to review.',
+  reminders: 'See what’s coming up and keep track of follow-ups.',
+  settings: 'Manage your workspace, teammates, and integrations.',
+};
 const shellPages: Record<View, string> = { conversations: 'chat', settings: 'admin', tasks: 'tasks', reminders: 'reminders' };
 const shellRoutes: Record<string, View> = { chat: 'conversations', admin: 'settings', tasks: 'tasks', reminders: 'reminders' };
 const threadRoute = (id: string) => '/conversations/' + (id || 'workspace');
@@ -144,12 +151,12 @@ export function Workspace({ view, threadId, initialMode }: { view: View; threadI
       {state === null && <AuthForm initialMode={initialMode} busy={busy} submit={(mode, data) => void run(async () => { await write(mode, data); })} />}
       {state && workspace && <section id="workspace">
         <header className="workspace-header">
-          <div><h1>{current?.Title || titles[view]}</h1>{view === 'conversations' && threadId === undefined && <p className="workspace-page-description">Chat with your agent and keep your team in the loop.</p>}{current && state.members.length > 1 && <span id="chat-members-count">{state.members.length} workspace members</span>}</div>
+          <div><h1>{current?.Title || titles[view]}</h1>{threadId === undefined && <p className="workspace-page-description">{descriptions[view]}</p>}{current && state.members.length > 1 && <span id="chat-members-count">{state.members.length} workspace members</span>}</div>
           <div className="flex flex-wrap justify-end gap-2">
-            {view === 'conversations' && threadId === undefined && <button className="primary" onClick={() => setModal('thread')}>New conversation</button>}
+            {view === 'conversations' && threadId === undefined && <button className="primary" onClick={() => setModal('thread')}><PlusIcon className="size-4" aria-hidden="true" /> New conversation</button>}
             {view === 'conversations' && threadId !== undefined && <button className="quiet" onClick={() => router.push('/conversations')}>All conversations</button>}
-            {current && !current.TelegramTopic && <button className="primary" onClick={() => { setInviteMode('email'); setModal('invite'); }}>Invite people</button>}
-            {view === 'tasks' && <button className="primary" onClick={() => setModal('task')}>Assign task</button>}
+            {current && !current.TelegramTopic && <button className="primary" onClick={() => { setInviteMode('email'); setModal('invite'); }}><UserPlusIcon className="size-4" aria-hidden="true" /> Invite people</button>}
+            {view === 'tasks' && <button className="primary" onClick={() => setModal('task')}><PlusIcon className="size-4" aria-hidden="true" /> Assign task</button>}
           </div>
         </header>
         {view === 'conversations' && <section id="chat" className="page">

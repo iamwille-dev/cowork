@@ -44,6 +44,7 @@ export function GuestChat() {
     {notice && <div id="notice" role="status">{notice}</div>}
     {token === undefined && <p className="p-6" role="status">Loading invitation…</p>}
     {token && <section className="guest-join panel">
+      <span className="chat-agent-mark"><SparklesIcon aria-hidden="true" /></span>
       <h1>Join the conversation</h1>
       <p className="mt-1">Your invitation gives you access to this conversation only.</p>
       <form className="stack mt-4" onSubmit={async (event) => {

@@ -1,3 +1,4 @@
+import { WorkspaceOverview } from './app/components/overview';
 import { Menu, MenuButton, MenuItem, MenuItems } from '@headlessui/react';
 import { CalendarIcon, ChevronLeftIcon, ChevronRightIcon, EllipsisHorizontalIcon } from '@heroicons/react/20/solid';
 
@@ -74,53 +75,61 @@ export function ReminderCalendar({ selected, reminders, select, add, complete }:
   const entries = grouped.get(selectedKey) ?? [];
 
   return (
-    <div className="reminder-layout lg:grid lg:grid-cols-12 lg:gap-x-12">
-      <section className="calendar-picker panel text-center lg:col-start-8 lg:col-end-13 lg:row-start-1 xl:col-start-9" aria-label="Reminder calendar">
-        <div className="flex items-center">
-          <button type="button" className="calendar-icon-button" aria-label="Previous month" onClick={() => select(new Date(year, month - 1, 1))}>
-            <ChevronLeftIcon aria-hidden="true" className="size-5" />
-          </button>
-          <h2 className="flex-auto text-sm font-semibold" aria-live="polite">{monthLabel.format(selected)}</h2>
-          <button type="button" className="calendar-icon-button" aria-label="Next month" onClick={() => select(new Date(year, month + 1, 1))}>
-            <ChevronRightIcon aria-hidden="true" className="size-5" />
-          </button>
-        </div>
-        <div className="calendar-weekdays mt-4 grid grid-cols-7 text-xs/6" aria-hidden="true">
-          {weekdays.map((day) => <span key={day}>{day[0]}</span>)}
-        </div>
-        <div className="calendar-picker-grid isolate mt-2 grid grid-cols-7 gap-px overflow-hidden rounded-lg text-sm" aria-label="Calendar days">
-          {days.map((day) => {
-            const key = dayKey(day);
-            const size = grouped.get(key)?.length ?? 0;
-            const isToday = key === today;
-            return (
-              <button key={key} type="button" className="calendar-picker-day relative py-1.5 focus:z-10"
-                data-current={day.getMonth() === month}
-                aria-pressed={key === selectedKey}
-                aria-current={isToday ? 'date' : undefined}
-                aria-label={fullDate.format(day) + (size ? `, ${size} ${size === 1 ? 'reminder' : 'reminders'}` : '')}
-                onClick={() => select(day)}>
-                <time dateTime={key} className="mx-auto flex size-7 items-center justify-center rounded-full">{day.getDate()}</time>
-                {size > 0 && <span className="calendar-reminder-dot" aria-hidden="true" />}
-              </button>
-            );
-          })}
-        </div>
-        <div className="mt-5 flex gap-2">
-          <button type="button" className="quiet" onClick={() => select(new Date())}>Today</button>
-          <button type="button" className="primary flex-1" onClick={add}>Add reminder</button>
-        </div>
-      </section>
-      <section className="panel reminder-agenda lg:col-span-7 lg:row-start-1 xl:col-span-8" aria-label="Daily agenda">
-        <div className="reminder-agenda-header">
-          <h2 className="font-semibold" aria-live="polite">{fullDate.format(selected)}</h2>
-        </div>
-        {entries.length ? (
-          <ol role="list" className="px-5 text-sm/6">
-            {entries.map((reminder) => <ReminderRow key={reminder.ID} reminder={reminder} complete={complete} />)}
-          </ol>
-        ) : <p className="p-5 text-sm">No reminders for this day.</p>}
-      </section>
-    </div>
+    <>
+      <WorkspaceOverview metrics={[
+        { label: 'Total reminders', value: reminders.length },
+        { label: 'Pending', value: reminders.filter((reminder) => !reminder.Done).length, tone: 'blue' },
+        { label: 'Completed', value: reminders.filter((reminder) => reminder.Done).length, tone: 'green' },
+        { label: 'Selected day', value: entries.length },
+      ]} />
+      <div className="reminder-layout grid gap-4 lg:grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)]">
+        <section className="calendar-picker panel text-center" aria-label="Reminder calendar">
+          <div className="flex items-center">
+            <button type="button" className="calendar-icon-button" aria-label="Previous month" onClick={() => select(new Date(year, month - 1, 1))}>
+              <ChevronLeftIcon aria-hidden="true" className="size-5" />
+            </button>
+            <h2 className="flex-auto text-sm font-semibold" aria-live="polite">{monthLabel.format(selected)}</h2>
+            <button type="button" className="calendar-icon-button" aria-label="Next month" onClick={() => select(new Date(year, month + 1, 1))}>
+              <ChevronRightIcon aria-hidden="true" className="size-5" />
+            </button>
+          </div>
+          <div className="calendar-weekdays mt-4 grid grid-cols-7 text-xs/6" aria-hidden="true">
+            {weekdays.map((day) => <span key={day}>{day[0]}</span>)}
+          </div>
+          <div className="calendar-picker-grid isolate mt-2 grid grid-cols-7 gap-px overflow-hidden rounded-lg text-sm" aria-label="Calendar days">
+            {days.map((day) => {
+              const key = dayKey(day);
+              const size = grouped.get(key)?.length ?? 0;
+              const isToday = key === today;
+              return (
+                <button key={key} type="button" className="calendar-picker-day relative py-1.5 focus:z-10"
+                  data-current={day.getMonth() === month}
+                  aria-pressed={key === selectedKey}
+                  aria-current={isToday ? 'date' : undefined}
+                  aria-label={fullDate.format(day) + (size ? `, ${size} ${size === 1 ? 'reminder' : 'reminders'}` : '')}
+                  onClick={() => select(day)}>
+                  <time dateTime={key} className="mx-auto flex size-7 items-center justify-center rounded-full">{day.getDate()}</time>
+                  {size > 0 && <span className="calendar-reminder-dot" aria-hidden="true" />}
+                </button>
+              );
+            })}
+          </div>
+          <div className="mt-5 flex gap-2">
+            <button type="button" className="quiet" onClick={() => select(new Date())}>Today</button>
+            <button type="button" className="primary flex-1" onClick={add}>Add reminder</button>
+          </div>
+        </section>
+        <section className="panel reminder-agenda" aria-label="Daily agenda">
+          <div className="reminder-agenda-header">
+            <h2 className="flex items-center gap-2 font-semibold" aria-live="polite"><span className="section-icon"><CalendarIcon aria-hidden="true" /></span> {fullDate.format(selected)}</h2>
+          </div>
+          {entries.length ? (
+            <ol role="list" className="px-5 text-sm/6">
+              {entries.map((reminder) => <ReminderRow key={reminder.ID} reminder={reminder} complete={complete} />)}
+            </ol>
+          ) : <p className="p-5 text-sm">No reminders for this day.</p>}
+        </section>
+      </div>
+    </>
   );
 }

@@ -1,9 +1,9 @@
 import Link from 'next/link';
 import { LandingFooter, LandingHeader } from './components/landing-navigation';
 import {
-  ArrowRightIcon, BellIcon, CalendarIcon, ChatBubbleLeftRightIcon, ClipboardDocumentListIcon,
+  ArrowRightIcon, BellIcon, CalendarIcon, CheckCircleIcon, ChatBubbleLeftRightIcon, ClipboardDocumentListIcon,
   CodeBracketIcon, DocumentTextIcon, FolderIcon, MegaphoneIcon, PhotoIcon, RectangleGroupIcon,
-  SparklesIcon, UserGroupIcon,
+  SparklesIcon, UserGroupIcon, Cog6ToothIcon,
 } from '@heroicons/react/24/outline';
 
 const roles = [
@@ -17,6 +17,7 @@ const previewNavigation = [
   { name: 'Conversations', icon: ChatBubbleLeftRightIcon },
   { name: 'Tasks', icon: FolderIcon },
   { name: 'Reminders', icon: CalendarIcon },
+  { name: 'Settings', icon: Cog6ToothIcon },
 ];
 
 const artifacts = [
@@ -34,19 +35,34 @@ function WorkspacePreview() {
           {previewNavigation.map(({ name, icon: Icon }) => <li key={name}><Icon aria-hidden="true" />{name}</li>)}
         </ul>
       </div>
-      <div className="preview-thread">
+      <div className="preview-workspace">
         <div className="preview-heading">
-          <strong id="preview-title">Launch page</strong><span>Example conversation</span>
+          <div><h2 id="preview-title">Launch page</h2><p>Example workspace</p></div>
+          <span className="preview-ready"><CheckCircleIcon className="size-3.5" aria-hidden="true" /> Ready for review</span>
         </div>
-        <div className="preview-messages">
-          <p className="preview-request">Create a task to build a launch page.</p>
-          <div className="preview-reply">
-            <span className="brand-mark"><SparklesIcon aria-hidden="true" /></span>
-            <div><strong>Developer agent</strong><p>The launch page is ready for review.</p></div>
+        <div className="preview-panels">
+          <section className="preview-panel">
+            <h3><ChatBubbleLeftRightIcon aria-hidden="true" /> Conversation</h3>
+            <div className="preview-messages">
+              <p className="preview-request">Create a task to build a launch page.</p>
+              <div className="preview-reply">
+                <span className="brand-mark"><SparklesIcon aria-hidden="true" /></span>
+                <div><strong>Developer agent</strong><p>The launch page is ready for review.</p></div>
+              </div>
+            </div>
+          </section>
+          <div className="grid min-w-0 gap-3">
+            <section className="preview-panel">
+              <h3><FolderIcon aria-hidden="true" /> Task artifacts</h3>
+              <ul className="preview-artifacts">
+                {artifacts.map(({ name, icon: Icon }) => <li key={name}><Icon aria-hidden="true" />{name}</li>)}
+              </ul>
+            </section>
+            <section className="preview-panel">
+              <h3><BellIcon aria-hidden="true" /> Reminder</h3>
+              <div className="px-3 py-2.5 text-sm">Review the launch page</div>
+            </section>
           </div>
-          <ul className="preview-artifacts">
-            {artifacts.map(({ name, icon: Icon }) => <li key={name}><Icon aria-hidden="true" />{name}</li>)}
-          </ul>
         </div>
       </div>
     </div>
@@ -60,10 +76,12 @@ export default function Home() {
     <section className="landing-hero landing-wrap" aria-labelledby="landing-heading">
       <div className="landing-hero-copy">
         <h1 id="landing-heading">Good work<br /> has <em>company.</em></h1>
-        <p>Give your team an AI coworker that can share a conversation, take on a task, and remember what comes next.</p>
-        <div className="landing-actions">
-          <Link href="/conversations?signup=1" className="landing-cta">Get started <ArrowRightIcon aria-hidden="true" /></Link>
-          <a href="#workflow" className="landing-text-link">See how it works</a>
+        <div className="landing-hero-intro">
+          <p>Give your team an AI coworker that can share a conversation, take on a task, and remember what comes next.</p>
+          <div className="landing-actions">
+            <Link href="/conversations?signup=1" className="landing-cta">Get started <ArrowRightIcon aria-hidden="true" /></Link>
+            <a href="#workflow" className="landing-text-link">See how it works</a>
+          </div>
         </div>
       </div>
       <WorkspacePreview />

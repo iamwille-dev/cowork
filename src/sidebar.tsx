@@ -31,17 +31,18 @@ function Brand() {
 
 function SidebarNavigation({ account, page, invitationCount, navigate }: ShellProps) {
   return (
-    <div className="shell-sidebar-content flex grow flex-col gap-y-5 overflow-y-auto px-6 pb-4">
-      <div className="flex h-16 shrink-0 items-center"><Brand /></div>
+    <div className="shell-sidebar-content flex grow flex-col gap-y-5 overflow-y-auto px-4 pb-4">
+      <div className="flex h-16 shrink-0 items-center px-1"><Brand /></div>
       {account && (
         <nav className="flex flex-1 flex-col" aria-label="Workspace">
-          <ul role="list" className="flex flex-1 flex-col gap-y-7">
+          <p className="mb-2 px-3 text-xs">Workspace</p>
+          <ul role="list" className="flex flex-1 flex-col gap-y-6">
             <li>
-              <ul role="list" className="-mx-2 space-y-1">
+              <ul role="list" className="space-y-1">
                 {navigation.map((item) => (
                   <li key={item.page}>
                     <button type="button" onClick={() => navigate(item.page)} aria-current={page === item.page ? 'page' : undefined}
-                      className="shell-nav-item group flex w-full items-center gap-x-3 rounded-md p-2 text-left text-sm/6 font-semibold">
+                      className="shell-nav-item group flex w-full items-center gap-x-2.5 px-3 py-1.5 text-left text-sm font-semibold">
                       <item.icon aria-hidden="true" className="size-6 shrink-0" />
                       {item.name}
                       {item.page === 'chat' && invitationCount > 0 && (
@@ -52,7 +53,7 @@ function SidebarNavigation({ account, page, invitationCount, navigate }: ShellPr
                 ))}
               </ul>
             </li>
-            <li>
+            <li className="shell-agent-card">
               <div className="shell-agent-label text-xs/6 font-semibold">Workspace agent</div>
               <div className="shell-agent mt-2 flex items-center gap-3 text-sm/6 font-semibold">
                 <span aria-hidden="true" className="flex size-6 shrink-0 items-center justify-center rounded-lg border"><SparklesIcon className="size-4" /></span>
@@ -61,7 +62,7 @@ function SidebarNavigation({ account, page, invitationCount, navigate }: ShellPr
             </li>
             <li className="mt-auto">
               <button type="button" onClick={() => navigate('admin')} aria-current={page === 'admin' ? 'page' : undefined}
-                className="shell-nav-item -mx-2 flex w-[calc(100%+1rem)] items-center gap-x-3 rounded-md p-2 text-left text-sm/6 font-semibold">
+                className="shell-nav-item flex w-full items-center gap-x-2.5 px-3 py-1.5 text-left text-sm font-semibold">
                 <Cog6ToothIcon aria-hidden="true" className="size-6 shrink-0" /> Settings
               </button>
             </li>
@@ -84,7 +85,7 @@ export function WorkspaceShell(props: ShellProps) {
   return (
     <div className="layout">
       <Dialog open={sidebarOpen && Boolean(account)} onClose={setSidebarOpen} className="fixed inset-0 z-50 lg:hidden">
-        <DialogBackdrop transition className="fixed inset-0 bg-gray-900/80 transition-opacity duration-300 data-closed:opacity-0" />
+        <DialogBackdrop transition className="fixed inset-0 bg-black/50 transition-opacity duration-300 data-closed:opacity-0" />
         <div className="fixed inset-0 flex">
           <DialogPanel transition className="shell-drawer relative mr-14 flex w-full max-w-xs flex-1 transition duration-300 ease-in-out data-closed:-translate-x-full">
             <DialogTitle className="sr-only">Workspace navigation</DialogTitle>
@@ -100,20 +101,20 @@ export function WorkspaceShell(props: ShellProps) {
         </div>
       </Dialog>
 
-      {account && <aside className="shell-sidebar fixed inset-y-0 z-50 hidden flex-col lg:flex">
+      {account && <aside className="shell-sidebar z-50 hidden flex-col lg:flex">
         <SidebarNavigation {...props} />
       </aside>}
 
       <div className={`shell-content min-w-0 ${account ? "shell-member" : ""}`}>
-        <div className="shell-topbar sticky top-0 z-40 flex h-16 shrink-0 items-center gap-4 px-4 sm:px-6 lg:px-8">
+        <div className="shell-topbar sticky top-0 z-40 flex h-16 shrink-0 items-center px-1 gap-4 px-4 sm:px-6 lg:px-8">
           {account && (
             <button type="button" onClick={() => setSidebarOpen(true)} className="shell-icon-button shell-mobile-toggle" aria-label="Open sidebar">
               <Bars3Icon aria-hidden="true" className="size-6" />
             </button>
           )}
-          {!account && <Brand />}
+          {!account && <div className="mr-auto"><Brand /></div>}
           {account && (
-            <form className="shell-search relative min-w-0 flex-1" role="search" onSubmit={(event) => {
+            <form className="shell-search relative min-w-0 flex-1 lg:ml-auto" role="search" onSubmit={(event) => {
               event.preventDefault();
               const first = props.search(query)[0];
               if (first) { first.open(); setQuery(''); }
@@ -121,7 +122,7 @@ export function WorkspaceShell(props: ShellProps) {
               <MagnifyingGlassIcon aria-hidden="true" className="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 size-5" />
               <input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => {
                 if (event.key === 'Escape') setQuery('');
-              }} type="search" placeholder="Search workspace" aria-label="Search conversations and tasks" />
+              }} type="search" placeholder="Search" aria-label="Search conversations and tasks" />
               {query.trim() && (
                 <div className="shell-search-results panel absolute top-full z-50 mt-2 w-full max-w-md">
                   {props.search(query).length ? props.search(query).map((match, index) => (
@@ -131,7 +132,7 @@ export function WorkspaceShell(props: ShellProps) {
               )}
             </form>
           )}
-          <div className="ml-auto flex items-center gap-4">
+          <div className="ml-auto flex items-center gap-2 lg:ml-0">
             <button type="button" onClick={toggleTheme} className="shell-icon-button" aria-label={theme === 'dark' ? 'Light mode' : 'Dark mode'}>
               <ThemeIcon aria-hidden="true" className="size-5" />
             </button>
@@ -141,7 +142,7 @@ export function WorkspaceShell(props: ShellProps) {
                   <BellIcon aria-hidden="true" className="size-6" />
                   {props.invitationCount > 0 && <span className="shell-notification-dot" aria-hidden="true" />}
                 </button>
-                <div className="shell-divider h-6 w-px" aria-hidden="true" />
+                <div className="shell-divider mx-1 hidden h-6 w-px sm:block" aria-hidden="true" />
                 <Menu as="div" className="relative">
                   <MenuButton className="flex items-center gap-3 rounded-md" aria-label="Open user menu">
                     <span className="avatar rounded-full" aria-hidden="true">{account.initials}</span>
