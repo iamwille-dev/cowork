@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { LandingFooter, LandingHeader } from './components/landing-navigation';
 import {
   ArrowRightIcon, BellIcon, CalendarIcon, ChatBubbleLeftRightIcon, ClipboardDocumentListIcon,
   CodeBracketIcon, DocumentTextIcon, FolderIcon, MegaphoneIcon, PhotoIcon, RectangleGroupIcon,
@@ -23,12 +24,6 @@ const artifacts = [
   { name: 'Sandbox preview', icon: RectangleGroupIcon },
   { name: 'UI screenshot', icon: PhotoIcon },
 ];
-
-function Brand() {
-  return <Link href="/" className="landing-brand" aria-label="Cowork home">
-    <span className="brand-mark"><SparklesIcon aria-hidden="true" /></span> Cowork
-  </Link>;
-}
 
 function WorkspacePreview() {
   return <div className="landing-stage" role="group" aria-labelledby="preview-title">
@@ -60,13 +55,7 @@ function WorkspacePreview() {
 
 export default function Home() {
   return <main className="landing">
-    <header className="landing-header">
-      <div className="landing-wrap landing-nav">
-        <Brand />
-        <nav aria-label="Main navigation"><a href="#roles">Agent roles</a><a href="#workflow">How it works</a></nav>
-        <Link href="/conversations" className="landing-small-link">Open workspace <ArrowRightIcon aria-hidden="true" /></Link>
-      </div>
-    </header>
+    <LandingHeader />
 
     <section className="landing-hero landing-wrap" aria-labelledby="landing-heading">
       <div className="landing-hero-copy">
@@ -103,9 +92,6 @@ export default function Home() {
       </ol>
     </section>
 
-    <footer className="landing-footer landing-wrap">
-      <Brand />
-      <Link href="/conversations" className="landing-small-link">Open workspace <ArrowRightIcon aria-hidden="true" /></Link>
-    </footer>
+    <LandingFooter />
   </main>;
 }
