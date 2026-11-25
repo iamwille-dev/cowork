@@ -1,4 +1,5 @@
-import { useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { api } from './app/components/api';
 
 const sections = [
   { id: 'appearance', title: 'Appearance' },
@@ -8,8 +9,6 @@ const sections = [
   { id: 'git-tokens', title: 'Git tokens' },
 ] as const;
 
-const providers = ['Slack', 'WhatsApp'] as const;
-type Provider = typeof providers[number];
 const gitProviders = { github: 'GitHub', gitlab: 'GitLab' } as const;
 export type GitProvider = keyof typeof gitProviders;
 type Theme = 'light' | 'dark';
@@ -19,11 +18,11 @@ type SettingsProps = {
   members: { ID: string; Name: string; Email: string; Role: string }[];
   owner: boolean;
   invite: string;
-  channels: Partial<Record<Provider | 'Telegram', string>>;
+  channels: Partial<Record<'WhatsApp' | 'Telegram', string>>;
   telegramBot?: string;
   saveTelegram: (settings: { Token?: string; Destination?: string; Remove?: boolean }) => Promise<boolean>;
   changeTheme: (theme: Theme) => void;
-  saveChannel: (provider: Provider, destination: string, button: HTMLButtonElement) => void;
+  saveChannel: (provider: 'WhatsApp', destination: string, button: HTMLButtonElement) => void;
   agentConnection: { enabled: boolean; hasKey: boolean };
   saveAgentConnection: (settings: { Enabled: boolean; Key?: string; RemoveKey?: boolean }) => Promise<boolean>;
   gitTokenStatus: Partial<Record<GitProvider, boolean>>;
@@ -102,7 +101,7 @@ function InviteCode({ invite, announce }: Pick<SettingsProps, 'invite' | 'announ
 }
 
 function ChannelForm({ provider, destination, owner, saveChannel }: {
-  provider: Provider; destination: string; owner: boolean; saveChannel: SettingsProps['saveChannel'];
+  provider: 'WhatsApp'; destination: string; owner: boolean; saveChannel: SettingsProps['saveChannel'];
 }) {
   const submit = useRef<HTMLButtonElement>(null);
   return (
@@ -118,6 +117,95 @@ function ChannelForm({ provider, destination, owner, saveChannel }: {
       </label>
       {owner && <button className="primary" type="submit" ref={submit}>Save</button>}
     </form>
+  );
+}
+
+type SlackConnection = {
+  available: boolean;
+  status: 'disconnected' | 'active';
+  team?: string;
+  appId?: string;
+  teamId?: string;
+};
+
+function SlackConnectionForm({ owner }: { owner: boolean }) {
+  const [connection, setConnection] = useState<SlackConnection>();
+  const [busy, setBusy] = useState<'connect' | 'disconnect'>();
+  const [error, setError] = useState('');
+  const [feedback, setFeedback] = useState('');
+  const [loadAttempt, setLoadAttempt] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    api<SlackConnection>('slack').then(
+      (result) => { if (active) setConnection(result); },
+      (failure: Error) => { if (active) setError(failure.message); },
+    );
+    return () => { active = false; };
+  }, [loadAttempt]);
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const outcome = url.searchParams.get('slack');
+    if (!outcome) return;
+    if (outcome === 'connected') setFeedback('Slack installation complete.');
+    if (outcome === 'canceled') setFeedback('Slack authorization was canceled. You can continue setup below.');
+    if (outcome === 'conflict') setError('This Slack workspace is already connected to Cowork. Choose a different Slack workspace or disconnect the existing installation.');
+    if (outcome === 'retry') setError('Slack setup could not be completed. Start again below.');
+    url.searchParams.delete('slack');
+    window.history.replaceState(window.history.state, '', url);
+  }, []);
+
+  async function update(action: 'connect' | 'disconnect') {
+    setBusy(action);
+    setError('');
+    setFeedback('');
+    try {
+      if (action === 'connect') {
+        const { authorizationUrl } = await api<{ authorizationUrl: string }>('slack', { action });
+        window.location.assign(authorizationUrl);
+        return;
+      }
+      setConnection(await api<SlackConnection>('slack', { action }));
+      setFeedback('Slack disconnected.');
+    } catch (failure) {
+      setError((failure as Error).message);
+      setLoadAttempt((previous) => previous + 1);
+    } finally {
+      setBusy(undefined);
+    }
+  }
+
+  const connected = connection?.status === 'active';
+  const slackLink = connection?.appId && connection.teamId
+    ? 'https://slack.com/app_redirect?' + new URLSearchParams({ app: connection.appId, team: connection.teamId })
+    : undefined;
+  return (
+    <div className="stack">
+      <h3 className="font-semibold">Slack</h3>
+      <p>{connected
+        ? `Connected to ${connection.team}. Message Cowork in Slack, or invite it to a channel and @mention it.`
+        : connection && !connection.available
+          ? 'Slack setup is unavailable on this deployment.'
+          : owner ? 'Add your Cowork agent to Slack to chat in a DM or channel.' : 'Your workspace owner can connect Slack.'}</p>
+      {feedback && <p role="status">{feedback}</p>}
+      {error && <p role="alert">{error}</p>}
+      <div className="flex flex-wrap items-center gap-3">
+        {slackLink && <a className="primary" href={slackLink}>Open Slack</a>}
+        {owner && connection?.available && !connected &&
+          <button className="primary" type="button" disabled={Boolean(busy)} onClick={() => void update('connect')}>
+            {busy === 'connect' ? 'Opening Slack…' : 'Add to Slack'}
+          </button>}
+        {owner && connected &&
+          <button className="quiet" type="button" disabled={Boolean(busy)} onClick={() => void update('disconnect')}>
+            {busy === 'disconnect' ? 'Disconnecting…' : 'Disconnect Slack'}
+          </button>}
+        {!connection && (error
+          ? <button className="quiet" type="button" onClick={() => { setError(''); setLoadAttempt((previous) => previous + 1); }}>Retry</button>
+          : <span role="status">Checking Slack connection…</span>)}
+      </div>
+
+    </div>
   );
 }
 
@@ -236,6 +324,9 @@ function GitTokenForm({ provider, configured, owner, saveGitToken }: {
 
 export function Settings(props: SettingsProps) {
   const [active, setActive] = useState<(typeof sections)[number]['id']>('appearance');
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('section') === 'channels') setActive('channels');
+  }, []);
   return (
     <div className="settings-page">
       <header className="settings-nav-header">
@@ -284,14 +375,12 @@ export function Settings(props: SettingsProps) {
         </SettingsSection>
       )}
       {active === 'channels' && (
-        <SettingsSection title="Channel destinations" description="Connect a Telegram bot for this workspace. Slack and WhatsApp currently save destination IDs for future use.">
+        <SettingsSection title="Messaging channels" description="Connect your Cowork agent to the places your team chats.">
           <div className="grid gap-y-5">
+            <SlackConnectionForm owner={props.owner} />
             <TelegramForm key={JSON.stringify([props.telegramBot, props.channels.Telegram])} {...props} />
-            {providers.map((provider) => (
-              <ChannelForm key={JSON.stringify([provider, props.channels[provider]])}
-                provider={provider} destination={props.channels[provider] ?? ''}
-                owner={props.owner} saveChannel={props.saveChannel} />
-            ))}
+            <ChannelForm key={props.channels.WhatsApp} provider="WhatsApp" destination={props.channels.WhatsApp ?? ''}
+              owner={props.owner} saveChannel={props.saveChannel} />
           </div>
         </SettingsSection>
       )}

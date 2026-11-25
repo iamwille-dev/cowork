@@ -5,7 +5,7 @@ import { LibSQLStore } from '@mastra/libsql';
 import { Memory } from '@mastra/memory';
 import { createTask, createReminder, scheduleTask } from '../tools/workspace.ts';
 
-const model = `openrouter/${process.env.OPENROUTER_MODEL || 'openai/gpt-4.1-mini'}`;
+export const model = `openrouter/${process.env.OPENROUTER_MODEL || 'openai/gpt-4.1-mini'}`;
 export const liveModel = Boolean(process.env.OPENROUTER_API_KEY?.trim());
 const memoryDirectory = resolve('backend/.cowork');
 mkdirSync(memoryDirectory, { recursive: true, mode: 0o700 });
@@ -22,7 +22,7 @@ const memory = new Memory({
   },
 });
 
-const roleInstructions = {
+export const roleInstructions = {
   Developer: 'Help design, implement, and verify software. Identify concrete acceptance checks.',
   'Product Manager': 'Help clarify user needs, define outcomes, prioritize work, and write actionable requirements.',
   'Sales Lead': 'Help qualify opportunities, plan follow-ups, and draft sales communications.',

@@ -271,6 +271,10 @@ func API(w http.ResponseWriter, r *http.Request) {
 	}
 	space := d.Workspaces[account.Workspace]
 	if r.Method == "GET" {
+		if route == "slack-context" {
+			jsonReply(w, 200, map[string]any{"id": space.ID, "role": space.Role, "owner": space.Owner == account.ID})
+			return
+		}
 		if route == "chat-session" {
 			jsonReply(w, 200, map[string]string{"id": account.ID, "name": account.Name})
 			return

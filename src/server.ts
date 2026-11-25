@@ -1,3 +1,5 @@
+import { getRequestListener } from '@hono/node-server';
+import { handleSlack } from './mastra/slack.ts';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -57,7 +59,13 @@ async function worker(request: IncomingMessage, response: ServerResponse) {
 
 createServer(worker).listen(4401, '127.0.0.1');
 
+const slackListener = getRequestListener(handleSlack);
 createServer(async (request, response) => {
+  const path = request.url?.split('?', 1)[0];
+  if (path === '/api/slack' || path?.startsWith('/integrations/slack/')) {
+    await slackListener(request, response);
+    return;
+  }
   if (request.url !== '/api/web-chat') {
     response.writeHead(404).end();
     return;

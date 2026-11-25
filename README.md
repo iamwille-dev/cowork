@@ -56,6 +56,19 @@ Keep using the original `AGENT_CONNECTION_ENCRYPTION_KEY` or the original `.cowo
 
 Copy `.env.example` to `.env` in the project root and set `OPENROUTER_API_KEY` to your [OpenRouter key](https://openrouter.ai/settings/keys). Restart `npm start` to load it. The same server-side key serves all four roles. Set `OPENROUTER_MODEL` to an OpenRouter model ID such as `openai/gpt-4.1-mini` to override the default. Chat and its tools require a key. The manual task form can still use the built-in Developer planning and preview runner.
 
+## Add the agent to Slack
+
+In Cowork, the workspace owner opens **Settings → Messaging channels → Slack → Add to Slack**, chooses their Slack workspace, and approves the installation in Slack. Slack may require an admin to approve it. Send Cowork a DM, or invite it to a channel and mention it. Use **Disconnect Slack** in Cowork or remove the Cowork app from Slack to end the connection.
+
+### Configure the shared Slack app
+
+1. Create the Cowork app once in [Slack app settings](https://api.slack.com/apps) using the [production app manifest](deploy/slack-app-manifest.json). Set its app ID, OAuth client ID and secret, and signing secret on the worker as `SLACK_APP_ID`, `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, and `SLACK_SIGNING_SECRET`. Set `COWORK_PUBLIC_URL` to the public HTTPS origin and `MASTRA_ENCRYPTION_KEY` to a stable random secret of at least 32 characters. Set `OPENROUTER_API_KEY` for replies.
+2. Register `<origin>/integrations/slack/oauth/callback` under **OAuth & Permissions**. Add these bot scopes: `app_mentions:read`, `chat:write`, `channels:history`, `channels:read`, `groups:history`, `groups:read`, `im:history`, `im:read`, `mpim:history`, `mpim:read`, and `users:read`. Keep bot token rotation disabled for this integration.
+3. Under **Event Subscriptions**, verify `<origin>/integrations/slack/events` and subscribe to bot events `app_mention`, `message.channels`, `message.groups`, `message.im`, `message.mpim`, and `app_uninstalled`. Enable the Messages tab in **App Home** and allow users to send messages.
+4. Activate distribution in **Manage Distribution**. The integration supports workspace-level installations. See [Slack app distribution](https://docs.slack.dev/app-management/distribution/).
+
+Each Slack workspace is associated with one Cowork workspace. Slack messages use Mastra Channels and stay separate from Cowork conversations and tools. The worker stores installation tokens encrypted in `backend/.cowork/slack-oauth.db`. Run one worker per deployment and retain the state volume and encryption key across restarts. If you used the earlier token-based prototype, remove its separately provisioned app from Slack and install the shared app through Cowork.
+
 ## Telegram group conversations
 
 1. Create a dedicated bot with [BotFather](https://t.me/BotFather), disable group privacy with `/setprivacy`, and add the bot to your test group. Let the group know that Cowork mirrors its messages to the workspace.
@@ -105,7 +118,7 @@ Set `AWS_SES_REGION` and `AWS_SES_FROM_EMAIL` on the frontend server. You can su
 
 ## Extend the prototype
 
-The role selector supports four roles. Developer has an implemented chat agent and task workflow. Product Manager, Sales Lead, and Social Media use the same workspace and each has a role-specific chat agent. Chat history is shared by workspace and attributed to the person who sent each message. Reminders can be scheduled and marked complete in the workspace. Telegram group conversations appear in Conversations through Mastra Channels. Slack and WhatsApp settings persist destination IDs. Reminder delivery is pending.
+The role selector supports four roles. Developer has an implemented chat agent and task workflow. Product Manager, Sales Lead, and Social Media use the same workspace and each has a role-specific chat agent. Chat history is shared by workspace and attributed to the person who sent each message. Reminders can be scheduled and marked complete in the workspace. Telegram group conversations appear in Conversations through Mastra Channels. Slack supports workspace installation through OAuth and messaging through Mastra Channels. WhatsApp settings persist destination IDs. Reminder delivery is pending.
 
 Set `COWORK_RUNNER` to the path of a trusted ES module to enable repository-backed work. Its default export implements these methods:
 
