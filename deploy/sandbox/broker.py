@@ -23,7 +23,7 @@ MAX_RESULT = 4 * 1024 * 1024
 
 def kubectl(*args):
     return subprocess.check_output(
-        ["kubectl", "-n", NAMESPACE, "--request-timeout=8s", *args],
+        ["kubectl", "-n", NAMESPACE, *args],
         timeout=10, text=True,
     ).strip()
 
