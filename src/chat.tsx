@@ -4,6 +4,7 @@ import {
 } from '@assistant-ui/react';
 import { useChat } from '@chat-adapter/web/react';
 import { MarkdownTextPrimitive } from '@assistant-ui/react-markdown';
+import { SparklesIcon } from '@heroicons/react/24/outline';
 import { useRef, useState } from 'react';
 
 type WorkspaceMessage = { Author: string; Text: string; At: string; SenderID?: string };
@@ -18,7 +19,7 @@ type ConversationProps = {
 };
 
 function AgentMark({ className = '' }: { className?: string }) {
-  return <span className={`chat-agent-mark ${className}`} aria-hidden="true">✳</span>;
+  return <span className={`chat-agent-mark ${className}`} aria-hidden="true"><SparklesIcon /></span>;
 }
 
 function AgentText() {

@@ -1,5 +1,6 @@
 'use client';
 
+import { SparklesIcon } from '@heroicons/react/24/outline';
 import { useEffect, useRef, useState } from 'react';
 import { Conversation } from '../../chat';
 import type { Message } from '../../conversations';
@@ -38,7 +39,7 @@ export function GuestChat() {
 
   return <main className="guest-page" data-view={conversation ? 'chat' : undefined}>
     <header className="shell-topbar flex h-16 items-center gap-4 px-5">
-      <span className="shell-brand"><span aria-hidden="true">✳</span> cowork</span>
+      <span className="shell-brand"><span className="brand-mark"><SparklesIcon aria-hidden="true" /></span> Cowork</span>
     </header>
     {notice && <div id="notice" role="status">{notice}</div>}
     {token === undefined && <p className="p-6" role="status">Loading invitation…</p>}

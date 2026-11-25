@@ -38,7 +38,6 @@ export function AuthForm({ submit, busy, initialMode = 'login' }: {
           <h1>Good work<br /> has <em>company.</em></h1>
           <p>Give your team a shared place to talk with an AI coworker, delegate work, and keep track of what comes next.</p>
         </> : <>
-          <span className="sign-in-section-label">Conversations</span>
           <h1>Pick up where<br /> you <em>left off.</em></h1>
           <p>Your threads, teammates, and agent are all in your workspace.</p>
         </>}

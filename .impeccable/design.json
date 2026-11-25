@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-25T00:00:21.569Z",
+  "title": "Design System — Cowork",
+  "extensions": {
+    "shadows": [
+      {
+        "name": "workspace",
+        "value": "0 1px 2px #18284608",
+        "purpose": "Subtle separation for workspace panels"
+      },
+      {
+        "name": "preview",
+        "value": "0 22px 54px #07112370",
+        "purpose": "Separate the product preview from its stage"
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "compact-preview",
+        "value": "580px"
+      },
+      {
+        "name": "stacked-onboarding",
+        "value": "740px"
+      },
+      {
+        "name": "desktop-navigation",
+        "value": "1024px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The main action on a workspace surface.",
+      "html": "<button class=\"primary\">New conversation</button>",
+      "css": ".primary { min-height: 40px; padding: 8px 14px; border: 1px solid var(--accent, #1458db); border-radius: 8px; background: var(--accent, #1458db); color: var(--on-accent, #fff); font: 600 14px system-ui; } .primary:hover { background: var(--accent-hover, #104bbb); } .primary:focus-visible { outline: 2px solid var(--accent, #1458db); outline-offset: 3px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "A calm workspace that puts the conversation first",
+    "overview": "The homepage introduces Cowork through an example thread and the artifacts it produces. The workspace carries the same outline icons and blue accent into a quieter canvas for daily work.",
+    "keyCharacteristics": [
+      "Neutral operational surfaces",
+      "Blue for actions and selection",
+      "Product-led homepage"
+    ],
+    "rules": [
+      {
+        "name": "Preview elevation",
+        "body": "Use the deepest shadow around the example workspace on the homepage.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Keep page titles prominent and action labels concise."
+    ],
+    "donts": [
+      "Avoid using the accent for decoration on dense work surfaces."
+    ]
+  }
+}

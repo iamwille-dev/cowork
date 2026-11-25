@@ -3,7 +3,7 @@ import {
   Dialog, DialogBackdrop, DialogPanel, DialogTitle, Menu, MenuButton, MenuItem, MenuItems, TransitionChild,
 } from '@headlessui/react';
 import {
-  Bars3Icon, BellIcon, CalendarIcon, ChatBubbleLeftRightIcon, Cog6ToothIcon, FolderIcon, MoonIcon, SunIcon, XMarkIcon,
+  Bars3Icon, BellIcon, CalendarIcon, ChatBubbleLeftRightIcon, Cog6ToothIcon, FolderIcon, MoonIcon, SparklesIcon, SunIcon, XMarkIcon,
 } from '@heroicons/react/24/outline';
 import { ChevronDownIcon, MagnifyingGlassIcon } from '@heroicons/react/20/solid';
 
@@ -26,7 +26,7 @@ type ShellProps = {
 };
 
 function Brand() {
-  return <a href="/" className="shell-brand" aria-label="Cowork home"><span aria-hidden="true">✳</span> cowork</a>;
+  return <a href="/" className="shell-brand" aria-label="Cowork home"><span className="brand-mark"><SparklesIcon aria-hidden="true" /></span> Cowork</a>;
 }
 
 function SidebarNavigation({ account, page, invitationCount, navigate }: ShellProps) {
@@ -55,7 +55,7 @@ function SidebarNavigation({ account, page, invitationCount, navigate }: ShellPr
             <li>
               <div className="shell-agent-label text-xs/6 font-semibold">Workspace agent</div>
               <div className="shell-agent mt-2 flex items-center gap-3 text-sm/6 font-semibold">
-                <span aria-hidden="true" className="flex size-6 shrink-0 items-center justify-center rounded-lg border text-xs">✳</span>
+                <span aria-hidden="true" className="flex size-6 shrink-0 items-center justify-center rounded-lg border"><SparklesIcon className="size-4" /></span>
                 <span className="truncate">{account.role}</span>
               </div>
             </li>
@@ -100,7 +100,7 @@ export function WorkspaceShell(props: ShellProps) {
         </div>
       </Dialog>
 
-      {account && <aside className="shell-sidebar fixed inset-y-0 z-50 hidden w-72 flex-col lg:flex">
+      {account && <aside className="shell-sidebar fixed inset-y-0 z-50 hidden flex-col lg:flex">
         <SidebarNavigation {...props} />
       </aside>}
 
@@ -118,10 +118,10 @@ export function WorkspaceShell(props: ShellProps) {
               const first = props.search(query)[0];
               if (first) { first.open(); setQuery(''); }
             }}>
-              <MagnifyingGlassIcon aria-hidden="true" className="pointer-events-none absolute top-2.5 left-2 size-5" />
+              <MagnifyingGlassIcon aria-hidden="true" className="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 size-5" />
               <input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => {
                 if (event.key === 'Escape') setQuery('');
-              }} type="search" placeholder="Search conversations and tasks" aria-label="Search conversations and tasks" />
+              }} type="search" placeholder="Search workspace" aria-label="Search conversations and tasks" />
               {query.trim() && (
                 <div className="shell-search-results panel absolute top-full z-50 mt-2 w-full max-w-md">
                   {props.search(query).length ? props.search(query).map((match, index) => (
