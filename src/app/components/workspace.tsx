@@ -9,7 +9,7 @@ import { ReminderCalendar } from '../../reminders';
 import { Settings, type GitProvider } from '../../settings';
 import { api, initials, localDay } from './api';
 import { AuthForm, Modal } from './forms';
-import { TaskList, type Task } from './tasks';
+import { TaskList, type ScheduleAction, type Task } from './tasks';
 
 type Reminder = { ID: string; Text: string; Due: string; Author: string; Done: boolean };
 type WorkspaceData = {
@@ -29,7 +29,7 @@ type WorkspaceData = {
   };
 };
 type View = 'conversations' | 'tasks' | 'reminders' | 'settings';
-type ModalName = 'thread' | 'invite' | 'task' | 'reminder';
+type ModalName = 'thread' | 'invite' | 'task' | 'reminder' | 'edit-schedule' | 'cancel-schedule';
 
 const titles: Record<View, string> = { conversations: 'Conversations', tasks: 'Tasks', reminders: 'Reminders', settings: 'Workspace settings' };
 const shellPages: Record<View, string> = { conversations: 'chat', settings: 'admin', tasks: 'tasks', reminders: 'reminders' };
@@ -40,12 +40,23 @@ const dataOf = (event: FormEvent<HTMLFormElement>) => {
   return Object.fromEntries(new FormData(event.currentTarget));
 };
 
+function scheduleLocalDue(task: Task) {
+  if (!task.ScheduledFor) return '';
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: task.ScheduledTimeZone, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(new Date(task.ScheduledFor));
+  const fields = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  return `${fields.year}-${fields.month}-${fields.day}T${fields.hour}:${fields.minute}`;
+}
+
 export function Workspace({ view, threadId, initialMode }: { view: View; threadId?: string; initialMode?: 'signup' | 'login' }) {
   const router = useRouter();
   const [state, setState] = useState<WorkspaceData | null>();
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [notice, setNotice] = useState('');
   const [modal, setModal] = useState<ModalName | null>(null);
+  const [schedule, setSchedule] = useState<Task | null>(null);
   const [busy, setBusy] = useState(false);
   const [inviteMode, setInviteMode] = useState<'email' | 'teammate'>('email');
   const [selectedDay, setSelectedDay] = useState(() => new Date());
@@ -101,8 +112,17 @@ export function Workspace({ view, threadId, initialMode }: { view: View; threadI
   const teammates = state?.directory.filter(({ ID }) => ID !== state.viewerId) ?? [];
   const developer = workspace?.Role === 'Developer';
   const route = (id: string) => router.push(threadRoute(id));
-  const close = () => { setModal(null); setNotice(''); };
+  const close = () => { setModal(null); setSchedule(null); setNotice(''); };
+  const scheduleDue = schedule ? scheduleLocalDue(schedule) : '';
   const contentMode = current ? 'chat' : view === 'conversations' ? 'chat-list' : view;
+
+  function changeSchedule(action: ScheduleAction, task: Task, changes = {}) {
+    return run(async () => {
+      await write('task/schedule/update', { ...changes, ID: task.ID, Action: action });
+      close();
+      setNotice({ pause: 'Schedule paused.', resume: 'Schedule resumed.', edit: 'Schedule updated.', cancel: 'Schedule canceled.' }[action]);
+    });
+  }
 
   return <WorkspaceShell
     page={shellPages[view]} invitationCount={invitations.length} theme={theme}
@@ -153,7 +173,15 @@ export function Workspace({ view, threadId, initialMode }: { view: View; threadI
             <ConversationIndex threads={threads} tasks={tasks} role={workspace.Role} open={route} />
           </>}
         </section>}
-        {view === 'tasks' && <section className="page"><TaskList tasks={tasks} /></section>}
+        {view === 'tasks' && <section className="page"><TaskList tasks={tasks} busy={busy} manageSchedule={(action, task) => {
+          if (action === 'edit' || action === 'cancel') {
+            setNotice('');
+            setSchedule(task);
+            setModal(action === 'edit' ? 'edit-schedule' : 'cancel-schedule');
+          } else {
+            void changeSchedule(action, task);
+          }
+        }} /></section>}
         {view === 'reminders' && <section className="page"><ReminderCalendar selected={selectedDay} reminders={workspace.Reminders ?? []}
           select={setSelectedDay} add={() => setModal('reminder')}
           complete={(id) => void run(async () => { await write('reminder/done', { ID: id }); })} /></section>}
@@ -228,6 +256,33 @@ export function Workspace({ view, threadId, initialMode }: { view: View; threadI
           <label className="checkbox"><input name="UI" type="checkbox" defaultChecked /> Include a UI screenshot</label></>}
         <button className="primary" disabled={busy}>{busy ? 'Assigning task…' : developer ? 'Run Developer workflow' : 'Assign task'}</button>
       </form>{notice && <p role="status">{notice}</p>}</Modal>}
+
+      {modal === 'edit-schedule' && schedule && <Modal title="Edit schedule" close={close}>
+        <form className="stack" onSubmit={(event) => {
+          const data = dataOf(event);
+          void changeSchedule('edit', schedule, { ...data, LocalDue: data.LocalDue === scheduleDue ? undefined : data.LocalDue });
+        }}>
+          <label>Task title<input name="Title" required maxLength={120} defaultValue={schedule.Title} /></label>
+          <label>Task brief<textarea name="Brief" required maxLength={6000} rows={5} defaultValue={schedule.Brief} /></label>
+          <label>Frequency<select name="Recurrence" defaultValue={schedule.Recurrence}>
+            <option value="daily">Daily</option><option value="weekly">Weekly</option>
+          </select></label>
+          <label>Next run ({schedule.ScheduledTimeZone || 'UTC'})<input name="LocalDue" type="datetime-local" required defaultValue={scheduleDue} /></label>
+          <button className="primary" disabled={busy}>Save schedule</button>
+        </form>
+        {notice && <p className="mt-3" role="status">{notice}</p>}
+      </Modal>}
+
+      {modal === 'cancel-schedule' && schedule && <Modal title="Cancel schedule" close={close}>
+        <div className="stack">
+          <p>Cancel future runs of <strong>{schedule.Title}</strong>? Any run already in progress will finish.</p>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="quiet" onClick={close} disabled={busy}>Keep schedule</button>
+            <button type="button" className="primary" onClick={() => void changeSchedule('cancel', schedule)} disabled={busy}>Cancel schedule</button>
+          </div>
+          {notice && <p role="status">{notice}</p>}
+        </div>
+      </Modal>}
 
       {modal === 'reminder' && <Modal title="Add a reminder" close={close}><form className="stack" onSubmit={(event) => {
         const data = dataOf(event);

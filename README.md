@@ -93,6 +93,8 @@ Memory is stored in `backend/.cowork/memory.db` and survives worker restarts. Ke
 
 Type `Create a task to draft the launch page` or `Remind me to review the launch tomorrow at 10 am`. When required details are missing, the agent asks in the conversation. The `createTask` and `createReminder` Mastra tools submit validated inputs to Encore under the caller’s current session. Dates and times are interpreted in the browser’s time zone. Developer tasks run the workflow, while assignments in other roles are recorded for tracking.
 
+Ask in a signed-in conversation to run work later, for example, “In 10 minutes, draft a three-sentence launch announcement using the details above.” You can also give a specific date and time. For recurring work, try “Every Monday at 9 am, draft a planning agenda using this brief.” Daily and weekly schedules follow the local time zone of the conversation. The Tasks page shows the next run and a separate result for each execution. Open a recurring schedule there to pause, resume, edit, or cancel it. Resuming skips occurrences missed during the pause. Canceling stops future runs and keeps past results. After downtime, a recurring schedule runs once to catch up and then resumes its regular schedule. Cowork stores schedules in PostgreSQL and checks for due tasks while the backend is running, even with the browser closed. Overdue tasks are picked up when the backend comes back online. The Tasks page shows the scheduled time, status, and written result. Scheduled runs use the workspace role and the saved brief. They support self-contained work such as drafts and summaries.
+
 ## Invite a guest to a conversation
 
 Open a conversation, choose **Invite people**, and enter an email address under **By email**. Cowork sends a single-use invitation link through Amazon SES. Guests choose a display name and can read and reply only in the invited conversation. The invitation and guest session expire seven days after the link is created. Use **Workspace teammate** for in-app invitations to current members.
@@ -116,7 +118,7 @@ Set `COWORK_RUNNER` to the path of a trusted ES module to enable repository-back
 
 The workflow calls the runner in that order, saves the plan before implementation, and validates the screenshot and preview before calling the pull request step. The built-in runner skips pull request creation for standalone preview tasks. Repository-backed tasks require a runner that supplies isolated execution, authorized repository access, and Git credentials. No repository service is configured by default.
 
-Cowork stores workspace records in PostgreSQL and executes work during the task request. The backend is configured for a single instance with a persistent artifact volume.
+Cowork stores workspace records in PostgreSQL and runs immediate Developer work during the task request. The backend is configured for a single instance with a persistent artifact volume.
 
 ## Checks
 

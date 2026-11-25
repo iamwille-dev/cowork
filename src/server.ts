@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { dataRoot } from './mastra/workflows/developer.ts';
-import { respond, runTask } from './mastra/cowork.ts';
+import { respond, runScheduledTask, runTask } from './mastra/cowork.ts';
 import { mastra } from './mastra/index.ts';
 import { startTelegram } from './mastra/telegram.ts';
 import { handleWebChat } from './chat-web.ts';
@@ -28,7 +28,7 @@ async function worker(request: IncomingMessage, response: ServerResponse) {
       response.end(bytes);
       return;
     }
-    if (request.method !== 'POST' || !['/task', '/chat'].includes(url)) {
+    if (request.method !== 'POST' || !['/task', '/chat', '/scheduled-task'].includes(url)) {
       response.writeHead(404).end();
       return;
     }
@@ -44,8 +44,10 @@ async function worker(request: IncomingMessage, response: ServerResponse) {
     }
     const payload = JSON.parse(Buffer.concat(chunks).toString());
     const session = request.headers['x-cowork-session'];
-    const result = url === '/task' ? await runTask(payload.Task)
-      : await respond(payload, typeof session === 'string' && /^[a-f0-9]{48}$/.test(session) ? session : undefined);
+    let result;
+    if (url === '/task') result = await runTask(payload.Task);
+    else if (url === '/scheduled-task') result = await runScheduledTask(payload);
+    else result = await respond(payload, typeof session === 'string' && /^[a-f0-9]{48}$/.test(session) ? session : undefined);
     response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(result));
   } catch (error) {
     console.error('Cowork worker request failed:', error instanceof Error ? error.name : 'Unknown error');

@@ -40,6 +40,12 @@ type Task struct {
 	UI                                                  bool
 	Steps                                               []string
 	Artifacts                                           []Artifact
+	ScheduledFor                                        *time.Time `json:",omitempty"`
+	ScheduledStarted                                    *time.Time `json:",omitempty"`
+	ScheduledTimeZone                                   string     `json:",omitempty"`
+	Recurrence                                          string     `json:",omitempty"`
+	RecurrenceStart                                     *time.Time `json:",omitempty"`
+	Result                                              string     `json:",omitempty"`
 }
 type Reminder struct {
 	ID, Text, Author string
@@ -284,6 +290,14 @@ func API(w http.ResponseWriter, r *http.Request) {
 		}
 		session(w, "", -1)
 		jsonReply(w, 200, map[string]bool{"ok": true})
+		return
+	}
+	if route == "task/schedule" {
+		scheduleTask(w, r, d, account, space)
+		return
+	}
+	if route == "task/schedule/update" {
+		updateSchedule(w, r, d, account, space)
 		return
 	}
 	if route == "task" || route == "chat" {

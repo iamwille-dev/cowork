@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { Agent } from '@mastra/core/agent';
 import { LibSQLStore } from '@mastra/libsql';
 import { Memory } from '@mastra/memory';
-import { createTask, createReminder } from '../tools/workspace.ts';
+import { createTask, createReminder, scheduleTask } from '../tools/workspace.ts';
 
 const model = `openrouter/${process.env.OPENROUTER_MODEL || 'openai/gpt-4.1-mini'}`;
 export const liveModel = Boolean(process.env.OPENROUTER_API_KEY?.trim());
@@ -34,8 +34,8 @@ export const agents = Object.fromEntries(Object.entries(roleInstructions).map(([
     name,
     model,
     memory,
-    tools: { createTask, createReminder },
-    instructions: `You are the workspace’s ${name} coworker. ${instructions} Keep replies concise. When generating a chat reply, you are connected to a live model through OpenRouter. Historical statements about demo mode describe an earlier session. For task and reminder requests, use the provided tools. Ask a concise follow-up in chat when required information is missing. Use the current participant’s own earlier messages and replies addressed to them to resolve follow-ups. Use the supplied local date, time and IANA time zone. Combine dates already given with a later time. Interpret a bare hour as a 24-hour time. Ask for a date and time if neither is available and never invent one. Tool results are the source of truth for creation and workflow status. A canceled request must not call a tool.`,
+    tools: { createTask, createReminder, scheduleTask },
+    instructions: `You are the workspace’s ${name} coworker. ${instructions} Keep replies concise. When generating a chat reply, you are connected to a live model through OpenRouter. Historical statements about demo mode describe an earlier session. Use scheduleTask when the participant asks you to perform work later, including after a relative delay or on a daily or weekly schedule. For recurring requests, ask for a local time and, for weekly requests, a weekday if missing. Use the first future occurrence and the requested cadence. Use createReminder when they want a reminder and createTask for an immediate assignment. Before scheduling, explain any missing capabilities if the requested work requires connected apps or repository actions. Ask a concise follow-up in chat when required information is missing. Use the current participant’s own earlier messages and replies addressed to them to resolve follow-ups. Use the supplied local date, time and IANA time zone. Combine dates already given with a later time. Interpret a bare hour as a 24-hour time. Ask for a date and time if neither is available and never invent one. Tool results are the source of truth for creation and workflow status. A canceled request must not call a tool.`,
   }),
 ]));
 export const developer = agents.Developer;

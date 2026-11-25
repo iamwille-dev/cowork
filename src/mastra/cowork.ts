@@ -13,6 +13,18 @@ export async function runTask(task: Task) {
   return output.result;
 }
 
+export async function runScheduledTask({ Task, Role, TimeZone }: { Task: Task; Role: string; TimeZone: string }) {
+  if (!liveModel) return { Error: 'Set OPENROUTER_API_KEY to run scheduled tasks.' };
+  const localTime = new Intl.DateTimeFormat('en-CA', {
+    timeZone: TimeZone, dateStyle: 'full', timeStyle: 'long',
+  }).format(new Date());
+  const response = await mastra.getAgent(Role).generate(
+    `This is a scheduled run. Complete the recorded brief now and return the written deliverable. You have no tools during this run. If the brief requires unavailable information or actions, state what could not be completed. Current local time: ${localTime}.\n${JSON.stringify({ title: Task.Title, brief: Task.Brief })}`,
+    { activeTools: [] },
+  );
+  return response.text.trim() ? { Reply: response.text.trim() } : { Error: 'The agent returned no result.' };
+}
+
 type ChatTurn = {
   Role: string;
   Messages: { Author: string; Text: string; At: string; SenderID?: string }[];
@@ -26,7 +38,7 @@ type ChatTurn = {
   AgentConnectionKey?: string;
 };
 type WorkspaceRecords = {
-  Tasks?: { ID: string; Status: string; Error?: string }[];
+  Tasks?: { ID: string; Status: string; Error?: string; ScheduledFor?: string; Recurrence?: 'daily' | 'weekly' }[];
   Reminders?: { ID: string; Due: string }[];
 };
 
@@ -50,7 +62,7 @@ export async function respond({ Role, Messages, TimeZone, WorkspaceID, UseWorksp
         const response = await fetch(`http://127.0.0.1:4000/api/${route}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Cookie: `cowork_session=${session}` },
-          body: JSON.stringify(route === 'task' ? { ...data, ThreadID } : data),
+          body: JSON.stringify(route === 'reminder' ? data : { ...data, ThreadID, TimeZone }),
           signal: AbortSignal.timeout(95_000),
         });
         if (!response.ok) return { id: '', error: `Encore rejected the ${route} request (HTTP ${response.status}).` };
@@ -59,16 +71,18 @@ export async function respond({ Role, Messages, TimeZone, WorkspaceID, UseWorksp
         const task = workspace.Tasks?.find((item) => item.ID === id);
         const reminder = workspace.Reminders?.find((item) => item.ID === id);
         if (!id || (!task && !reminder)) return { id: '', error: 'Encore could not verify that the record was saved.' };
-        if (task) {
+        const due = task?.ScheduledFor || reminder?.Due;
+        if (due) {
+          const localDue = new Intl.DateTimeFormat('en-CA', {
+            timeZone: TimeZone, dateStyle: 'medium', timeStyle: task ? 'medium' : 'short',
+          }).format(new Date(due));
+          confirmations.push(task
+            ? `Task scheduled: ${data.Title} · ${task.Recurrence ? `Repeats ${task.Recurrence}. Next run ` : ''}${localDue} (${TimeZone}). Find the result in Tasks after it runs.`
+            : `Reminder saved: ${data.Text} · ${localDue} (${TimeZone}).`);
+        } else if (task) {
           confirmations.push(`Task created: ${data.Title} · ${task.Status}.${task.Error ? ' ' + task.Error : ''}`);
         }
-        if (reminder) {
-          const due = new Intl.DateTimeFormat('en-CA', {
-            timeZone: TimeZone, dateStyle: 'medium', timeStyle: 'short',
-          }).format(new Date(reminder.Due));
-          confirmations.push(`Reminder saved: ${data.Text} · ${due} (${TimeZone}).`);
-        }
-        return { id, status: task?.Status, due: reminder?.Due, error: task?.Error || undefined };
+        return { id, status: task?.Status, due, error: task?.Error || undefined };
       })().catch(() => ({ id: '', error: 'Encore did not confirm the write. Check the workspace before retrying.' }));
       writes.set(key, operation);
       return operation;
