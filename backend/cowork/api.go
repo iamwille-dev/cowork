@@ -182,6 +182,8 @@ type workerRequest struct {
 	Guest                    bool              `json:",omitempty"`
 	AgentConnectionWorkspace string            `json:",omitempty"`
 	AgentConnectionKey       string            `json:",omitempty"`
+	UseWorkspaceMemory       bool              `json:",omitempty"`
+	WorkspaceID              string            `json:",omitempty"`
 	ThreadID                 string            `json:",omitempty"`
 	Task                     Task
 	Role                     string
@@ -429,7 +431,7 @@ func runAgent(w http.ResponseWriter, r *http.Request, d *database, a Account, sp
 		fail(w, 404, "Conversation not found.")
 		return
 	}
-	request := workerRequest{Role: space.Role, ThreadID: input.ThreadID}
+	request := workerRequest{Role: space.Role, WorkspaceID: space.ID, ThreadID: input.ThreadID}
 	if route == "chat" {
 		if telegramThread(space, input.ThreadID) {
 			fail(w, 403, "Reply to this conversation in Telegram.")
@@ -445,6 +447,7 @@ func runAgent(w http.ResponseWriter, r *http.Request, d *database, a Account, sp
 			location = time.UTC
 		}
 		request.TimeZone = location.String()
+		request.UseWorkspaceMemory = !hasActiveGuestGrant(d, space.ID, input.ThreadID)
 		*messages = append(*messages, Message{Author: a.Name, Text: input.Text, At: time.Now(), SenderID: a.ID})
 		request.Messages = (*messages)[max(0, len(*messages)-24):]
 	} else {
@@ -526,6 +529,10 @@ func runAgent(w http.ResponseWriter, r *http.Request, d *database, a Account, sp
 			break
 		}
 	} else if err == nil {
+		if request.UseWorkspaceMemory && hasActiveGuestGrant(latest, space.ID, input.ThreadID) {
+			fail(w, 409, "Message saved. Guest access changed while the agent was replying.")
+			return
+		}
 		messages = threadMessages(space, input.ThreadID)
 		if messages == nil {
 			fail(w, 404, "Conversation not found.")

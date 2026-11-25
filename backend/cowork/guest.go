@@ -164,7 +164,7 @@ func guestChat(w http.ResponseWriter, r *http.Request, d *database, grant guestG
 		location = time.UTC
 	}
 	*messages = append(*messages, Message{Author: grant.Name, Text: text, At: time.Now(), SenderID: grant.GuestID})
-	request := workerRequest{Role: space.Role, ThreadID: grant.ThreadID, TimeZone: location.String(), Messages: (*messages)[max(0, len(*messages)-24):], Guest: true}
+	request := workerRequest{Role: space.Role, WorkspaceID: space.ID, ThreadID: grant.ThreadID, TimeZone: location.String(), Messages: (*messages)[max(0, len(*messages)-24):], Guest: true}
 	if save(d) != nil {
 		fail(w, 500, "Could not save the message.")
 		return

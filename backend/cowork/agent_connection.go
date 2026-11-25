@@ -54,12 +54,19 @@ func updateAgentConnection(w http.ResponseWriter, r *http.Request, d *database, 
 	view(w, d, account)
 }
 
-func protectCredentialThread(d *database, workspaceID, threadID string) bool {
+func hasActiveGuestGrant(d *database, workspaceID, threadID string) bool {
 	now := time.Now()
 	for _, grant := range d.GuestGrants {
 		if grant.WorkspaceID == workspaceID && grant.ThreadID == threadID && grant.Expires.After(now) {
-			return false
+			return true
 		}
+	}
+	return false
+}
+
+func protectCredentialThread(d *database, workspaceID, threadID string) bool {
+	if hasActiveGuestGrant(d, workspaceID, threadID) {
+		return false
 	}
 	if d.AgentConnectionThreads == nil {
 		d.AgentConnectionThreads = make(map[string]map[string]bool)

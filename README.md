@@ -81,6 +81,14 @@ A workspace owner can save, replace, or remove GitHub.com and GitLab.com access 
 
 In an internal conversation, ask the agent to pull a repository by its HTTPS URL, for example, “Pull https://github.com/my-org/my-repo and summarize the README.” The agent fetches the latest default branch and can read text files during that turn. Cowork deletes temporary checkouts when the turn ends. Conversations where the tools have been made available are protected from guest invitations.
 
+## Workspace memory
+
+Ask the agent “Remember that the launch codename is Sky Lantern.” Later in another signed-in conversation in the same workspace, ask “What is the launch codename?” You can also ask the agent to update or forget a saved detail. Forgetting a detail removes it from working memory. It can still appear in the chat transcript.
+
+All four roles use Mastra working memory for durable project facts, decisions, and participant preferences. Signed-in conversations share memory within the workspace. Telegram and conversations with an active guest invitation or guest session use their own conversation memory. An email invitation shares the existing transcript, including any earlier agent replies. Encore continues to provide the chat history. Scheduled tasks use their saved briefs.
+
+Memory is stored in `backend/.cowork/memory.db` and survives worker restarts. Keep the existing persistent volume mounted to retain it across deployments.
+
 ## Create work from a conversation
 
 Type `Create a task to draft the launch page` or `Remind me to review the launch tomorrow at 10 am`. When required details are missing, the agent asks in the conversation. The `createTask` and `createReminder` Mastra tools submit validated inputs to Encore under the caller’s current session. Dates and times are interpreted in the browser’s time zone. Developer tasks run the workflow, while assignments in other roles are recorded for tracking.
@@ -125,7 +133,7 @@ Framework references are available in the [Mastra quickstart](https://mastra.ai/
 
 Cowork runs as one container with Next.js on port 4400 and the Encore and Mastra services on loopback. `deploy/package.sh` builds the Encore Linux/amd64 release and prints a temporary release directory. Build locally with `docker build -f RELEASE/Dockerfile RELEASE`. For a Coolify build without a Git checkout, stage `RELEASE/cowork-release.tar.xz` on a private endpoint reachable from the build server. Replace the Dockerfile’s copy step with a checksum-verified archive download and extraction into `/app`. The package includes source and the compiled backend. It omits `.env` and local workspace data.
 
-Before deploying this version, configure a PostgreSQL database reachable from the app container and set its connection URL as the runtime-only `DATABASE_URL`. For a PostgreSQL service on the same Coolify network, use its internal hostname. Mount persistent storage at `/app/backend/.cowork` for artifacts, the local encryption key, and the legacy import. Configure OpenRouter and SES as runtime-only variables, set `COWORK_PUBLIC_URL` to the public HTTPS URL, and use `/api/health` on port 4400 for health checks. When Cloudflare Tunnel provides HTTPS, set the Coolify application URL to `http://cowork.iamwille.xyz:4400` so the proxy targets Cowork’s internal port. Set `COWORK_PUBLIC_URL=https://cowork.iamwille.xyz` for guest links.
+Before deploying this version, configure a PostgreSQL database reachable from the app container and set its connection URL as the runtime-only `DATABASE_URL`. For a PostgreSQL service on the same Coolify network, use its internal hostname. Mount persistent storage at `/app/backend/.cowork` for artifacts, conversation memory, the local encryption key, and the legacy import. Configure OpenRouter and SES as runtime-only variables, set `COWORK_PUBLIC_URL` to the public HTTPS URL, and use `/api/health` on port 4400 for health checks. When Cloudflare Tunnel provides HTTPS, set the Coolify application URL to `http://cowork.iamwille.xyz:4400` so the proxy targets Cowork’s internal port. Set `COWORK_PUBLIC_URL=https://cowork.iamwille.xyz` for guest links.
 
 ### Deploy from GitHub main
 

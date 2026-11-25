@@ -91,7 +91,7 @@ func receiveTelegramMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	turn := workerRequest{
-		Role: space.Role, ThreadID: thread.ID, TimeZone: "UTC", Guest: true,
+		Role: space.Role, WorkspaceID: space.ID, ThreadID: thread.ID, TimeZone: "UTC", Guest: true,
 		Messages: thread.Messages[max(0, len(thread.Messages)-24):],
 	}
 	mutex.Unlock()
