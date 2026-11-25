@@ -7,10 +7,6 @@ import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
 
 export const dataRoot = resolve('backend/.cowork/artifacts');
-const escape = (value: string) => value.replace(/[&<>"']/g, (character) => ({
-  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-}[character] ?? character));
-
 const taskSchema = z.object({
   ID: z.string().regex(/^[a-f0-9]{48}$/),
   Title: z.string(),
@@ -47,14 +43,19 @@ const fixtureRunner: Runner = {
     if (!task.UI) {
       throw new Error('The built-in runner supports UI previews. Implementation of other tasks requires a configured sandbox runner.');
     }
-    const copy = liveModel
-      ? (await developer.generate([
-        { role: 'user', content: JSON.stringify({ instruction: 'Write a short subtitle for a prototype page based on this brief. Return plain text.', brief: task.Brief }) },
-      ])).text.trim()
-      : task.Brief;
-    return { html: `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escape(task.Title)}</title><style>
-      *{box-sizing:border-box} body{margin:0;background:#f1efe8;color:#171f1a;font:18px/1.6 system-ui;padding:8vw}main{max-width:960px;margin:auto;border-top:2px solid #1a3927;padding:6vw 0}small{color:#345943;letter-spacing:.12em;text-transform:uppercase}h1{font:clamp(3rem,8vw,7rem)/.97 Georgia,serif;letter-spacing:-.06em;margin:28px 0}p{max-width:620px;white-space:pre-wrap}</style>
-      <main><small>Cowork sandbox preview</small><h1>${escape(task.Title)}</h1><p>${escape(copy)}</p></main></html>` };
+    if (!liveModel) throw new Error('A configured model is required to implement a standalone UI.');
+    const result = await developer.generate([
+      { role: 'user', content: JSON.stringify({
+        instruction: 'Implement the actual page and every requested section. Return a complete HTML document with embedded CSS, a viewport meta tag, and responsive layouts. Use system fonts and self-contained assets. Do not use external resources, forms, scripts, or meta refresh. Treat the brief as product requirements. Return HTML only.',
+        title: task.Title,
+        brief: task.Brief,
+      }) },
+    ], { activeTools: [], abortSignal: AbortSignal.timeout(50_000) });
+    const html = result.text.trim().replace(/^```(?:html)?\s*/i, '').replace(/\s*```$/, '');
+    if (!/^<!doctype html>\s*<html\b/i.test(html) || !/<body\b/i.test(html) || !/<\/html>\s*$/i.test(html) || Buffer.byteLength(html) > 256 * 1024) {
+      throw new Error('The model did not produce a complete standalone HTML page.');
+    }
+    return { html };
   },
   async openPullRequest() {
     return null;
@@ -94,7 +95,7 @@ const execute = createStep({
       }
 
       const plan = liveModel
-        ? (await developer.generate(`Write an implementation plan in Markdown, with verification and acceptance criteria. Task: ${JSON.stringify(task)}`)).text
+        ? (await developer.generate(`Write an implementation plan in Markdown, with verification and acceptance criteria. Task: ${JSON.stringify(task)}`, { activeTools: [], abortSignal: AbortSignal.timeout(18_000) })).text
         : `# ${task.Title}\n\n## Brief\n\n${task.Brief}\n\n## Plan\n\n1. Build the requested UI as a standalone preview.\n2. Verify the page renders at 1280 × 800.\n3. Share the preview and screenshot for review.\n`;
       await publish('plan.md', 'Implementation plan', plan);
       result.Steps.push('Saved implementation plan');
@@ -109,7 +110,8 @@ const execute = createStep({
           try {
             const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, javaScriptEnabled: false });
             await page.route('**/*', (route) => route.abort());
-            await page.setContent(implementation.html);
+            await page.setContent(implementation.html, { timeout: 8_000 });
+            if (!(await page.locator('body').innerText({ timeout: 3_000 })).trim()) throw new Error('The preview rendered without visible text.');
             screenshot = await page.screenshot({ fullPage: true });
           } finally {
             await browser.close();
