@@ -7,21 +7,29 @@ import { z } from 'zod';
 const endpoint = 'https://agent-connections.iamwille.xyz/mcp';
 const connectionId = z.string().min(1).describe('Connection ID returned by list_connections.');
 
-export function agentConnectionTools(workspaceId?: string, savedKey?: string): ToolsetsInput | undefined {
+export function agentConnection(workspaceId?: string, savedKey?: string) {
   if (!workspaceId) return undefined;
   const key = savedKey || (workspaceId === process.env.AGENT_CONNECTION_WORKSPACE_ID
     ? process.env.AGENT_CONNECTION_KEY?.trim()
     : undefined);
   if (!key) return undefined;
 
-  async function call(name: string, args: Record<string, unknown>) {
+  async function connect<T>(use: (client: Client) => Promise<T>) {
     const client = new Client({ name: 'cowork', version: '1.0.0' });
     const transport = new StreamableHTTPClientTransport(new URL(endpoint), {
       requestInit: { headers: { Authorization: `Bearer ${key}` }, redirect: 'error' },
     });
     try {
       await client.connect(transport, { timeout: 5_000 });
-      const result = await client.callTool({ name, arguments: args }, undefined, { timeout: 12_000 });
+      return await use(client);
+    } finally {
+      await transport.close().catch(() => {});
+    }
+  }
+
+  async function call(name: string, args: Record<string, unknown>) {
+    try {
+      const result = await connect((client) => client.callTool({ name, arguments: args }, undefined, { timeout: 12_000 }));
       if (result.isError) return { error: 'Agent Connections could not complete the Gmail request. Check the mailbox grant or reconnect it.' };
       return result.structuredContent ?? result.content;
     } catch (error) {
@@ -29,16 +37,14 @@ export function agentConnectionTools(workspaceId?: string, savedKey?: string): T
         return { error: 'Agent Connections rejected the agent key. Ask the workspace owner to replace it in Settings.' };
       }
       return { error: 'Agent Connections is unavailable. Try again later.' };
-    } finally {
-      await transport.close().catch(() => {});
     }
   }
 
-  return {
+  const tools: ToolsetsInput = {
     agentConnection: {
       list_connections: createTool({
         id: 'list_connections',
-        description: 'List the connections granted to this Agent Connections key to find the work Gmail mailbox.',
+        description: 'List connections granted to the workspace Agent Connections key.',
         inputSchema: z.object({}),
         execute: () => call('list_connections', {}),
       }),
@@ -63,4 +69,5 @@ export function agentConnectionTools(workspaceId?: string, savedKey?: string): T
       }),
     },
   };
+  return { tools, connect };
 }
