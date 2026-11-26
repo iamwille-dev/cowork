@@ -188,7 +188,7 @@ function SlackConnectionForm({ owner, agent }: { owner: boolean; agent?: Channel
     : undefined;
   return (
     <div className="stack">
-      <h4 className="font-semibold">{agent ? 'Slack' : 'Cowork for Slack'}</h4>
+      <h4 className="font-semibold">{agent ? `${name} · ${channelAgents[agent].role}` : 'Cowork'}</h4>
       <p>{connected
         ? `Connected to ${connection.team}. DM ${name}, or invite the app to a channel and mention @${name}.`
         : connection && !connection.available
@@ -230,7 +230,7 @@ function TelegramForm({ owner, agent, destination, telegramBot, saveTelegram }: 
     }
   }
   return <div className="grid gap-y-3">
-    <h4 className="font-semibold">{agent ? 'Telegram' : 'Cowork for Telegram'}</h4>
+    <h4 className="font-semibold">{agent ? `${channelAgents[agent].name} · ${channelAgents[agent].role}` : 'Cowork'}</h4>
     <p>{telegramBot ? `Saved bot @${telegramBot}` : 'Add the workspace bot to your Telegram group and disable group privacy in BotFather.'}</p>
     {owner && <form className="settings-channel-form grid gap-y-3" onSubmit={(event) => {
       event.preventDefault();
@@ -385,22 +385,24 @@ export function Settings(props: SettingsProps) {
       )}
       {active === 'channels' && (
         <SettingsSection title="Messaging channels" description="Connect your Cowork agent to the places your team chats.">
-          <div className="grid gap-y-5">
-            {channelAgentIds.map((agent) => {
-              const profile = channelAgents[agent];
-              const telegram = props.telegramAgents?.[agent];
-              return (
-                <section key={agent} className="grid gap-y-5 border-b border-current/10 pb-5" aria-label={profile.name}>
-                  <h3 className="text-base font-semibold">{profile.name} · {profile.role}</h3>
-                  <SlackConnectionForm owner={props.owner} agent={agent} />
-                  <TelegramForm key={JSON.stringify([telegram?.Username, telegram?.Destination])} owner={props.owner}
+          <div className="grid gap-y-8">
+            <section className="grid gap-y-5 border-b border-current/10 pb-6" aria-labelledby="slack-settings">
+              <h3 id="slack-settings" className="text-base font-semibold">Slack</h3>
+              {channelAgentIds.map((agent) => <SlackConnectionForm key={agent} owner={props.owner} agent={agent} />)}
+              <SlackConnectionForm owner={props.owner} />
+            </section>
+            <section className="grid gap-y-5 border-b border-current/10 pb-6" aria-labelledby="telegram-settings">
+              <h3 id="telegram-settings" className="text-base font-semibold">Telegram</h3>
+              {channelAgentIds.map((agent) => {
+                const telegram = props.telegramAgents?.[agent];
+                return (
+                  <TelegramForm key={JSON.stringify([agent, telegram?.Username, telegram?.Destination])} owner={props.owner}
                     agent={agent} telegramBot={telegram?.Username} destination={telegram?.Destination} saveTelegram={props.saveTelegram} />
-                </section>
-              );
-            })}
-            <SlackConnectionForm owner={props.owner} />
-            {props.telegramBot && <TelegramForm key={JSON.stringify([props.telegramBot, props.channels.Telegram])}
-              owner={props.owner} telegramBot={props.telegramBot} destination={props.channels.Telegram} saveTelegram={props.saveTelegram} />}
+                );
+              })}
+              {props.telegramBot && <TelegramForm key={JSON.stringify([props.telegramBot, props.channels.Telegram])}
+                owner={props.owner} telegramBot={props.telegramBot} destination={props.channels.Telegram} saveTelegram={props.saveTelegram} />}
+            </section>
             <ChannelForm key={props.channels.WhatsApp} provider="WhatsApp" destination={props.channels.WhatsApp ?? ''}
               owner={props.owner} saveChannel={props.saveChannel} />
           </div>
