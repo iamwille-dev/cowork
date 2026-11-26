@@ -27,7 +27,7 @@ const recordMessage = ({ WorkspaceID, Version }: Installation): ChannelHandler =
       At: message.metadata.dateSent,
       Reply: Boolean(message.isMention || message.replyTo?.author.isMe),
     }),
-    signal: AbortSignal.timeout(130_000),
+    signal: AbortSignal.timeout(185_000),
   });
   if (!response.ok) throw new Error(`Cowork could not process Telegram message (HTTP ${response.status}).`);
   const { reply } = await response.json() as { reply?: string };

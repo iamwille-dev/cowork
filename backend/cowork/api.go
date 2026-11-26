@@ -65,6 +65,7 @@ type Workspace struct {
 	Reminders               []Reminder
 	Channels                map[string]string
 	AgentConnectionEnabled  bool `json:",omitempty"`
+	ChannelTools            channelToolSettings
 }
 
 var roles = map[string]bool{"Developer": true, "Product Manager": true, "Sales Lead": true, "Social Media": true}
@@ -184,13 +185,15 @@ func authenticate(w http.ResponseWriter, r *http.Request, d *database, action st
 }
 
 type workerRequest struct {
-	GitTokens                map[string]string `json:",omitempty"`
-	Guest                    bool              `json:",omitempty"`
-	AgentConnectionWorkspace string            `json:",omitempty"`
-	AgentConnectionKey       string            `json:",omitempty"`
-	UseWorkspaceMemory       bool              `json:",omitempty"`
-	WorkspaceID              string            `json:",omitempty"`
-	ThreadID                 string            `json:",omitempty"`
+	ChannelActor             *channelActor        `json:",omitempty"`
+	ChannelTools             *channelToolSettings `json:",omitempty"`
+	GitTokens                map[string]string    `json:",omitempty"`
+	Guest                    bool                 `json:",omitempty"`
+	AgentConnectionWorkspace string               `json:",omitempty"`
+	AgentConnectionKey       string               `json:",omitempty"`
+	UseWorkspaceMemory       bool                 `json:",omitempty"`
+	WorkspaceID              string               `json:",omitempty"`
+	ThreadID                 string               `json:",omitempty"`
 	Task                     Task
 	Role                     string
 	TimeZone                 string
@@ -219,7 +222,11 @@ func worker(ctx context.Context, path string, input workerRequest, session strin
 	client := workerClient
 	if path == "chat" {
 		request.Header.Set("X-Cowork-Session", session)
-		client = &http.Client{Timeout: 125 * time.Second}
+		timeout := 125 * time.Second
+		if input.ChannelActor != nil {
+			timeout = 180 * time.Second
+		}
+		client = &http.Client{Timeout: timeout}
 	}
 	res, err := client.Do(request)
 	if err != nil {
@@ -306,6 +313,23 @@ func API(w http.ResponseWriter, r *http.Request) {
 	}
 	if route == "task" || route == "chat" {
 		runAgent(w, r, d, account, space, route)
+		return
+	}
+	if route == "channel-tools" {
+		if account.ID != space.Owner {
+			fail(w, 403, "Workspace owner access required.")
+			return
+		}
+		var settings channelToolSettings
+		if !decode(w, r, &settings) {
+			return
+		}
+		space.ChannelTools = settings
+		if err := save(d); err != nil {
+			fail(w, 500, "Could not save channel tool settings.")
+			return
+		}
+		view(w, d, account)
 		return
 	}
 	if route == "agent-connection" {

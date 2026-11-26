@@ -67,7 +67,7 @@ In Cowork, the workspace owner opens **Settings → Messaging channels → Slack
 3. Under **Event Subscriptions**, verify `<origin>/integrations/slack/events` and subscribe to bot events `app_mention`, `message.channels`, `message.groups`, `message.im`, `message.mpim`, and `app_uninstalled`. Enable the Messages tab in **App Home** and allow users to send messages.
 4. Activate distribution in **Manage Distribution**. The integration supports workspace-level installations. See [Slack app distribution](https://docs.slack.dev/app-management/distribution/).
 
-Each Slack workspace is associated with one Cowork workspace. Slack messages use Mastra Channels and stay separate from Cowork conversations and tools. The worker stores installation tokens encrypted in `backend/.cowork/slack-oauth.db`. Run one worker per deployment and retain the state volume and encryption key across restarts. If you used the earlier token-based prototype, remove its separately provisioned app from Slack and install the shared app through Cowork.
+Each Slack workspace is associated with one Cowork workspace. Slack messages use Mastra Channels and keep their own conversation history. The worker stores installation tokens encrypted in `backend/.cowork/slack-oauth.db`. Run one worker per deployment and retain the state volume and encryption key across restarts. If you used the earlier token-based prototype, remove its separately provisioned app from Slack and install the shared app through Cowork.
 
 ## Telegram group conversations
 
@@ -76,7 +76,13 @@ Each Slack workspace is associated with one Cowork workspace. Slack messages use
 3. As the workspace owner, open **Settings → Messaging channels → Telegram** and save the BotFather token and numeric group ID, including its leading minus sign. Cowork checks and encrypts the token and starts polling within a few seconds. Use a dedicated bot for each workspace.
 4. Send text from two Telegram accounts and mention the bot or reply to its message. Open **Conversations** in Cowork to see both participants and the agent's reply. Replies are sent from Telegram. The bot mirrors new text messages it receives and keeps forum topics separate.
 
-Mastra Channels uses the [Telegram adapter](https://mastra.ai/blog/introducing-channels) in polling mode. Run one worker per deployment. Telegram turns have no workspace tools or connected credentials.
+Mastra Channels uses the [Telegram adapter](https://mastra.ai/blog/introducing-channels) in polling mode. Run one worker per deployment. Slack and Telegram tool access is configured by the Cowork workspace owner.
+
+## Workspace tools in Slack and Telegram
+
+In **Settings → Messaging channels**, a Cowork workspace owner can independently enable repository listing and task creation for both channels. Both permissions start disabled. People in the linked channel can use enabled tools without a Cowork account. The agent uses the linked workspace’s repository connections; list results are visible in the conversation where they were requested. Developer tasks run through the linked Cowork workspace’s configured workflow and sandbox. Other roles create assigned tasks for tracking.
+
+Slack tool access is limited to full members of the installed Slack workspace, and externally shared Slack Connect channels are excluded. Telegram access covers participants in the configured group. Enable these tools only for audiences that can see the linked workspace’s repository names or assign it work. Set the same `MASTRA_ENCRYPTION_KEY` on the worker and Encore for Slack tools. Telegram uses the existing `COWORK_TELEGRAM_BRIDGE_SECRET`.
 
 ## Connect a work Gmail mailbox
 

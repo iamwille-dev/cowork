@@ -1,4 +1,5 @@
 import { getRequestListener } from '@hono/node-server';
+import { respondFromChannel } from './mastra/channel-tools.ts';
 import { handleSlack } from './mastra/slack.ts';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFile } from 'node:fs/promises';
@@ -49,7 +50,11 @@ async function worker(request: IncomingMessage, response: ServerResponse) {
     let result;
     if (url === '/task') result = await runTask({ ...payload.Task, WorkspaceID: payload.WorkspaceID });
     else if (url === '/scheduled-task') result = await runScheduledTask(payload);
-    else result = await respond(payload, typeof session === 'string' && /^[a-f0-9]{48}$/.test(session) ? session : undefined);
+    else if (payload.ChannelActor?.Channel === 'telegram') {
+      result = { Reply: await respondFromChannel(payload.ChannelActor, payload.Messages, {
+        onToolsDisabled: async () => (await respond({ ...payload, Guest: true })).Reply,
+      }) || '' };
+    } else result = await respond(payload, typeof session === 'string' && /^[a-f0-9]{48}$/.test(session) ? session : undefined);
     response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(result));
   } catch (error) {
     console.error('Cowork worker request failed:', error instanceof Error ? error.name : 'Unknown error');

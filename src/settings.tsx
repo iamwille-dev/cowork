@@ -12,6 +12,7 @@ const sections = [
 const gitProviders = { github: 'GitHub', gitlab: 'GitLab' } as const;
 export type GitProvider = keyof typeof gitProviders;
 type Theme = 'light' | 'dark';
+export type ChannelToolSettings = { Repositories: boolean; Tasks: boolean };
 
 type SettingsProps = {
   theme: Theme;
@@ -20,6 +21,8 @@ type SettingsProps = {
   invite: string;
   channels: Partial<Record<'WhatsApp' | 'Telegram', string>>;
   telegramBot?: string;
+  channelTools: ChannelToolSettings;
+  saveChannelTools: (settings: ChannelToolSettings) => Promise<boolean>;
   saveTelegram: (settings: { Token?: string; Destination?: string; Remove?: boolean }) => Promise<boolean>;
   changeTheme: (theme: Theme) => void;
   saveChannel: (provider: 'WhatsApp', destination: string, button: HTMLButtonElement) => void;
@@ -127,6 +130,37 @@ type SlackConnection = {
   appId?: string;
   teamId?: string;
 };
+
+function ChannelToolsForm({ owner, channelTools, saveChannelTools }: Pick<SettingsProps, 'owner' | 'channelTools' | 'saveChannelTools'>) {
+  const [saving, setSaving] = useState(false);
+  return (
+    <form className="stack" onSubmit={async (event) => {
+      event.preventDefault();
+      if (!owner || saving) return;
+      const values = new FormData(event.currentTarget);
+      setSaving(true);
+      try {
+        await saveChannelTools({ Repositories: values.has('Repositories'), Tasks: values.has('Tasks') });
+      } finally {
+        setSaving(false);
+      }
+    }}>
+      <h3 className="font-semibold">Workspace tools in Slack and Telegram</h3>
+      <p>Enable tools for Slack workspace members and people in the connected Telegram group. Repository lists and task confirmations are visible to people who can read the conversation.</p>
+      <fieldset key={JSON.stringify(channelTools)} disabled={!owner || saving} className="grid gap-2">
+        <label className="flex items-center gap-2">
+          <input type="checkbox" name="Repositories" defaultChecked={channelTools.Repositories} />
+          List repositories from this workspace’s connected accounts
+        </label>
+        <label className="flex items-center gap-2">
+          <input type="checkbox" name="Tasks" defaultChecked={channelTools.Tasks} />
+          Create tasks and run them in this workspace’s Developer sandbox
+        </label>
+      </fieldset>
+      {owner && <div><button className="primary" type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save tool access'}</button></div>}
+    </form>
+  );
+}
 
 function SlackConnectionForm({ owner }: { owner: boolean }) {
   const [connection, setConnection] = useState<SlackConnection>();
@@ -377,6 +411,7 @@ export function Settings(props: SettingsProps) {
       {active === 'channels' && (
         <SettingsSection title="Messaging channels" description="Connect your Cowork agent to the places your team chats.">
           <div className="grid gap-y-5">
+            <ChannelToolsForm owner={props.owner} channelTools={props.channelTools} saveChannelTools={props.saveChannelTools} />
             <SlackConnectionForm owner={props.owner} />
             <TelegramForm key={JSON.stringify([props.telegramBot, props.channels.Telegram])} {...props} />
             <ChannelForm key={props.channels.WhatsApp} provider="WhatsApp" destination={props.channels.WhatsApp ?? ''}

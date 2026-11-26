@@ -1,6 +1,8 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { resolve } from 'node:path';
 import { createClient } from '@libsql/client';
+import type { ChannelHandler } from '@mastra/core/channels';
+import { respondFromChannel } from './channel-tools.ts';
 import { Agent } from '@mastra/core/agent';
 import { Mastra } from '@mastra/core/mastra';
 import { LibSQLStore } from '@mastra/libsql';
@@ -96,7 +98,49 @@ function createIntegration(settings: NonNullable<typeof config>) {
     return await response.json() as T & { ok?: boolean; error?: string };
   }
 
-  async function createChannels(id: string, botUser: string, token: string, role: Role) {
+  async function createChannels(id: string, botUser: string, token: string, role: Role, workspace: string, team: string) {
+    const installationActive = async () => {
+      const { rows } = await db.execute({
+        sql: 'SELECT 1 FROM cowork_slack_installations WHERE installation_id = ? AND workspace = ? AND team_id = ?',
+        args: [id, workspace, team],
+      });
+      return rows.length > 0;
+    };
+    const handle: ChannelHandler = async (thread, message, defaultHandler) => {
+      if (message.author.isBot === true || message.author.isMe || !message.text.trim()) return;
+      // Slack Connect and external guests cannot use the linked workspace's tools.
+      const userResponse = await fetch('https://slack.com/api/users.info?' + new URLSearchParams({ user: message.author.userId }), {
+        headers: { Authorization: 'Bearer ' + token }, signal: AbortSignal.timeout(5000),
+      }).catch(() => undefined);
+      const identity = await userResponse?.json().catch(() => undefined) as {
+        ok?: boolean; user?: { team_id?: string; team?: string; is_stranger?: boolean; is_external?: boolean; suspended?: boolean; is_bot?: boolean; is_restricted?: boolean; is_ultra_restricted?: boolean; deleted?: boolean };
+      } | undefined;
+      const user = identity?.user;
+      if (!identity?.ok || !user || (user.team_id ?? user.team) !== team || user.is_stranger ||
+          user.is_external || user.suspended || user.is_bot || user.is_restricted || user.is_ultra_restricted || user.deleted) {
+        await defaultHandler(thread, message);
+        return;
+      }
+      await thread.refresh().catch(() => undefined);
+      const history = thread.recentMessages.filter((item) => item.id !== message.id && item.text.trim())
+        .sort((a, b) => a.metadata.dateSent.getTime() - b.metadata.dateSent.getTime()).slice(-23);
+      const messages = [...history, message].map((item) => ({
+        Author: item.author.fullName || item.author.userName,
+        Text: item.text.slice(0, 4000),
+        SenderID: item.author.userId,
+      }));
+      const reply = await respondFromChannel({
+        WorkspaceID: workspace, Channel: 'slack', Installation: id, Conversation: thread.id,
+        SenderID: message.author.userId, Author: message.author.fullName || message.author.userName,
+      }, messages, {
+        installationActive,
+        onToolsDisabled: () => defaultHandler(thread, message),
+      });
+      if (reply && await installationActive()) {
+        await thread.post(reply);
+        if (!thread.isDM) await thread.subscribe();
+      }
+    };
     const agent = new Agent({
       id: 'cowork-slack-' + id,
       name: 'Cowork',
@@ -108,7 +152,7 @@ function createIntegration(settings: NonNullable<typeof config>) {
         tools: false,
         inlineLinks: [],
         inlineMedia: [],
-        handlers: { onMessage: false, onSlashCommand: false, onAction: false },
+        handlers: { onDirectMessage: handle, onMention: handle, onSubscribedMessage: handle, onMessage: false, onSlashCommand: false, onAction: false },
       },
     });
     const instance = agent.getChannels()!;
@@ -215,7 +259,7 @@ function createIntegration(settings: NonNullable<typeof config>) {
     }
     const payload = JSON.parse(body) as {
       type: string; challenge?: string; team_id?: string; api_app_id?: string;
-      event_time?: number; event?: { type?: string };
+      event_time?: number; is_ext_shared_channel?: boolean; event?: { type?: string };
     };
     if (payload?.type === 'url_verification' && typeof payload.challenge === 'string') return c.json({ challenge: payload.challenge });
     if (payload?.type !== 'event_callback' || payload.api_app_id !== settings.appId || !payload.team_id) return c.json({ ok: true });
@@ -232,10 +276,10 @@ function createIntegration(settings: NonNullable<typeof config>) {
       }
       return c.json({ ok: true });
     }
-    if (!liveModel) return c.json({ ok: true });
+    if (!liveModel || payload.is_ext_shared_channel) return c.json({ ok: true });
     let channel = channels.get(id);
     if (!channel) {
-      channel = createChannels(id, String(row.bot_user), decrypt(String(row.bot_token), id), row.role as Role)
+      channel = createChannels(id, String(row.bot_user), decrypt(String(row.bot_token), id), row.role as Role, String(row.workspace), String(row.team_id))
         .catch((error: unknown) => { channels.delete(id); throw error; });
       channels.set(id, channel);
     }
