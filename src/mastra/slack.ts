@@ -333,20 +333,61 @@ function createIntegration(settings: NonNullable<ReturnType<typeof configuration
     const body = await c.req.text();
     const timestamp = c.req.header('x-slack-request-timestamp') ?? '';
     const signature = c.req.header('x-slack-signature') ?? '';
-    if (!/^\d{10}$/.test(timestamp) || !verifySlackRequest({ signingSecret: settings.signingSecret, timestamp, signature, body })) {
+    const logWebhook = (event: string, fields: object = {}) => {
+      console.info(JSON.stringify({ timestamp: new Date().toISOString(), event, agent: agentId || 'cowork', ...fields }));
+    };
+    const payload = (() => {
+      try {
+        return JSON.parse(body) as {
+          type?: string; challenge?: string; team_id?: string; api_app_id?: string;
+          event_time?: number; is_ext_shared_channel?: boolean;
+          event?: { type?: string; channel_type?: string; channel?: string; ts?: string };
+        } | null;
+      } catch {
+        return null;
+      }
+    })();
+    const verification = payload?.type === 'url_verification';
+    const validTimestamp = /^\d{10}$/.test(timestamp);
+    const currentTimestamp = validTimestamp && Math.abs(Date.now() / 1000 - Number(timestamp)) <= 300;
+    if (!currentTimestamp || !verifySlackRequest({ signingSecret: settings.signingSecret, timestamp, signature, body })) {
+      if (verification || signature) {
+        logWebhook('slack.webhook.rejected', {
+          request: verification ? 'verification' : 'event',
+          reason: !timestamp || !signature ? 'missing_signature_headers' : !currentTimestamp ? 'invalid_timestamp' : 'signature_mismatch',
+        });
+      }
       return c.json({ error: 'Invalid Slack signature.' }, 401);
     }
-    const payload = JSON.parse(body) as {
-      type: string; challenge?: string; team_id?: string; api_app_id?: string;
-      event_time?: number; is_ext_shared_channel?: boolean; event?: { type?: string };
+    if (!payload || typeof payload !== 'object') return c.json({ error: 'Invalid Slack JSON.' }, 400);
+    if (verification) {
+      if (typeof payload.challenge !== 'string' || !payload.challenge) return c.json({ error: 'Invalid Slack challenge.' }, 400);
+      logWebhook('slack.verification.replied');
+      return c.text(payload.challenge);
+    }
+    if (payload.type !== 'event_callback') return c.json({ ok: true });
+    const mention = payload.event?.type === 'app_mention';
+    const audit = {
+      messageId: payload.event?.ts,
+      channelId: payload.event?.channel,
     };
-    if (payload?.type === 'url_verification' && typeof payload.challenge === 'string') return c.json({ challenge: payload.challenge });
-    if (payload?.type !== 'event_callback' || payload.api_app_id !== settings.appId || !payload.team_id) return c.json({ ok: true });
+    const ignore = (reason: string) => {
+      if (mention) logWebhook('slack.mention.ignored', { ...audit, reason });
+      return c.json({ ok: true });
+    };
+    if (payload.api_app_id !== settings.appId || !payload.team_id) return ignore('app_or_team_mismatch');
+    const uninstall = payload.event?.type === 'app_uninstalled';
+    if (agentId && !mention && !uninstall &&
+        (payload.event?.type !== 'message' || payload.event.channel_type !== 'im')) {
+      return c.json({ ok: true });
+    }
+
+    if (mention) logWebhook('slack.mention.delivered', audit);
     await initialize();
     const { rows: [row] } = await db.execute({
       sql: 'SELECT * FROM cowork_slack_agent_installations WHERE team_id = ? AND agent = ?', args: [payload.team_id, agentId],
     });
-    if (!row) return c.json({ ok: true });
+    if (!row) return ignore('installation_missing');
     const id = String(row.installation_id);
     if (payload.event?.type === 'app_uninstalled') {
       if (Number(row.installed_at) < (Number(payload.event_time) + 1) * 1000) {
@@ -355,16 +396,24 @@ function createIntegration(settings: NonNullable<ReturnType<typeof configuration
       }
       return c.json({ ok: true });
     }
-    if (!liveModel || payload.is_ext_shared_channel) return c.json({ ok: true });
+    if (!liveModel) return ignore('model_unavailable');
+    if (payload.is_ext_shared_channel) return ignore('slack_connect_channel');
     let channel = channels.get(id);
     if (!channel) {
       channel = createChannels(id, String(row.bot_user), decrypt(String(row.bot_token), id), row.role as Role, String(row.workspace), String(row.team_id))
         .catch((error: unknown) => { channels.delete(id); throw error; });
       channels.set(id, channel);
     }
-    return (await channel).handleWebhookEvent('slack', new Request(c.req.url, {
+    const result = await (await channel).handleWebhookEvent('slack', new Request(c.req.url, {
       method: 'POST', headers: c.req.raw.headers, body,
-    }), { waitUntil: (task) => { void task.catch(() => console.error('Cowork could not process a Slack event.')); } });
+    }), { waitUntil: (task) => {
+      void task.catch(() => {
+        if (mention) logWebhook('slack.mention.dispatch_failed', audit);
+        else console.error('Cowork could not process a Slack event.');
+      });
+    } });
+    if (!result.ok && mention) logWebhook('slack.mention.dispatch_rejected', { ...audit, status: result.status });
+    return result;
   });
 
 }
