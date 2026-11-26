@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { resolve } from 'node:path';
 import { createClient } from '@libsql/client';
@@ -152,8 +153,19 @@ function createIntegration(settings: NonNullable<ReturnType<typeof configuration
       });
       return rows.length > 0;
     };
+    const replyContext = new AsyncLocalStorage<{ source: 'mention' | 'dm' | 'thread'; messageId: string; threadId: string }>();
+    const adapter = createSlackAdapter({ botToken: token, botUserId: botUser, signingSecret: settings.signingSecret, userName: settings.name });
+    const postMessage = adapter.postMessage.bind(adapter);
+    const log = (event: string, fields: object) => {
+      console.info(JSON.stringify({ timestamp: new Date().toISOString(), event, agent: agentId || 'cowork', teamId: team, ...fields }));
+    };
+    adapter.postMessage = async (...args) => {
+      const sent = await postMessage(...args);
+      const source = replyContext.getStore();
+      if (source) log('slack.reply.sent', { ...source, replyId: sent.id });
+      return sent;
+    };
     const handle: ChannelHandler = async (thread, message, defaultHandler) => {
-      if (message.author.isBot === true || message.author.isMe || !message.text.trim()) return;
       // Slack Connect and external guests cannot use the linked workspace's tools.
       const userResponse = await fetch('https://slack.com/api/users.info?' + new URLSearchParams({ user: message.author.userId }), {
         headers: { Authorization: 'Bearer ' + token }, signal: AbortSignal.timeout(5000),
@@ -184,6 +196,20 @@ function createIntegration(settings: NonNullable<ReturnType<typeof configuration
         if (!agentId && !thread.isDM) await thread.subscribe();
       }
     };
+    const route = (source: 'mention' | 'dm' | 'thread'): ChannelHandler => async (thread, message, fallback, context) => {
+      if (message.author.isBot === true || message.author.isMe || !message.text.trim()) return;
+      const event = { source: message.isMention ? 'mention' as const : source, messageId: message.id, threadId: thread.id };
+      if (event.source === 'mention') log('slack.mention.received', event);
+      await replyContext.run(event, async () => {
+        try {
+          await handle(thread, message, fallback, context);
+        } catch (error) {
+          log('slack.reply.failed', event);
+          throw error;
+        }
+      });
+    };
+
     const agent = new Agent({
       id: 'cowork-slack-' + id,
       name: settings.name,
@@ -191,11 +217,11 @@ function createIntegration(settings: NonNullable<ReturnType<typeof configuration
       memory,
       instructions: `You are ${settings.name}, the Slack workspace’s ${role} coworker. ${roleInstructions[role]} Keep replies concise and use the current Slack conversation for context.`,
       channels: {
-        adapters: { slack: { adapter: createSlackAdapter({ botToken: token, botUserId: botUser, signingSecret: settings.signingSecret, userName: settings.name }), streaming: false } },
+        adapters: { slack: { adapter, streaming: false } },
         tools: false,
         inlineLinks: [],
         inlineMedia: [],
-        handlers: { onDirectMessage: handle, onMention: handle, onSubscribedMessage: agentId ? false : handle, onMessage: false, onSlashCommand: false, onAction: false },
+        handlers: { onDirectMessage: route('dm'), onMention: route('mention'), onSubscribedMessage: agentId ? false : route('thread'), onMessage: false, onSlashCommand: false, onAction: false },
       },
     });
     const instance = agent.getChannels()!;
