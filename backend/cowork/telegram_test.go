@@ -89,7 +89,7 @@ func TestTelegramBotSettingsAreOwnerManaged(t *testing.T) {
 	useTestPostgres(t)
 	previous := http.DefaultClient
 	t.Cleanup(func() { http.DefaultClient = previous })
-	http.DefaultClient = &http.Client{Transport: telegramTestTransport(func(r *http.Request) (*http.Response, error) {
+	http.DefaultClient = &http.Client{Transport: scheduledWorkerTransport(func(r *http.Request) (*http.Response, error) {
 		if r.URL.Host != "api.telegram.org" || !strings.HasSuffix(r.URL.Path, "/getMe") {
 			t.Fatalf("unexpected bot verification request")
 		}
@@ -141,8 +141,36 @@ func TestTelegramBotSettingsAreOwnerManaged(t *testing.T) {
 	}
 }
 
-type telegramTestTransport func(*http.Request) (*http.Response, error)
-
-func (transport telegramTestTransport) RoundTrip(request *http.Request) (*http.Response, error) {
-	return transport(request)
+func TestNamedTelegramAgentsCanShareAGroup(t *testing.T) {
+	space := &Workspace{ID: "space", Role: "Product Manager"}
+	d := &database{TelegramBots: map[string]telegramBot{
+		telegramBotKey(space.ID, "ada"): {Version: "ada-version", Username: "AdaBot", Destination: "-1001"},
+		telegramBotKey(space.ID, "sam"): {Version: "sam-version", Username: "SamBot", Destination: "-1001"},
+	}}
+	if !telegramInstallationMatches(d, space, "ada", "ada-version", "-1001") ||
+		!telegramInstallationMatches(d, space, "sam", "sam-version", "-1001") ||
+		telegramInstallationMatches(d, space, "sam", "ada-version", "-1001") {
+		t.Fatal("Telegram routing must follow the installation for the tagged agent")
+	}
+	if channelAgentRole(space, "ada") != "Developer" || channelAgentRole(space, "sam") != "Sales Lead" {
+		t.Fatal("Named roles must be independent of the workspace's original role")
+	}
+	settings := telegramAgentSettings(d, space.ID)
+	if settings["ada"].Username != "AdaBot" || settings["sam"].Username != "SamBot" ||
+		settings["ada"].Destination != "-1001" || settings["sam"].Destination != "-1001" {
+		t.Fatal("Both Telegram handles should be shown in the same workspace")
+	}
+	input := telegramMessage{Agent: "ada", Topic: "telegram:-1001", Title: "Team", MessageID: "1", SenderID: "123", Text: "Hello Ada and Sam", At: time.Now()}
+	first, ok := recordTelegramMessage(space, input)
+	if !ok || first.Title != "Ada · Telegram · Team" {
+		t.Fatal("Ada should have her own Telegram conversation")
+	}
+	input.Agent = "sam"
+	second, ok := recordTelegramMessage(space, input)
+	if !ok || second.Title != "Sam · Telegram · Team" || first.ID == second.ID {
+		t.Fatal("Sam should have a separate Telegram conversation in the same group")
+	}
+	if _, duplicated := recordTelegramMessage(space, input); duplicated {
+		t.Fatal("Retries must still be deduplicated per agent")
+	}
 }

@@ -2,13 +2,14 @@ import { createMemoryState } from '@chat-adapter/state-memory';
 import type { ChannelHandler } from '@mastra/core/channels';
 import { Agent } from '@mastra/core/agent';
 import { createTelegramAdapter } from '@mastra/telegram';
+import { channelAgents, type ChannelAgent } from '../channel-agents.ts';
 import type { Mastra } from '@mastra/core';
 
 const sharedSecret = process.env.COWORK_TELEGRAM_BRIDGE_SECRET?.trim();
 
-type Installation = { WorkspaceID: string; Version: string; Token: string };
+type Installation = { WorkspaceID: string; Agent?: ChannelAgent | ''; Version: string; Token: string };
 
-const recordMessage = ({ WorkspaceID, Version }: Installation): ChannelHandler => async (thread, message) => {
+const recordMessage = ({ WorkspaceID, Agent, Version }: Installation): ChannelHandler => async (thread, message) => {
   if (thread.isDM || message.author.isBot === true || message.author.isMe || !message.text.trim()) return;
   const chat = message.raw as { chat?: { id: number; type: string; title?: string } };
   if (chat.chat?.type !== 'group' && chat.chat?.type !== 'supergroup') return;
@@ -16,7 +17,7 @@ const recordMessage = ({ WorkspaceID, Version }: Installation): ChannelHandler =
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sharedSecret}` },
     body: JSON.stringify({
-      WorkspaceID, Version,
+      WorkspaceID, Agent, Version,
       ChatID: String(chat.chat.id),
       Topic: thread.id,
       Title: chat.chat.title,
@@ -44,8 +45,8 @@ async function connect(mastra: Mastra, installation: Installation) {
   });
   const handle = recordMessage(installation);
   const agent = new Agent({
-    id: 'telegram-' + installation.WorkspaceID,
-    name: 'Cowork',
+    id: 'telegram-' + installation.WorkspaceID + (installation.Agent ? '-' + installation.Agent : ''),
+    name: installation.Agent ? channelAgents[installation.Agent].name : 'Cowork',
     model: 'openrouter/openai/gpt-4.1-mini',
     instructions: 'Route Telegram conversations to the workspace agent.',
     channels: {
@@ -77,7 +78,7 @@ export function startTelegram(mastra: Mastra) {
         signal: AbortSignal.timeout(10_000),
       });
       if (!response.ok) throw new Error('Telegram settings unavailable.');
-      const desired = new Map((await response.json() as Installation[]).map((item) => [item.WorkspaceID, item]));
+      const desired = new Map((await response.json() as Installation[]).map((item) => [item.WorkspaceID + ':' + (item.Agent || ''), item]));
       for (const [id, connection] of active) {
         if (desired.get(id)?.Version === connection.version) continue;
         await connection.disconnect();

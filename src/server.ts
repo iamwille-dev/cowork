@@ -51,9 +51,7 @@ async function worker(request: IncomingMessage, response: ServerResponse) {
     if (url === '/task') result = await runTask({ ...payload.Task, WorkspaceID: payload.WorkspaceID });
     else if (url === '/scheduled-task') result = await runScheduledTask(payload);
     else if (payload.ChannelActor?.Channel === 'telegram') {
-      result = { Reply: await respondFromChannel(payload.ChannelActor, payload.Messages, {
-        onToolsDisabled: async () => (await respond({ ...payload, Guest: true })).Reply,
-      }) || '' };
+      result = { Reply: await respondFromChannel(payload.ChannelActor, payload.Messages) || '' };
     } else result = await respond(payload, typeof session === 'string' && /^[a-f0-9]{48}$/.test(session) ? session : undefined);
     response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(result));
   } catch (error) {
@@ -67,7 +65,7 @@ createServer(worker).listen(4401, '127.0.0.1');
 const slackListener = getRequestListener(handleSlack);
 createServer(async (request, response) => {
   const path = request.url?.split('?', 1)[0];
-  if (path === '/api/slack' || path?.startsWith('/integrations/slack/')) {
+  if (path === '/api/slack' || path?.startsWith('/api/slack/') || path?.startsWith('/integrations/slack/')) {
     await slackListener(request, response);
     return;
   }

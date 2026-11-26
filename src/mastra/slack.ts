@@ -11,14 +11,13 @@ import { createSlackAdapter, verifySlackRequest } from '@mastra/slack';
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
+import { channelAgents, channelAgentIds, type ChannelAgent } from '../channel-agents.ts';
 import { liveModel, model, roleInstructions } from './agents/index.ts';
 
 const app = new Hono();
-const callbackPath = '/integrations/slack/oauth/callback';
-const eventsPath = '/integrations/slack/events';
 const settingsPath = '/settings?section=channels';
+const callbackSuffix = '/oauth/callback';
 const cookieName = 'cowork_slack_state';
-const cookieOptions = { path: callbackPath, secure: true, httpOnly: true, sameSite: 'Lax' } as const;
 const oauthLifetime = 15 * 60;
 const scopes = 'app_mentions:read,chat:write,channels:history,channels:read,groups:history,groups:read,im:history,im:read,mpim:history,mpim:read,users:read';
 
@@ -28,48 +27,95 @@ type OAuthResult = {
   app_id?: string; team?: { id?: string; name?: string }; is_enterprise_install?: boolean;
 };
 
-function configuration() {
-  const clientId = process.env.SLACK_CLIENT_ID?.trim();
-  const clientSecret = process.env.SLACK_CLIENT_SECRET?.trim();
-  const signingSecret = process.env.SLACK_SIGNING_SECRET?.trim();
-  const appId = process.env.SLACK_APP_ID?.trim();
+function configuration(agent: ChannelAgent | '') {
+  const prefix = agent ? `SLACK_${agent.toUpperCase()}_` : 'SLACK_';
+  const clientId = process.env[prefix + 'CLIENT_ID']?.trim();
+  const clientSecret = process.env[prefix + 'CLIENT_SECRET']?.trim();
+  const signingSecret = process.env[prefix + 'SIGNING_SECRET']?.trim();
+  const appId = process.env[prefix + 'APP_ID']?.trim();
   const secret = process.env.MASTRA_ENCRYPTION_KEY?.trim();
   const publicUrl = URL.parse(process.env.COWORK_PUBLIC_URL ?? '');
   if (!clientId || !clientSecret || !signingSecret || !appId || !secret || secret.length < 32 ||
       publicUrl?.protocol !== 'https:' || publicUrl.username || publicUrl.password) return;
   return {
     clientId, clientSecret, signingSecret, appId,
-    callbackUrl: publicUrl.origin + callbackPath,
+    callbackUrl: publicUrl.origin + eventBase(agent) + callbackSuffix,
+    agent,
+    name: agent ? channelAgents[agent].name : 'Cowork',
     encryptionKey: createHash('sha256').update('cowork-slack-oauth\0').update(secret).digest(),
   };
 }
 
-const config = configuration();
-app.use('/api/slack', bodyLimit({ maxSize: 4096 }));
-if (config) createIntegration(config);
+function eventBase(agent: ChannelAgent | '') {
+  return '/integrations/slack' + (agent ? '/' + agent : '');
+}
 
-function createIntegration(settings: NonNullable<typeof config>) {
-  const url = `file:${resolve('backend/.cowork/slack-oauth.db')}`;
-  const db = createClient({ url });
-  const storage = new LibSQLStore({ id: 'cowork-slack', url });
-  const mastra = new Mastra({ storage });
-  const memory = new Memory({ storage, options: { lastMessages: 20, semanticRecall: false } });
+const url = `file:${resolve('backend/.cowork/slack-oauth.db')}`;
+const db = createClient({ url });
+const storage = new LibSQLStore({ id: 'cowork-slack', url });
+const mastra = new Mastra({ storage });
+const memory = new Memory({ storage, options: { lastMessages: 20, semanticRecall: false } });
+let ready: Promise<unknown> | undefined;
+
+function initialize() {
+  ready ??= db.batch([
+    `CREATE TABLE IF NOT EXISTS cowork_slack_installations (
+      workspace TEXT PRIMARY KEY, team_id TEXT UNIQUE NOT NULL, team_name TEXT NOT NULL,
+      bot_user TEXT NOT NULL, bot_token TEXT NOT NULL, role TEXT NOT NULL,
+      installation_id TEXT NOT NULL, installed_at INTEGER NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS cowork_slack_oauth (
+      workspace TEXT PRIMARY KEY, nonce TEXT UNIQUE NOT NULL, role TEXT NOT NULL, expires INTEGER NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS cowork_slack_agent_installations (
+      agent TEXT NOT NULL, workspace TEXT NOT NULL, team_id TEXT NOT NULL, team_name TEXT NOT NULL,
+      bot_user TEXT NOT NULL, bot_token TEXT NOT NULL, role TEXT NOT NULL,
+      installation_id TEXT UNIQUE NOT NULL, installed_at INTEGER NOT NULL,
+      PRIMARY KEY (agent, workspace), UNIQUE (agent, team_id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS cowork_slack_agent_oauth (
+      agent TEXT NOT NULL, workspace TEXT NOT NULL, nonce TEXT UNIQUE NOT NULL,
+      role TEXT NOT NULL, expires INTEGER NOT NULL, PRIMARY KEY (agent, workspace)
+    )`,
+    'CREATE TABLE IF NOT EXISTS cowork_slack_migrations (version INTEGER PRIMARY KEY)',
+    `INSERT OR IGNORE INTO cowork_slack_agent_installations
+      SELECT '', workspace, team_id, team_name, bot_user, bot_token, role, installation_id, installed_at
+      FROM cowork_slack_installations WHERE NOT EXISTS (SELECT 1 FROM cowork_slack_migrations WHERE version = 1)`,
+    `INSERT OR IGNORE INTO cowork_slack_agent_oauth
+      SELECT '', workspace, nonce, role, expires FROM cowork_slack_oauth
+      WHERE NOT EXISTS (SELECT 1 FROM cowork_slack_migrations WHERE version = 1)`,
+    'DELETE FROM cowork_slack_installations WHERE NOT EXISTS (SELECT 1 FROM cowork_slack_migrations WHERE version = 1)',
+    'DELETE FROM cowork_slack_oauth WHERE NOT EXISTS (SELECT 1 FROM cowork_slack_migrations WHERE version = 1)',
+    'INSERT OR IGNORE INTO cowork_slack_migrations VALUES (1)',
+  ], 'write').catch((error: unknown) => { ready = undefined; throw error; });
+  return ready;
+}
+
+const registeredApps = new Set<string>();
+for (const agent of ['', ...channelAgentIds] as const) {
+  const apiPath = '/api/slack' + (agent ? '/' + agent : '');
+  app.use(apiPath, bodyLimit({ maxSize: 4096 }));
+  const config = configuration(agent);
+  if (config && !registeredApps.has(config.appId)) {
+    registeredApps.add(config.appId);
+    createIntegration(config, apiPath);
+    continue;
+  }
+  app.get(apiPath, async (c) => {
+    c.header('Cache-Control', 'no-store');
+    const workspace = await slackWorkspace(c.req.header('cookie'));
+    return workspace instanceof Response ? workspace : c.json({ available: false, status: 'disconnected' });
+  });
+}
+
+function createIntegration(settings: NonNullable<ReturnType<typeof configuration>>, apiPath: string) {
+  const agentId = settings.agent;
+  const callbackPath = eventBase(agentId) + callbackSuffix;
+  const eventsPath = eventBase(agentId) + '/events';
+  const cookieOptions = { path: callbackPath, secure: true, httpOnly: true, sameSite: 'Lax' } as const;
+  const returnURL = settingsPath + (agentId ? '&agent=' + agentId : '');
   const channels = new Map<string, ReturnType<typeof createChannels>>();
   const changes = new Set<string>();
-  let ready: Promise<unknown> | undefined;
-  function initialize() {
-    ready ??= db.batch([
-      `CREATE TABLE IF NOT EXISTS cowork_slack_installations (
-        workspace TEXT PRIMARY KEY, team_id TEXT UNIQUE NOT NULL, team_name TEXT NOT NULL,
-        bot_user TEXT NOT NULL, bot_token TEXT NOT NULL, role TEXT NOT NULL,
-        installation_id TEXT NOT NULL, installed_at INTEGER NOT NULL
-      )`,
-      `CREATE TABLE IF NOT EXISTS cowork_slack_oauth (
-        workspace TEXT PRIMARY KEY, nonce TEXT UNIQUE NOT NULL, role TEXT NOT NULL, expires INTEGER NOT NULL
-      )`,
-    ], 'write').catch((error: unknown) => { ready = undefined; throw error; });
-    return ready;
-  }
 
   function encrypt(token: string, id: string) {
     const iv = randomBytes(12);
@@ -101,8 +147,8 @@ function createIntegration(settings: NonNullable<typeof config>) {
   async function createChannels(id: string, botUser: string, token: string, role: Role, workspace: string, team: string) {
     const installationActive = async () => {
       const { rows } = await db.execute({
-        sql: 'SELECT 1 FROM cowork_slack_installations WHERE installation_id = ? AND workspace = ? AND team_id = ?',
-        args: [id, workspace, team],
+        sql: 'SELECT 1 FROM cowork_slack_agent_installations WHERE installation_id = ? AND workspace = ? AND team_id = ? AND agent = ?',
+        args: [id, workspace, team, agentId],
       });
       return rows.length > 0;
     };
@@ -130,29 +176,26 @@ function createIntegration(settings: NonNullable<typeof config>) {
         SenderID: item.author.userId,
       }));
       const reply = await respondFromChannel({
-        WorkspaceID: workspace, Channel: 'slack', Installation: id, Conversation: thread.id,
+        WorkspaceID: workspace, Channel: 'slack', Agent: agentId, Installation: id, Conversation: thread.id,
         SenderID: message.author.userId, Author: message.author.fullName || message.author.userName,
-      }, messages, {
-        installationActive,
-        onToolsDisabled: () => defaultHandler(thread, message),
-      });
+      }, messages, installationActive);
       if (reply && await installationActive()) {
         await thread.post(reply);
-        if (!thread.isDM) await thread.subscribe();
+        if (!agentId && !thread.isDM) await thread.subscribe();
       }
     };
     const agent = new Agent({
       id: 'cowork-slack-' + id,
-      name: 'Cowork',
+      name: settings.name,
       model,
       memory,
-      instructions: `You are the Slack workspace’s ${role} coworker. ${roleInstructions[role]} Keep replies concise and use the current Slack conversation for context.`,
+      instructions: `You are ${settings.name}, the Slack workspace’s ${role} coworker. ${roleInstructions[role]} Keep replies concise and use the current Slack conversation for context.`,
       channels: {
-        adapters: { slack: { adapter: createSlackAdapter({ botToken: token, botUserId: botUser, signingSecret: settings.signingSecret, userName: 'Cowork' }), streaming: false } },
+        adapters: { slack: { adapter: createSlackAdapter({ botToken: token, botUserId: botUser, signingSecret: settings.signingSecret, userName: settings.name }), streaming: false } },
         tools: false,
         inlineLinks: [],
         inlineMedia: [],
-        handlers: { onDirectMessage: handle, onMention: handle, onSubscribedMessage: handle, onMessage: false, onSlashCommand: false, onAction: false },
+        handlers: { onDirectMessage: handle, onMention: handle, onSubscribedMessage: agentId ? false : handle, onMessage: false, onSlashCommand: false, onAction: false },
       },
     });
     const instance = agent.getChannels()!;
@@ -166,14 +209,14 @@ function createIntegration(settings: NonNullable<typeof config>) {
     if (channel) await (await channel).close();
   }
 
-  app.on(['GET', 'POST'], '/api/slack', async (c) => {
+  app.on(['GET', 'POST'], apiPath, async (c) => {
     c.header('Cache-Control', 'no-store');
     const workspace = await slackWorkspace(c.req.header('cookie'));
     if (workspace instanceof Response) return workspace;
     await initialize();
     if (c.req.method === 'GET') {
       const { rows: [row] } = await db.execute({
-        sql: 'SELECT team_id, team_name FROM cowork_slack_installations WHERE workspace = ?', args: [workspace.id],
+        sql: 'SELECT team_id, team_name FROM cowork_slack_agent_installations WHERE workspace = ? AND agent = ?', args: [workspace.id, agentId],
       });
       return c.json(row
         ? { available: liveModel, status: 'active', team: row.team_name, teamId: row.team_id, appId: settings.appId }
@@ -187,17 +230,17 @@ function createIntegration(settings: NonNullable<typeof config>) {
     changes.add(workspace.id);
     try {
       const { rows: [row] } = await db.execute({
-        sql: 'SELECT installation_id, bot_token FROM cowork_slack_installations WHERE workspace = ?', args: [workspace.id],
+        sql: 'SELECT installation_id, bot_token FROM cowork_slack_agent_installations WHERE workspace = ? AND agent = ?', args: [workspace.id, agentId],
       });
       if (input.action === 'disconnect') {
-        await db.execute({ sql: 'DELETE FROM cowork_slack_oauth WHERE workspace = ?', args: [workspace.id] });
+        await db.execute({ sql: 'DELETE FROM cowork_slack_agent_oauth WHERE workspace = ? AND agent = ?', args: [workspace.id, agentId] });
         if (row) {
           const id = String(row.installation_id);
           const result = await slackApi('apps.uninstall', {}, decrypt(String(row.bot_token), id));
           if (!result.ok && !['token_revoked', 'account_inactive', 'invalid_auth', 'not_authed'].includes(result.error ?? '')) {
-            return c.json({ error: 'Slack could not remove Cowork. Try again or remove Cowork in Slack.' }, 502);
+            return c.json({ error: 'Slack could not remove this agent. Try again or remove the app in Slack.' }, 502);
           }
-          await db.execute({ sql: 'DELETE FROM cowork_slack_installations WHERE installation_id = ?', args: [id] });
+          await db.execute({ sql: 'DELETE FROM cowork_slack_agent_installations WHERE installation_id = ?', args: [id] });
           await forget(id);
         }
         return c.json({ available: liveModel, status: 'disconnected' });
@@ -206,11 +249,15 @@ function createIntegration(settings: NonNullable<typeof config>) {
       if (!liveModel) return c.json({ error: 'The Cowork agent is unavailable on this deployment.' }, 503);
       const nonce = randomBytes(32).toString('hex');
       await db.batch([
-        { sql: 'DELETE FROM cowork_slack_oauth WHERE expires <= ?', args: [Date.now()] },
-        { sql: 'INSERT OR REPLACE INTO cowork_slack_oauth VALUES (?, ?, ?, ?)',
-          args: [workspace.id, nonce, workspace.role, Date.now() + oauthLifetime * 1000] },
+        { sql: 'DELETE FROM cowork_slack_agent_oauth WHERE expires <= ?', args: [Date.now()] },
+        { sql: 'INSERT OR REPLACE INTO cowork_slack_agent_oauth VALUES (?, ?, ?, ?, ?)',
+          args: [agentId, workspace.id, nonce, agentId ? channelAgents[agentId].role : workspace.role, Date.now() + oauthLifetime * 1000] },
       ], 'write');
       const query = new URLSearchParams({ client_id: settings.clientId, scope: scopes, redirect_uri: settings.callbackUrl, state: nonce });
+      const { rows: [existing] } = await db.execute({
+        sql: 'SELECT team_id FROM cowork_slack_agent_installations WHERE workspace = ? LIMIT 1', args: [workspace.id],
+      });
+      if (existing) query.set('team', String(existing.team_id));
       setCookie(c, cookieName, nonce, { ...cookieOptions, maxAge: oauthLifetime });
       return c.json({ authorizationUrl: 'https://slack.com/oauth/v2/authorize?' + query });
     } finally {
@@ -220,13 +267,13 @@ function createIntegration(settings: NonNullable<typeof config>) {
 
   app.get(callbackPath, async (c) => {
     c.header('Cache-Control', 'no-store');
-    const finish = (outcome: string) => c.redirect(settingsPath + '&slack=' + outcome, 303);
+    const finish = (outcome: string) => c.redirect(returnURL + '&slack=' + outcome, 303);
     const state = c.req.query('state');
     if (!state || state !== getCookie(c, cookieName)) return finish('retry');
     deleteCookie(c, cookieName, cookieOptions);
     await initialize();
     const { rows: [pending] } = await db.execute({
-      sql: 'DELETE FROM cowork_slack_oauth WHERE nonce = ? AND expires > ? RETURNING workspace, role', args: [state, Date.now()],
+      sql: 'DELETE FROM cowork_slack_agent_oauth WHERE nonce = ? AND agent = ? AND expires > ? RETURNING workspace, role', args: [state, agentId, Date.now()],
     });
     if (!pending) return finish('retry');
     if (c.req.query('error') === 'access_denied') return finish('canceled');
@@ -240,9 +287,15 @@ function createIntegration(settings: NonNullable<typeof config>) {
           !result.team?.id || !result.access_token || result.token_type !== 'bot' || !result.bot_user_id) return finish('retry');
       const id = randomBytes(24).toString('hex');
       const saved = await db.execute({
-        sql: 'INSERT INTO cowork_slack_installations VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING',
-        args: [workspace, result.team.id, result.team.name || result.team.id, result.bot_user_id,
-          encrypt(result.access_token, id), pending.role, id, Date.now()],
+        sql: `INSERT INTO cowork_slack_agent_installations
+          SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
+          WHERE NOT EXISTS (
+            SELECT 1 FROM cowork_slack_agent_installations
+            WHERE (workspace = ? AND team_id <> ?) OR (team_id = ? AND workspace <> ?)
+          ) ON CONFLICT DO NOTHING`,
+        args: [agentId, workspace, result.team.id, result.team.name || result.team.id, result.bot_user_id,
+          encrypt(result.access_token, id), pending.role, id, Date.now(),
+          workspace, result.team.id, result.team.id, workspace],
       });
       return finish(saved.rowsAffected ? 'connected' : 'conflict');
     } finally {
@@ -265,13 +318,13 @@ function createIntegration(settings: NonNullable<typeof config>) {
     if (payload?.type !== 'event_callback' || payload.api_app_id !== settings.appId || !payload.team_id) return c.json({ ok: true });
     await initialize();
     const { rows: [row] } = await db.execute({
-      sql: 'SELECT * FROM cowork_slack_installations WHERE team_id = ?', args: [payload.team_id],
+      sql: 'SELECT * FROM cowork_slack_agent_installations WHERE team_id = ? AND agent = ?', args: [payload.team_id, agentId],
     });
     if (!row) return c.json({ ok: true });
     const id = String(row.installation_id);
     if (payload.event?.type === 'app_uninstalled') {
       if (Number(row.installed_at) < (Number(payload.event_time) + 1) * 1000) {
-        await db.execute({ sql: 'DELETE FROM cowork_slack_installations WHERE installation_id = ?', args: [id] });
+        await db.execute({ sql: 'DELETE FROM cowork_slack_agent_installations WHERE installation_id = ?', args: [id] });
         await forget(id);
       }
       return c.json({ ok: true });
@@ -290,14 +343,6 @@ function createIntegration(settings: NonNullable<typeof config>) {
 
 }
 
-if (!config) {
-  app.get('/api/slack', async (c) => {
-    c.header('Cache-Control', 'no-store');
-    const workspace = await slackWorkspace(c.req.header('cookie'));
-    return workspace instanceof Response ? workspace : c.json({ available: false, status: 'disconnected' });
-  });
-}
-
 async function slackWorkspace(cookie?: string) {
   const response = await fetch('http://127.0.0.1:4000/api/slack-context', {
     headers: { Cookie: cookie ?? '' },
@@ -311,8 +356,9 @@ async function slackWorkspace(cookie?: string) {
 
 app.onError((_error, c) => {
   console.error('Cowork Slack integration request failed.');
-  return c.req.path === callbackPath
-    ? c.redirect(settingsPath + '&slack=retry', 303)
+  const agent = channelAgentIds.find((id) => c.req.path === eventBase(id) + callbackSuffix);
+  return c.req.path.endsWith(callbackSuffix)
+    ? c.redirect(settingsPath + (agent ? '&agent=' + agent : '') + '&slack=retry', 303)
     : c.json({ error: 'Cowork could not complete the Slack request. Try again shortly.' }, 502);
 });
 

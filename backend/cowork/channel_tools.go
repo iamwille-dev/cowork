@@ -11,13 +11,20 @@ import (
 	"strings"
 )
 
-type channelToolSettings struct {
-	Repositories bool
-	Tasks        bool
+type channelActor struct {
+	WorkspaceID, Channel, Agent, Installation, Conversation, SenderID, Author string
 }
 
-type channelActor struct {
-	WorkspaceID, Channel, Installation, Conversation, SenderID, Author string
+var namedChannelAgents = map[string]struct{ Name, Role string }{
+	"ada": {"Ada", "Developer"},
+	"sam": {"Sam", "Sales Lead"},
+}
+
+func channelAgentRole(space *Workspace, agent string) string {
+	if agent == "" {
+		return space.Role
+	}
+	return namedChannelAgents[agent].Role
 }
 
 var channelWorkspaceID = regexp.MustCompile(`^[a-f0-9]{48}$`)
@@ -62,29 +69,31 @@ func ChannelToolBridge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	space := d.Workspaces[input.WorkspaceID]
-	if space == nil || (input.Channel == "telegram" && (d.TelegramBots[input.WorkspaceID].Version != input.Installation ||
-		space.Channels["Telegram"] != input.Conversation)) {
+	if space == nil || (input.Channel == "telegram" && !telegramInstallationMatches(d, space, input.Agent, input.Installation, input.Conversation)) {
 		fail(w, 403, "Channel installation unavailable.")
+		return
+	}
+
+	role := channelAgentRole(space, input.Agent)
+	if !roles[role] {
+		fail(w, 403, "Channel agent unavailable.")
 		return
 	}
 
 	switch r.URL.Path {
 	case "/internal/channel-tools/context":
-		settings := space.ChannelTools
-		context := workerRequest{Role: space.Role, WorkspaceID: space.ID, ChannelTools: &settings}
-		if settings.Repositories {
-			if len(d.GitTokens[space.ID]) > 0 {
-				context.GitTokens, err = unlockGitTokens(space.ID, d.GitTokens[space.ID])
-			}
-			if err == nil && space.AgentConnectionEnabled {
-				context.AgentConnectionWorkspace = space.ID
-				if stored := d.AgentConnectionKeys[space.ID]; stored != "" {
-					aead, cipherErr := agentConnectionCipher(false)
-					if cipherErr != nil {
-						err = cipherErr
-					} else {
-						context.AgentConnectionKey, err = openAgentConnectionKey(aead, space.ID, stored)
-					}
+		context := workerRequest{Role: role, WorkspaceID: space.ID}
+		if len(d.GitTokens[space.ID]) > 0 {
+			context.GitTokens, err = unlockGitTokens(space.ID, d.GitTokens[space.ID])
+		}
+		if err == nil && space.AgentConnectionEnabled {
+			context.AgentConnectionWorkspace = space.ID
+			if stored := d.AgentConnectionKeys[space.ID]; stored != "" {
+				aead, cipherErr := agentConnectionCipher(false)
+				if cipherErr != nil {
+					err = cipherErr
+				} else {
+					context.AgentConnectionKey, err = openAgentConnectionKey(aead, space.ID, stored)
 				}
 			}
 		}
@@ -94,10 +103,6 @@ func ChannelToolBridge(w http.ResponseWriter, r *http.Request) {
 		}
 		jsonReply(w, 200, context)
 	case "/internal/channel-tools/task":
-		if !space.ChannelTools.Tasks {
-			fail(w, 403, "Task creation is disabled for messaging channels.")
-			return
-		}
 		var data struct {
 			Title, Brief, Repository string
 			UI                       bool
@@ -119,7 +124,7 @@ func ChannelToolBridge(w http.ResponseWriter, r *http.Request) {
 			displayName = input.SenderID
 		}
 		actor := Account{ID: input.Channel + ":" + input.SenderID, Name: displayName + " (" + input.Channel + ")", Workspace: space.ID}
-		runAgent(w, taskRequest, d, actor, space, "task")
+		runAgent(w, taskRequest, d, actor, space, "task", role)
 	default:
 		fail(w, 404, "Unknown channel tool.")
 	}

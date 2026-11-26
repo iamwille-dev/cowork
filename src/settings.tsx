@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { channelAgents, channelAgentIds, type ChannelAgent } from './channel-agents';
 import { api } from './app/components/api';
 
 const sections = [
@@ -12,7 +13,6 @@ const sections = [
 const gitProviders = { github: 'GitHub', gitlab: 'GitLab' } as const;
 export type GitProvider = keyof typeof gitProviders;
 type Theme = 'light' | 'dark';
-export type ChannelToolSettings = { Repositories: boolean; Tasks: boolean };
 
 type SettingsProps = {
   theme: Theme;
@@ -21,9 +21,8 @@ type SettingsProps = {
   invite: string;
   channels: Partial<Record<'WhatsApp' | 'Telegram', string>>;
   telegramBot?: string;
-  channelTools: ChannelToolSettings;
-  saveChannelTools: (settings: ChannelToolSettings) => Promise<boolean>;
-  saveTelegram: (settings: { Token?: string; Destination?: string; Remove?: boolean }) => Promise<boolean>;
+  telegramAgents?: Partial<Record<ChannelAgent, { Username: string; Destination: string }>>;
+  saveTelegram: (settings: { Agent?: ChannelAgent; Token?: string; Destination?: string; Remove?: boolean }) => Promise<boolean>;
   changeTheme: (theme: Theme) => void;
   saveChannel: (provider: 'WhatsApp', destination: string, button: HTMLButtonElement) => void;
   agentConnection: { enabled: boolean; hasKey: boolean };
@@ -131,38 +130,9 @@ type SlackConnection = {
   teamId?: string;
 };
 
-function ChannelToolsForm({ owner, channelTools, saveChannelTools }: Pick<SettingsProps, 'owner' | 'channelTools' | 'saveChannelTools'>) {
-  const [saving, setSaving] = useState(false);
-  return (
-    <form className="stack" onSubmit={async (event) => {
-      event.preventDefault();
-      if (!owner || saving) return;
-      const values = new FormData(event.currentTarget);
-      setSaving(true);
-      try {
-        await saveChannelTools({ Repositories: values.has('Repositories'), Tasks: values.has('Tasks') });
-      } finally {
-        setSaving(false);
-      }
-    }}>
-      <h3 className="font-semibold">Workspace tools in Slack and Telegram</h3>
-      <p>Enable tools for Slack workspace members and people in the connected Telegram group. Repository lists and task confirmations are visible to people who can read the conversation.</p>
-      <fieldset key={JSON.stringify(channelTools)} disabled={!owner || saving} className="grid gap-2">
-        <label className="flex items-center gap-2">
-          <input type="checkbox" name="Repositories" defaultChecked={channelTools.Repositories} />
-          List repositories from this workspace’s connected accounts
-        </label>
-        <label className="flex items-center gap-2">
-          <input type="checkbox" name="Tasks" defaultChecked={channelTools.Tasks} />
-          Create tasks and run them in this workspace’s Developer sandbox
-        </label>
-      </fieldset>
-      {owner && <div><button className="primary" type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save tool access'}</button></div>}
-    </form>
-  );
-}
-
-function SlackConnectionForm({ owner }: { owner: boolean }) {
+function SlackConnectionForm({ owner, agent }: { owner: boolean; agent?: ChannelAgent }) {
+  const name = agent ? channelAgents[agent].name : 'Cowork';
+  const endpoint = agent ? 'slack/' + agent : 'slack';
   const [connection, setConnection] = useState<SlackConnection>();
   const [busy, setBusy] = useState<'connect' | 'disconnect'>();
   const [error, setError] = useState('');
@@ -171,24 +141,25 @@ function SlackConnectionForm({ owner }: { owner: boolean }) {
 
   useEffect(() => {
     let active = true;
-    api<SlackConnection>('slack').then(
+    api<SlackConnection>(endpoint).then(
       (result) => { if (active) setConnection(result); },
       (failure: Error) => { if (active) setError(failure.message); },
     );
     return () => { active = false; };
-  }, [loadAttempt]);
+  }, [endpoint, loadAttempt]);
 
   useEffect(() => {
     const url = new URL(window.location.href);
     const outcome = url.searchParams.get('slack');
-    if (!outcome) return;
-    if (outcome === 'connected') setFeedback('Slack installation complete.');
+    if (!outcome || (url.searchParams.get('agent') ?? undefined) !== agent) return;
+    if (outcome === 'connected') setFeedback(`${name} is connected to Slack.`);
     if (outcome === 'canceled') setFeedback('Slack authorization was canceled. You can continue setup below.');
-    if (outcome === 'conflict') setError('This Slack workspace is already connected to Cowork. Choose a different Slack workspace or disconnect the existing installation.');
+    if (outcome === 'conflict') setError('Choose the Slack workspace already linked to this Cowork workspace, or disconnect the conflicting installation.');
     if (outcome === 'retry') setError('Slack setup could not be completed. Start again below.');
     url.searchParams.delete('slack');
+    url.searchParams.delete('agent');
     window.history.replaceState(window.history.state, '', url);
-  }, []);
+  }, [agent, name]);
 
   async function update(action: 'connect' | 'disconnect') {
     setBusy(action);
@@ -196,11 +167,11 @@ function SlackConnectionForm({ owner }: { owner: boolean }) {
     setFeedback('');
     try {
       if (action === 'connect') {
-        const { authorizationUrl } = await api<{ authorizationUrl: string }>('slack', { action });
+        const { authorizationUrl } = await api<{ authorizationUrl: string }>(endpoint, { action });
         window.location.assign(authorizationUrl);
         return;
       }
-      setConnection(await api<SlackConnection>('slack', { action }));
+      setConnection(await api<SlackConnection>(endpoint, { action }));
       setFeedback('Slack disconnected.');
     } catch (failure) {
       setError((failure as Error).message);
@@ -211,28 +182,29 @@ function SlackConnectionForm({ owner }: { owner: boolean }) {
   }
 
   const connected = connection?.status === 'active';
+  if (!agent && !connected && !feedback && !error) return null;
   const slackLink = connection?.appId && connection.teamId
     ? 'https://slack.com/app_redirect?' + new URLSearchParams({ app: connection.appId, team: connection.teamId })
     : undefined;
   return (
     <div className="stack">
-      <h3 className="font-semibold">Slack</h3>
+      <h4 className="font-semibold">{agent ? 'Slack' : 'Cowork for Slack'}</h4>
       <p>{connected
-        ? `Connected to ${connection.team}. Message Cowork in Slack, or invite it to a channel and @mention it.`
+        ? `Connected to ${connection.team}. DM ${name}, or invite the app to a channel and mention @${name}.`
         : connection && !connection.available
           ? 'Slack setup is unavailable on this deployment.'
-          : owner ? 'Add your Cowork agent to Slack to chat in a DM or channel.' : 'Your workspace owner can connect Slack.'}</p>
+          : owner ? `Add ${name} to Slack to chat in a DM or channel.` : 'Your workspace owner can connect Slack.'}</p>
       {feedback && <p role="status">{feedback}</p>}
       {error && <p role="alert">{error}</p>}
       <div className="flex flex-wrap items-center gap-3">
         {slackLink && <a className="primary" href={slackLink}>Open Slack</a>}
         {owner && connection?.available && !connected &&
           <button className="primary" type="button" disabled={Boolean(busy)} onClick={() => void update('connect')}>
-            {busy === 'connect' ? 'Opening Slack…' : 'Add to Slack'}
+            {busy === 'connect' ? 'Opening Slack…' : `Add ${name} to Slack`}
           </button>}
         {owner && connected &&
           <button className="quiet" type="button" disabled={Boolean(busy)} onClick={() => void update('disconnect')}>
-            {busy === 'disconnect' ? 'Disconnecting…' : 'Disconnect Slack'}
+            {busy === 'disconnect' ? 'Disconnecting…' : `Disconnect ${name} from Slack`}
           </button>}
         {!connection && (error
           ? <button className="quiet" type="button" onClick={() => { setError(''); setLoadAttempt((previous) => previous + 1); }}>Retry</button>
@@ -243,19 +215,22 @@ function SlackConnectionForm({ owner }: { owner: boolean }) {
   );
 }
 
-function TelegramForm({ owner, channels, telegramBot, saveTelegram }: Pick<SettingsProps, 'owner' | 'channels' | 'telegramBot' | 'saveTelegram'>) {
+function TelegramForm({ owner, agent, destination, telegramBot, saveTelegram }: Pick<SettingsProps, 'owner' | 'telegramBot' | 'saveTelegram'> & {
+  agent?: ChannelAgent;
+  destination?: string;
+}) {
   const [busy, setBusy] = useState(false);
   const token = useRef<HTMLInputElement>(null);
   async function save(settings: Parameters<SettingsProps['saveTelegram']>[0]) {
     setBusy(true);
     try {
-      if (await saveTelegram(settings) && token.current) token.current.value = '';
+      if (await saveTelegram({ ...settings, Agent: agent }) && token.current) token.current.value = '';
     } finally {
       setBusy(false);
     }
   }
   return <div className="grid gap-y-3">
-    <h3 className="font-semibold">Telegram</h3>
+    <h4 className="font-semibold">{agent ? 'Telegram' : 'Cowork for Telegram'}</h4>
     <p>{telegramBot ? `Saved bot @${telegramBot}` : 'Add the workspace bot to your Telegram group and disable group privacy in BotFather.'}</p>
     {owner && <form className="settings-channel-form grid gap-y-3" onSubmit={(event) => {
       event.preventDefault();
@@ -267,7 +242,7 @@ function TelegramForm({ owner, channels, telegramBot, saveTelegram }: Pick<Setti
           placeholder={telegramBot ? 'Enter a token to replace the saved bot' : 'Paste the bot token'} />
       </label>
       <label>Telegram group ID
-        <input name="Destination" defaultValue={channels.Telegram ?? ''} required placeholder="Negative group ID" />
+        <input name="Destination" defaultValue={destination ?? ''} required placeholder="Negative group ID" />
       </label>
       <div className="flex flex-wrap gap-3">
         <button className="primary" type="submit" disabled={busy}>Save Telegram settings</button>
@@ -411,9 +386,21 @@ export function Settings(props: SettingsProps) {
       {active === 'channels' && (
         <SettingsSection title="Messaging channels" description="Connect your Cowork agent to the places your team chats.">
           <div className="grid gap-y-5">
-            <ChannelToolsForm owner={props.owner} channelTools={props.channelTools} saveChannelTools={props.saveChannelTools} />
+            {channelAgentIds.map((agent) => {
+              const profile = channelAgents[agent];
+              const telegram = props.telegramAgents?.[agent];
+              return (
+                <section key={agent} className="grid gap-y-5 border-b border-current/10 pb-5" aria-label={profile.name}>
+                  <h3 className="text-base font-semibold">{profile.name} · {profile.role}</h3>
+                  <SlackConnectionForm owner={props.owner} agent={agent} />
+                  <TelegramForm key={JSON.stringify([telegram?.Username, telegram?.Destination])} owner={props.owner}
+                    agent={agent} telegramBot={telegram?.Username} destination={telegram?.Destination} saveTelegram={props.saveTelegram} />
+                </section>
+              );
+            })}
             <SlackConnectionForm owner={props.owner} />
-            <TelegramForm key={JSON.stringify([props.telegramBot, props.channels.Telegram])} {...props} />
+            {props.telegramBot && <TelegramForm key={JSON.stringify([props.telegramBot, props.channels.Telegram])}
+              owner={props.owner} telegramBot={props.telegramBot} destination={props.channels.Telegram} saveTelegram={props.saveTelegram} />}
             <ChannelForm key={props.channels.WhatsApp} provider="WhatsApp" destination={props.channels.WhatsApp ?? ''}
               owner={props.owner} saveChannel={props.saveChannel} />
           </div>

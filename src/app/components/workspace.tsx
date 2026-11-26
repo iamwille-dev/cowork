@@ -7,7 +7,8 @@ import { WorkspaceShell } from '../../sidebar';
 import { Conversation } from '../../chat';
 import { ConversationIndex, type Message, type Thread } from '../../conversations';
 import { ReminderCalendar } from '../../reminders';
-import { Settings, type ChannelToolSettings, type GitProvider } from '../../settings';
+import type { ChannelAgent } from '../../channel-agents';
+import { Settings, type GitProvider } from '../../settings';
 import { api, initials, localDay } from './api';
 import { AuthForm, Modal } from './forms';
 import { TaskList, type ScheduleAction, type Task } from './tasks';
@@ -18,6 +19,7 @@ type WorkspaceData = {
   admin: boolean;
   agentConnectionHasKey?: boolean;
   telegramBot?: string;
+  telegramAgents?: Partial<Record<ChannelAgent, { Username: string; Destination: string }>>;
   gitTokenStatus?: Partial<Record<GitProvider, boolean>>;
   viewerId: string;
   members: string[];
@@ -25,7 +27,6 @@ type WorkspaceData = {
   threadInvitations: { ID: string; ThreadID: string; From: string }[];
   workspace: {
     AgentConnectionEnabled?: boolean;
-    ChannelTools?: ChannelToolSettings;
     Role: string; Invite?: string; Messages?: Message[]; Threads?: Thread[];
     Tasks?: Task[]; Reminders?: Reminder[]; Channels?: Record<string, string>;
   };
@@ -206,12 +207,7 @@ export function Workspace({ view, threadId, initialMode }: { view: View; threadI
             await write('git-token', settings);
             setNotice(settings.Remove ? 'Git token removed.' : 'Git token saved.');
           })}
-          channelTools={workspace.ChannelTools ?? { Repositories: false, Tasks: false }}
-          saveChannelTools={(settings) => run(async () => {
-            await write('channel-tools', settings);
-            setNotice('Channel tool access saved.');
-          })}
-          telegramBot={state.telegramBot}
+          telegramBot={state.telegramBot} telegramAgents={state.telegramAgents}
           saveTelegram={(settings) => run(async () => {
             await write('telegram', settings);
             setNotice(settings.Remove ? 'Telegram bot disconnected.' : 'Telegram settings saved.');

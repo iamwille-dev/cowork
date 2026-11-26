@@ -65,7 +65,6 @@ type Workspace struct {
 	Reminders               []Reminder
 	Channels                map[string]string
 	AgentConnectionEnabled  bool `json:",omitempty"`
-	ChannelTools            channelToolSettings
 }
 
 var roles = map[string]bool{"Developer": true, "Product Manager": true, "Sales Lead": true, "Social Media": true}
@@ -129,7 +128,7 @@ func view(w http.ResponseWriter, d *database, a Account) {
 	if !isOwner {
 		space.Invite = ""
 	}
-	jsonReply(w, 200, map[string]any{"name": a.Name, "admin": isOwner, "workspace": space, "members": members, "directory": directory, "viewerId": a.ID, "threadInvitations": invitations, "gitTokenStatus": gitTokenStatus(d.GitTokens[space.ID]), "telegramBot": d.TelegramBots[space.ID].Username, "agentConnectionHasKey": isOwner && d.AgentConnectionKeys[space.ID] != ""})
+	jsonReply(w, 200, map[string]any{"name": a.Name, "admin": isOwner, "workspace": space, "members": members, "directory": directory, "viewerId": a.ID, "threadInvitations": invitations, "gitTokenStatus": gitTokenStatus(d.GitTokens[space.ID]), "telegramBot": d.TelegramBots[space.ID].Username, "telegramAgents": telegramAgentSettings(d, space.ID), "agentConnectionHasKey": isOwner && d.AgentConnectionKeys[space.ID] != ""})
 }
 
 type credentials struct{ Name, Email, Password, Role, Invite string }
@@ -185,15 +184,14 @@ func authenticate(w http.ResponseWriter, r *http.Request, d *database, action st
 }
 
 type workerRequest struct {
-	ChannelActor             *channelActor        `json:",omitempty"`
-	ChannelTools             *channelToolSettings `json:",omitempty"`
-	GitTokens                map[string]string    `json:",omitempty"`
-	Guest                    bool                 `json:",omitempty"`
-	AgentConnectionWorkspace string               `json:",omitempty"`
-	AgentConnectionKey       string               `json:",omitempty"`
-	UseWorkspaceMemory       bool                 `json:",omitempty"`
-	WorkspaceID              string               `json:",omitempty"`
-	ThreadID                 string               `json:",omitempty"`
+	ChannelActor             *channelActor     `json:",omitempty"`
+	GitTokens                map[string]string `json:",omitempty"`
+	Guest                    bool              `json:",omitempty"`
+	AgentConnectionWorkspace string            `json:",omitempty"`
+	AgentConnectionKey       string            `json:",omitempty"`
+	UseWorkspaceMemory       bool              `json:",omitempty"`
+	WorkspaceID              string            `json:",omitempty"`
+	ThreadID                 string            `json:",omitempty"`
 	Task                     Task
 	Role                     string
 	TimeZone                 string
@@ -312,24 +310,7 @@ func API(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if route == "task" || route == "chat" {
-		runAgent(w, r, d, account, space, route)
-		return
-	}
-	if route == "channel-tools" {
-		if account.ID != space.Owner {
-			fail(w, 403, "Workspace owner access required.")
-			return
-		}
-		var settings channelToolSettings
-		if !decode(w, r, &settings) {
-			return
-		}
-		space.ChannelTools = settings
-		if err := save(d); err != nil {
-			fail(w, 500, "Could not save channel tool settings.")
-			return
-		}
-		view(w, d, account)
+		runAgent(w, r, d, account, space, route, space.Role)
 		return
 	}
 	if route == "agent-connection" {
@@ -460,7 +441,7 @@ func threadMessages(space *Workspace, id string) *[]Message {
 	return nil
 }
 
-func runAgent(w http.ResponseWriter, r *http.Request, d *database, a Account, space *Workspace, route string) {
+func runAgent(w http.ResponseWriter, r *http.Request, d *database, a Account, space *Workspace, route, role string) {
 	var input struct {
 		Title, Brief, Repository, Text, TimeZone, ThreadID string
 		UI                                                 bool
@@ -473,7 +454,7 @@ func runAgent(w http.ResponseWriter, r *http.Request, d *database, a Account, sp
 		fail(w, 404, "Conversation not found.")
 		return
 	}
-	request := workerRequest{Role: space.Role, WorkspaceID: space.ID, ThreadID: input.ThreadID}
+	request := workerRequest{Role: role, WorkspaceID: space.ID, ThreadID: input.ThreadID}
 	if route == "chat" {
 		if telegramThread(space, input.ThreadID) {
 			fail(w, 403, "Reply to this conversation in Telegram.")
@@ -500,12 +481,12 @@ func runAgent(w http.ResponseWriter, r *http.Request, d *database, a Account, sp
 			return
 		}
 		request.Task = Task{ID: key(), Title: input.Title, Brief: input.Brief, Repository: strings.TrimSpace(input.Repository), Author: a.Name, Status: "Running", UI: input.UI, ThreadID: input.ThreadID}
-		if space.Role != "Developer" {
+		if role != "Developer" {
 			request.Task.Status = "Assigned"
 		}
 		space.Tasks = append(space.Tasks, request.Task)
 		w.Header().Set("X-Cowork-Record-Id", request.Task.ID)
-		if space.Role != "Developer" {
+		if role != "Developer" {
 			if save(d) != nil {
 				fail(w, 500, "Could not save task.")
 				return
