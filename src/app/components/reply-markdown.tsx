@@ -1,7 +1,7 @@
 import { MarkdownTextPrimitive } from '@assistant-ui/react-markdown';
 import { CheckIcon, DocumentDuplicateIcon, ExclamationCircleIcon } from '@heroicons/react/24/outline';
 import type { Element, ElementContent, Root } from 'hast';
-import { useEffect, useRef, useState, type ComponentProps } from 'react';
+import { useEffect, useState, type ComponentProps, type RefObject } from 'react';
 import { Button } from './button';
 
 const lineContainers = new Set(['p', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'th', 'td']);
@@ -69,11 +69,6 @@ function groupReplyLines() {
         const code = parent.children.find((child): child is Element => child.type === 'element' && child.tagName === 'code');
         if (code) code.children = wrapLines(code.children, true);
       } else if (lineContainers.has(parent.tagName)) {
-        if (/^h[1-6]$/.test(parent.tagName) || parent.tagName === 'th') {
-          // The copy button should not become part of a heading's name.
-          const label = parent.children.map(inlineText).join('').trim();
-          if (label) parent.properties.ariaLabel = label;
-        }
         // A tight list item can contain both inline text and a nested list.
         const grouped: ElementContent[] = [];
         let inline: ElementContent[] = [];
@@ -96,11 +91,19 @@ type MarkdownSpan = ComponentProps<'span'> & { node?: Element };
 
 function ReplySpan({ node, ...props }: MarkdownSpan) {
   if (!node?.properties.dataReplyLine) return <span {...props} />;
-  return <ReplyLine>{props.children}</ReplyLine>;
+  return <span className="chat-reply-text" onDoubleClick={(event) => selectText(event.currentTarget)}>{props.children}</span>;
 }
 
-function ReplyLine({ children }: Pick<MarkdownSpan, 'children'>) {
-  const text = useRef<HTMLSpanElement>(null);
+function selectText(element: HTMLElement | null) {
+  const selection = window.getSelection();
+  if (!selection || !element) return;
+  const range = document.createRange();
+  range.selectNodeContents(element);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+export function CopyReply({ text, body }: { text: string; body: RefObject<HTMLDivElement | null> }) {
   const [status, setStatus] = useState<'copied' | 'failed'>();
   useEffect(() => {
     if (!status) return;
@@ -108,37 +111,26 @@ function ReplyLine({ children }: Pick<MarkdownSpan, 'children'>) {
     return () => window.clearTimeout(timeout);
   }, [status]);
 
-  function selectLine() {
-    const selection = window.getSelection();
-    if (!selection || !text.current) return;
-    const range = document.createRange();
-    range.selectNodeContents(text.current);
-    selection.removeAllRanges();
-    selection.addRange(range);
-  }
-
-  async function copyLine() {
-    if (!text.current) return;
+  async function copyReply() {
     try {
-      await navigator.clipboard.writeText(text.current.textContent ?? '');
+      await navigator.clipboard.writeText(text);
       setStatus('copied');
     } catch {
-      selectLine();
+      selectText(body.current);
       setStatus('failed');
     }
   }
 
   const Icon = status === 'copied' ? CheckIcon : status === 'failed' ? ExclamationCircleIcon : DocumentDuplicateIcon;
-  const feedback = status === 'copied' ? 'Line copied.' : status === 'failed' ? 'Line selected. Use your keyboard to copy.' : '';
+  const feedback = status === 'copied' ? 'Reply copied.' : status === 'failed' ? 'Reply selected. Use your keyboard to copy.' : '';
   return (
-    <span className="chat-reply-line">
-      <span ref={text} className="chat-reply-text" onDoubleClick={selectLine}>{children}</span>
-      <Button variant="icon" className="chat-reply-copy" aria-label="Copy line" title={feedback || 'Copy line'}
-        data-copy-status={status} onClick={copyLine}>
+    <div className="chat-reply-actions">
+      <Button variant="icon" className="chat-reply-copy" aria-label="Copy reply" title={feedback || 'Copy reply'}
+        data-copy-status={status} onClick={copyReply}>
         <Icon aria-hidden="true" />
       </Button>
       <span className="sr-only" role="status">{feedback}</span>
-    </span>
+    </div>
   );
 }
 

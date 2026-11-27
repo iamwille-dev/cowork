@@ -7,7 +7,7 @@ import { SparklesIcon } from '@heroicons/react/24/outline';
 import { useRef, useState } from 'react';
 import { buttonClassName } from './app/components/button';
 import { fieldClassName } from './app/components/input';
-import { ReplyMarkdown } from './app/components/reply-markdown';
+import { CopyReply, ReplyMarkdown } from './app/components/reply-markdown';
 import { ConversationTaskReview, type Task } from './app/components/tasks';
 
 type WorkspaceMessage = { Author: string; Text: string; At: string; SenderID?: string; Agent?: boolean };
@@ -34,6 +34,8 @@ function ConversationMessage() {
   const date = message.createdAt?.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
   const author = String(message.metadata?.custom?.author ?? '');
   const agent = message.role === 'assistant';
+  const body = useRef<HTMLDivElement>(null);
+  const reply = agent ? message.content.flatMap((part) => part.type === 'text' ? [part.text] : []).join('\n\n') : '';
   return (
     <MessagePrimitive.Root asChild>
       <article className={agent ? 'chat-turn chat-turn-agent' : 'chat-turn chat-turn-user'}>
@@ -43,9 +45,10 @@ function ConversationMessage() {
             <strong>{author}</strong>
             {date && <time dateTime={message.createdAt?.toISOString()}>{date}</time>}
           </div>
-          <div className="message-body">
+          <div ref={body} className="message-body">
             <MessagePrimitive.Parts components={agent ? { Text: ReplyMarkdown } : undefined} />
           </div>
+          {reply.trim() && <CopyReply text={reply} body={body} />}
         </div>
       </article>
     </MessagePrimitive.Root>
