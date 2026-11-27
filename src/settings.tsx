@@ -37,14 +37,33 @@ type SettingsProps = {
 
 function SettingsSection({ title, description, children }: { title: string; description: string; children: ReactNode }) {
   return (
-    <section className="settings-form-section grid grid-cols-1 gap-x-8 gap-y-5 px-4 py-8 sm:px-6 md:grid-cols-3 lg:px-8">
+    <section className="settings-form-section settings-form-row">
       <div>
-        <h2 className="text-base/7 font-semibold">{title}</h2>
-        <p className="mt-1 text-sm/6">{description}</p>
+        <h2>{title}</h2>
+        <p>{description}</p>
       </div>
-      <div className="min-w-0 md:col-span-2"><div className="max-w-xl">{children}</div></div>
+      <div className="settings-form-body">{children}</div>
     </section>
   );
+}
+
+function SettingsIntro({ title, description }: { title: string; description: string }) {
+  return <header className="settings-form-section">
+    <h2>{title}</h2>
+    <p>{description}</p>
+  </header>;
+}
+
+function SettingsGroup({ id, title, logo, children }: {
+  id: string; title: string; logo?: 'slack' | 'telegram' | 'whatsapp'; children: ReactNode;
+}) {
+  return <section className="settings-form-section settings-form-row" aria-labelledby={id}>
+    <h3 id={id}>
+      {logo && <span className="settings-group-icon" data-provider={logo} aria-hidden="true" />}
+      {title}
+    </h3>
+    <div className="settings-form-body">{children}</div>
+  </section>;
 }
 
 function ThemeOptions({ theme, changeTheme }: Pick<SettingsProps, 'theme' | 'changeTheme'>) {
@@ -117,7 +136,7 @@ function ChannelForm({ provider, destination, owner, saveChannel }: {
       }
     }}>
       <label className="min-w-0 flex-1">
-        {provider}
+        Destination
         <input name="Destination" defaultValue={destination} readOnly={!owner} placeholder="Channel or conversation ID" />
       </label>
       {owner && <button className="primary" type="submit" ref={submit}>Save</button>}
@@ -325,7 +344,7 @@ function GitTokenForm({ provider, configured, owner, saveGitToken }: {
   }
 
   const name = gitProviders[provider];
-  if (!owner) return <p>{name} · {configured ? 'Token saved' : 'No token saved'}</p>;
+  if (!owner) return <p>{configured ? 'Token saved' : 'No token saved'}</p>;
   return (
     <form className="grid gap-3" onSubmit={(event) => { event.preventDefault(); void save(); }}>
       <label>
@@ -352,7 +371,7 @@ export function Settings(props: SettingsProps) {
     <div className="settings-page">
       <header className="settings-nav-header">
         <nav aria-label="Settings sections">
-          <ul role="list" className="flex flex-wrap gap-1 px-3 py-2.5 sm:px-5 lg:px-7">
+          <ul role="list" className="flex flex-wrap gap-1 py-2">
             {sections.map((section) => (
               <li key={section.id}>
                 <button type="button" onClick={() => setActive(section.id)} aria-current={active === section.id ? 'page' : undefined}>
@@ -363,74 +382,85 @@ export function Settings(props: SettingsProps) {
           </ul>
         </nav>
       </header>
-      {active === 'appearance' && (
-        <SettingsSection title="Color theme" description="Choose how Cowork looks in this browser.">
-          <ThemeOptions theme={props.theme} changeTheme={props.changeTheme} />
-        </SettingsSection>
-      )}
-      {active === 'members' && (
-        <>
-          <SettingsSection title="Workspace members" description="People who can chat with your agent and access workspace tasks and reminders.">
-            <MemberList members={props.members} />
+      <div className="settings-content">
+        {active === 'appearance' && (
+          <SettingsSection title="Color theme" description="Choose how Cowork looks in this browser.">
+            <ThemeOptions theme={props.theme} changeTheme={props.changeTheme} />
           </SettingsSection>
-          {props.owner && props.invite && (
-            <SettingsSection title="Invite teammates" description="Share this code with teammates so they can join during signup.">
-              <InviteCode invite={props.invite} announce={props.announce} />
+        )}
+        {active === 'members' && (
+          <>
+            <SettingsSection title="Workspace members" description="People who can chat with your agent and access workspace tasks and reminders.">
+              <MemberList members={props.members} />
             </SettingsSection>
-          )}
-        </>
-      )}
-      {active === 'agent-connection' && (
-        <SettingsSection title="Agent Connections" description="Manage connected accounts and grant access to your agents. Use connected apps in conversations without guest access.">
-          <div className="stack">
-            <AgentConnectionForm owner={props.owner} agentConnection={props.agentConnection}
-              saveAgentConnection={props.saveAgentConnection} managed={Boolean(props.managedConnections)} />
-            {props.owner && props.managedConnections && <ManagedConnections enabled agents={props.managedConnections.agents}
-              grants={props.managedConnections.grants} onGrants={props.managedConnections.saveGrants}
-              savingGrants={props.managedConnections.busy} keySaved={props.agentConnection.hasKey}
-              saveKey={async (key) => {
-                if (!await props.saveAgentConnection({ Enabled: true, Key: key })) {
-                  throw new Error('Cowork could not save the workspace key.');
-                }
-              }} />}
-          </div>
-        </SettingsSection>
-      )}
-      {active === 'git-tokens' && (
-        <SettingsSection title="Git provider access" description="Workspace owners manage these tokens. Workspace members can ask the agent to read repositories the tokens can access in conversations without guests. Use tokens with read-only repository access.">
-          <div className="grid gap-y-6">
+            {props.owner && props.invite && (
+              <SettingsSection title="Invite teammates" description="Share this code with teammates so they can join during signup.">
+                <InviteCode invite={props.invite} announce={props.announce} />
+              </SettingsSection>
+            )}
+          </>
+        )}
+        {active === 'agent-connection' && (
+          <>
+            <SettingsIntro title="Agent Connections" description="Manage connected accounts and grant access to your agents. Use connected apps in conversations without guest access." />
+            {props.owner && props.managedConnections && (
+              <SettingsGroup id="connected-apps-settings" title="Connected apps">
+                <ManagedConnections enabled agents={props.managedConnections.agents}
+                  grants={props.managedConnections.grants} onGrants={props.managedConnections.saveGrants}
+                  savingGrants={props.managedConnections.busy} keySaved={props.agentConnection.hasKey}
+                  saveKey={async (key) => {
+                    if (!await props.saveAgentConnection({ Enabled: true, Key: key })) {
+                      throw new Error('Cowork could not save the workspace key.');
+                    }
+                  }} />
+              </SettingsGroup>
+            )}
+            <SettingsGroup id="agent-connection-settings" title="Connection settings">
+              <AgentConnectionForm owner={props.owner} agentConnection={props.agentConnection}
+                saveAgentConnection={props.saveAgentConnection} managed={Boolean(props.managedConnections)} />
+            </SettingsGroup>
+          </>
+        )}
+        {active === 'git-tokens' && (
+          <>
+            <SettingsIntro title="Git provider access" description="Workspace owners manage these tokens. Workspace members can ask the agent to read repositories the tokens can access in conversations without guests. Use tokens with read-only repository access." />
             {(['github', 'gitlab'] as const).map((provider) => (
-              <GitTokenForm key={provider} provider={provider} configured={Boolean(props.gitTokenStatus[provider])}
-                owner={props.owner} saveGitToken={props.saveGitToken} />
+              <SettingsGroup key={provider} id={`${provider}-token-settings`} title={gitProviders[provider]}>
+                <GitTokenForm provider={provider} configured={Boolean(props.gitTokenStatus[provider])}
+                  owner={props.owner} saveGitToken={props.saveGitToken} />
+              </SettingsGroup>
             ))}
-          </div>
-        </SettingsSection>
-      )}
-      {active === 'channels' && (
-        <SettingsSection title="Messaging channels" description="Connect your Cowork agent to the places your team chats.">
-          <div className="grid gap-y-8">
-            <section className="grid gap-y-5 border-b border-current/10 pb-6" aria-labelledby="slack-settings">
-              <h3 id="slack-settings" className="text-base font-semibold">Slack</h3>
-              {channelAgentIds.map((agent) => <SlackConnectionForm key={agent} owner={props.owner} agent={agent} />)}
-              <SlackConnectionForm owner={props.owner} />
-            </section>
-            <section className="grid gap-y-5 border-b border-current/10 pb-6" aria-labelledby="telegram-settings">
-              <h3 id="telegram-settings" className="text-base font-semibold">Telegram</h3>
-              {channelAgentIds.map((agent) => {
-                const telegram = props.telegramAgents?.[agent];
-                return (
-                  <TelegramForm key={JSON.stringify([agent, telegram?.Username, telegram?.Destination])} owner={props.owner}
-                    agent={agent} telegramBot={telegram?.Username} destination={telegram?.Destination} saveTelegram={props.saveTelegram} />
-                );
-              })}
-              {props.telegramBot && <TelegramForm key={JSON.stringify([props.telegramBot, props.channels.Telegram])}
-                owner={props.owner} telegramBot={props.telegramBot} destination={props.channels.Telegram} saveTelegram={props.saveTelegram} />}
-            </section>
-            <ChannelForm key={props.channels.WhatsApp} provider="WhatsApp" destination={props.channels.WhatsApp ?? ''}
-              owner={props.owner} saveChannel={props.saveChannel} />
-          </div>
-        </SettingsSection>
-      )}
+          </>
+        )}
+        {active === 'channels' && (
+          <>
+            <SettingsIntro title="Messaging channels" description="Connect your Cowork agent to the places your team chats." />
+            <SettingsGroup id="slack-settings" title="Slack" logo="slack">
+              <div className="settings-provider-entries">
+                {channelAgentIds.map((agent) => <SlackConnectionForm key={agent} owner={props.owner} agent={agent} />)}
+                <SlackConnectionForm owner={props.owner} />
+              </div>
+            </SettingsGroup>
+            <SettingsGroup id="telegram-settings" title="Telegram" logo="telegram">
+              <div className="settings-provider-entries">
+                {channelAgentIds.map((agent) => {
+                  const telegram = props.telegramAgents?.[agent];
+                  return (
+                    <TelegramForm key={JSON.stringify([agent, telegram?.Username, telegram?.Destination])} owner={props.owner}
+                      agent={agent} telegramBot={telegram?.Username} destination={telegram?.Destination} saveTelegram={props.saveTelegram} />
+                  );
+                })}
+                {props.telegramBot && <TelegramForm key={JSON.stringify([props.telegramBot, props.channels.Telegram])}
+                  owner={props.owner} telegramBot={props.telegramBot} destination={props.channels.Telegram} saveTelegram={props.saveTelegram} />}
+              </div>
+            </SettingsGroup>
+            <SettingsGroup id="whatsapp-settings" title="WhatsApp" logo="whatsapp">
+              <ChannelForm key={props.channels.WhatsApp} provider="WhatsApp" destination={props.channels.WhatsApp ?? ''}
+                owner={props.owner} saveChannel={props.saveChannel} />
+            </SettingsGroup>
+          </>
+        )}
+      </div>
     </div>
   );
 }

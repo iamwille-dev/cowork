@@ -182,20 +182,55 @@ main { @apply min-w-0; }
 .reminder-row h3 { overflow-wrap: anywhere; }
 .reminder-row .avatar { height: 42px; width: 42px; border-radius: 50%; }
 .settings-page {
+  --settings-inset: clamp(16px, 3vw, 32px);
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 12px;
   box-shadow: var(--shadow);
 }
-.settings-nav-header { border-bottom: 1px solid var(--line); background: var(--sidebar); border-radius: 12px 12px 0 0; }
+.settings-nav-header {
+  padding-inline: calc(var(--settings-inset) - 8px);
+  border-bottom: 1px solid var(--line);
+  background: var(--sidebar);
+  border-radius: 12px 12px 0 0;
+}
 .settings-nav-header button {
   @apply whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-medium;
+  min-height: 38px;
   color: var(--muted);
 }
 .settings-nav-header button:hover { background: var(--soft); color: var(--ink); }
 .settings-nav-header button[aria-current="page"] { background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
 .settings-nav-header button:focus-visible { outline-offset: -2px; }
+.settings-content { padding-inline: var(--settings-inset); }
+.settings-form-section { padding-block: 24px; }
 .settings-form-section + .settings-form-section { border-top: 1px solid var(--line); }
+.settings-form-section h2 { font-size: 1.125rem; font-weight: 650; letter-spacing: -.025em; }
+.settings-form-section > h3 { @apply flex items-center gap-2 text-base/normal; font-weight: 650; }
+.settings-group-icon {
+  @apply size-7 shrink-0 rounded-lg;
+  background: var(--tint) center / 16px 16px no-repeat;
+}
+.settings-group-icon[data-provider="slack"] { background-image: url("./assets/channels/slack.png"); }
+.settings-group-icon[data-provider="telegram"] { background-image: url("./assets/channels/telegram.svg"); }
+.settings-group-icon[data-provider="whatsapp"] { background-image: url("./assets/channels/whatsapp.svg"); }
+.settings-form-section > p, .settings-form-section > div:first-child > p {
+  @apply mt-1 text-sm/normal;
+  max-width: 68ch;
+  color: var(--muted);
+}
+.settings-form-row { display: grid; gap: 12px 24px; align-items: start; }
+.settings-form-body { min-width: 0; max-width: 36rem; }
+.settings-form-body :is(.primary, .quiet) { max-width: 100%; white-space: normal; }
+.settings-provider-entries > * { gap: 8px; }
+.settings-provider-entries > * + * {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+@media (min-width: 768px) {
+  .settings-form-row { grid-template-columns: minmax(0, 13rem) minmax(0, 1fr); }
+}
 .theme-options { max-width: 420px; }
 .theme-options button {
   @apply grid gap-2 rounded-xl border p-2 text-left text-sm;
