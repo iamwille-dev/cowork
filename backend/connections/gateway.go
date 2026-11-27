@@ -51,7 +51,7 @@ type claims struct {
 
 func configure() (*app, error) {
 	ctx := context.Background()
-	for _, name := range []string{"LOCAL_ENCRYPTION_KEY", "CLERK_ISSUER", "COWORK_PUBLIC_URL"} {
+	for _, name := range []string{"LOCAL_ENCRYPTION_KEY", "COWORK_PUBLIC_URL"} {
 		if os.Getenv(name) == "" {
 			return nil, fmt.Errorf("%s is required", name)
 		}
@@ -68,8 +68,11 @@ func configure() (*app, error) {
 	if err != nil {
 		return nil, err
 	}
-	issuer := os.Getenv("CLERK_ISSUER")
-	if coworkIssuer := os.Getenv("COWORK_CLERK_ISSUER"); coworkIssuer != "" && coworkIssuer != issuer {
+	issuer := strings.TrimSpace(os.Getenv("CLERK_ISSUER"))
+	if issuer == "" {
+		issuer = strings.TrimSpace(os.Getenv("COWORK_CLERK_ISSUER"))
+	}
+	if coworkIssuer := strings.TrimSpace(os.Getenv("COWORK_CLERK_ISSUER")); coworkIssuer != "" && coworkIssuer != issuer {
 		return nil, errors.New("Agent Connections requires the same Clerk issuer as Cowork")
 	}
 	parsed, err := url.Parse(issuer)

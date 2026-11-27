@@ -47,7 +47,11 @@ New users choose and name one or more agents, optionally connect tools, and choo
 
 ## Move Agent Connections into Cowork
 
-Set `AGENT_CONNECTIONS_ENABLED=1` on Encore. Use the original `LOCAL_ENCRYPTION_KEY`, Clerk `CLERK_ISSUER`, legacy `TESTER_SUBJECTS` if configured, and the original provider credentials. Set `AGENT_CONNECTIONS_DATABASE_URL` to the gateway PostgreSQL database or a restored copy. The Encore service reuses the standalone Coolify migration ledger. For a database initialized with another migration runner, restore the persisted connection, grant, credential, and activity tables into a database initialized by this service. Preserve row IDs, owner IDs, ciphertext, credential hashes, and the activity sequence. Let the standalone process finish in-flight operations before switching to the new service.
+Set `AGENT_CONNECTIONS_ENABLED=1` on Encore and set `LOCAL_ENCRYPTION_KEY` to a stable 32-byte base64 key. Agent Connections uses the existing `DATABASE_URL` in its own `agent_connections` schema. Add provider credentials for the deployment. The service uses Cowork's Clerk issuer unless a matching `CLERK_ISSUER` is set explicitly.
+
+For a fresh Cowork deployment on an existing PostgreSQL instance and persistent volume, set `COWORK_DATABASE_SCHEMA` to an unused schema and `COWORK_STATE_DIR` to a new absolute directory inside the existing volume. Set `COWORK_REQUIRE_LEGACY_STATE=0` to allow empty state. The prior schema and state directory remain available for recovery.
+
+For installations that need to preserve standalone gateway records, initialize the destination first and copy connection, grant, credential, and activity tables once. Keep the source encryption key, owner IDs, row IDs, credential hashes, and activity sequence. An explicit `AGENT_CONNECTIONS_DATABASE_URL` still supports a separately managed gateway database with its existing migration ledger. Let the standalone process finish in-flight operations before switching clients.
 
 Register these paths on the public Cowork origin and verify new authorizations before switching clients.
 

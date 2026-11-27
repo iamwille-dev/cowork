@@ -3,10 +3,11 @@ import { createStep, createWorkflow } from '@mastra/core/workflows';
 import { chromium } from 'playwright';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { coworkStateDir } from '../../state.ts';
 import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
 
-export const dataRoot = resolve('backend/.cowork/artifacts');
+export const dataRoot = resolve(coworkStateDir, 'artifacts');
 const taskSchema = z.object({
   ID: z.string().regex(/^[a-f0-9]{48}$/),
   Title: z.string(),

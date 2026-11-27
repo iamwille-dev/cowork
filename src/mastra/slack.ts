@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { resolve } from 'node:path';
+import { coworkStateDir } from '../state.ts';
 import { createClient } from '@libsql/client';
 import type { ChannelHandler } from '@mastra/core/channels';
 import { respondFromChannel, saveSlackMessage, type ChannelActor } from './channel-tools.ts';
@@ -55,7 +56,7 @@ function eventBase(agent: ChannelAgent | '') {
   return '/integrations/slack' + (agent ? '/' + agent : '');
 }
 
-const url = `file:${resolve('backend/.cowork/slack-oauth.db')}`;
+const url = `file:${resolve(coworkStateDir, 'slack-oauth.db')}`;
 const db = createClient({ url });
 const storage = new LibSQLStore({ id: 'cowork-slack', url });
 const mastra = new Mastra({ storage });

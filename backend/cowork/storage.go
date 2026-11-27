@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	_ "github.com/jackc/pgx/v5/stdlib"
+	"cowork/internal/postgres"
 )
 
 type database struct {
@@ -33,7 +33,14 @@ type postgresStorage struct {
 }
 
 var storage = &postgresStorage{}
-var stateFile = filepath.Join(".cowork", "state.json")
+var stateFile = filepath.Join(workspaceStateDirectory(), "state.json")
+
+func workspaceStateDirectory() string {
+	if directory := strings.TrimSpace(os.Getenv("COWORK_STATE_DIR")); directory != "" {
+		return directory
+	}
+	return ".cowork"
+}
 
 const storageSchema = `
 CREATE TABLE IF NOT EXISTS cowork_storage_revision (
@@ -69,11 +76,12 @@ func (s *postgresStorage) connect(ctx context.Context) (*sql.DB, error) {
 	if url == "" {
 		return nil, errors.New("DATABASE_URL is required")
 	}
-	db, err := sql.Open("pgx", url)
+	schema := strings.TrimSpace(os.Getenv("COWORK_DATABASE_SCHEMA"))
+	db, err := postgres.Open(url, schema)
 	if err != nil {
 		return nil, err
 	}
-	if err := initializeStorage(ctx, db); err != nil {
+	if err := initializeStorage(ctx, db, schema); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -89,7 +97,7 @@ func (s *postgresStorage) ready(ctx context.Context) error {
 	return db.PingContext(ctx)
 }
 
-func initializeStorage(ctx context.Context, db *sql.DB) error {
+func initializeStorage(ctx context.Context, db *sql.DB, schema string) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -98,6 +106,9 @@ func initializeStorage(ctx context.Context, db *sql.DB) error {
 
 	// Serialize schema creation and the one-time snapshot import across processes.
 	if _, err := tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock(3846974703086560441)"); err != nil {
+		return err
+	}
+	if err := postgres.EnsureSchema(ctx, tx, schema); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, storageSchema); err != nil {

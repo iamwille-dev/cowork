@@ -5,7 +5,7 @@ cd /app
 
 # Mounted storage can have different ownership from the image directory.
 if [[ "$(id -u)" == 0 ]]; then
-  state_dir=/app/backend/.cowork
+  state_dir="${COWORK_STATE_DIR:-/app/backend/.cowork}"
   mkdir -p "$state_dir"
   chown -h node:node "$state_dir"
   for database_file in "$state_dir"/memory.db{,-wal,-shm,-journal} "$state_dir"/slack-oauth.db{,-wal,-shm,-journal}; do

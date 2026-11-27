@@ -1,5 +1,6 @@
 import { mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { coworkStateDir } from '../../state.ts';
 import { Agent } from '@mastra/core/agent';
 import { LibSQLStore } from '@mastra/libsql';
 import { Memory } from '@mastra/memory';
@@ -7,7 +8,7 @@ import { createTask, createReminder, scheduleTask } from '../tools/workspace.ts'
 
 export const model = `openrouter/${process.env.OPENROUTER_MODEL || 'openai/gpt-4.1-mini'}`;
 export const liveModel = Boolean(process.env.OPENROUTER_API_KEY?.trim());
-const memoryDirectory = resolve('backend/.cowork');
+const memoryDirectory = coworkStateDir;
 mkdirSync(memoryDirectory, { recursive: true, mode: 0o700 });
 const memory = new Memory({
   storage: new LibSQLStore({ id: 'cowork-memory', url: `file:${resolve(memoryDirectory, 'memory.db')}` }),

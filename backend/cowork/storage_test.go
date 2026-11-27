@@ -133,3 +133,51 @@ func TestPostgresImportsOnceAndRejectsStaleWrites(t *testing.T) {
 		t.Fatalf("workspace update was lost, load error = %v", err)
 	}
 }
+
+func TestFreshWorkspaceSchemaKeepsPreviousRecordsIsolated(t *testing.T) {
+	useTestPostgres(t)
+	t.Setenv("COWORK_DATABASE_SCHEMA", "")
+	previous, err := load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous.Accounts["previous@example.test"] = Account{ID: key(), Email: "previous@example.test"}
+	if err := save(previous); err != nil {
+		t.Fatal(err)
+	}
+
+	originalStorage := storage
+	freshSchema := "test_fresh_" + key()
+	t.Setenv("COWORK_DATABASE_SCHEMA", freshSchema)
+	storage = &postgresStorage{}
+	t.Cleanup(func() {
+		if storage.db != nil {
+			storage.db.Close()
+		}
+		if _, err := originalStorage.db.Exec("DROP SCHEMA " + freshSchema + " CASCADE"); err != nil {
+			t.Error(err)
+		}
+		storage = originalStorage
+	})
+
+	fresh, err := load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fresh.Accounts) != 0 {
+		t.Fatal("fresh namespace loaded previous Cowork accounts")
+	}
+	fresh.Accounts["fresh@example.test"] = Account{ID: key(), Email: "fresh@example.test"}
+	if err := save(fresh); err != nil {
+		t.Fatal(err)
+	}
+	var namespace string
+	if err := storage.db.QueryRow("SELECT current_schema()").Scan(&namespace); err != nil || namespace != freshSchema {
+		t.Fatalf("unexpected fresh workspace schema %q: %v", namespace, err)
+	}
+	var oldRecordExists bool
+	err = originalStorage.db.QueryRow("SELECT EXISTS(SELECT 1 FROM cowork_records WHERE kind='Accounts' AND record_key='previous@example.test')").Scan(&oldRecordExists)
+	if err != nil || !oldRecordExists {
+		t.Fatalf("previous schema lost its record: %v", err)
+	}
+}

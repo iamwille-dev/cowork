@@ -43,7 +43,7 @@ func TestGatewayPreservesExistingKeyAndProviderCredential(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	if err := migrate(ctx, db); err != nil {
+	if err := migrate(ctx, db, ""); err != nil {
 		t.Fatal(err)
 	}
 	block, err := aes.NewCipher(make([]byte, 32))
@@ -65,7 +65,7 @@ func TestGatewayPreservesExistingKeyAndProviderCredential(t *testing.T) {
 	if _, err := db.ExecContext(ctx, "INSERT INTO workspace_credentials (owner_id,client_id,name,credential_hash) VALUES ($1,$2,$3,$4)", owner, agentID, "Workspace key", hash[:]); err != nil {
 		t.Fatal(err)
 	}
-	if err := migrate(ctx, db); err != nil {
+	if err := migrate(ctx, db, ""); err != nil {
 		t.Fatal(err)
 	}
 	destination := &app{db: db, key: key, testers: map[string]bool{owner: true}, resource: "https://cowork.example.test/mcp"}
