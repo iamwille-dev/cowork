@@ -223,9 +223,12 @@ function createIntegration(settings: NonNullable<ReturnType<typeof configuration
       }));
       let name = settings.name;
       try {
-        const reply = await respondFromChannel(actor, mirrored?.Messages ?? messages, installationActive, async (status, displayName) => {
-          name = displayName;
-          await thread.startTyping(status).catch(() => undefined);
+        const reply = await respondFromChannel(actor, mirrored?.Messages ?? messages, {
+          installationActive,
+          progress: async (status, displayName) => {
+            name = displayName;
+            await thread.startTyping(status).catch(() => undefined);
+          },
         });
         if (reply && await installationActive() && (!agentId || await channelAgentInstance(actor) !== undefined)) {
           let replyId: string | undefined;
