@@ -1,0 +1,191 @@
+.setup {
+  max-width: 68rem;
+  margin-inline: auto;
+  padding: 18px clamp(16px, 4vw, 32px) 48px;
+}
+
+.intro {
+  display: grid;
+  gap: 10px;
+  margin-bottom: clamp(24px, 4vw, 38px);
+}
+
+.intro h1 {
+  font-size: clamp(2.125rem, 4.4vw, 3.45rem);
+  font-weight: 550;
+  letter-spacing: -.04em;
+  line-height: 1.06;
+}
+
+.intro h1:focus { outline: none; }
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.8fr) minmax(0, 1fr);
+  align-items: start;
+  gap: clamp(16px, 3vw, 28px);
+}
+
+.team, .catalog {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.teamHeader, .teamList, .teamFooter {
+  padding: 16px;
+}
+
+.teamHeader h2, .catalogHeader h2 {
+  font-size: 1.125rem;
+  font-weight: 650;
+}
+
+.teamList, .teamFooter {
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.teamList li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  overflow-wrap: anywhere;
+}
+
+.teamList img {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.teamList small {
+  display: block;
+  font-size: .75rem;
+}
+
+.teamFooter button { justify-self: start; }
+.teamFooter form { min-width: 0; }
+
+.catalogHeader, .catalogFooter, .notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 16px;
+}
+
+.catalogHeader { border-bottom: 1px solid var(--line); }
+
+.search {
+  position: relative;
+  flex: 0 1 14rem;
+  min-width: 10rem;
+}
+
+.search input {
+  border-radius: 999px;
+  padding-inline: 32px 36px;
+}
+
+.search input::-webkit-search-cancel-button { display: none; }
+.search > svg, .clearSearch {
+  position: absolute;
+  inset-block-start: 50%;
+  translate: 0 -50%;
+  color: var(--muted);
+}
+
+.search > svg {
+  inset-inline-start: 11px;
+  width: 16px;
+  height: 16px;
+  pointer-events: none;
+}
+
+.clearSearch {
+  display: grid;
+  place-items: center;
+  inset-inline-end: 5px;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+}
+
+.clearSearch:hover { background: var(--soft); color: var(--ink); }
+.clearSearch svg, .pagination svg { width: 16px; height: 16px; }
+
+.app {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  padding: 16px;
+}
+
+.app + .app, .catalogFooter, .setupNote { border-top: 1px solid var(--line); }
+.appInfo h3 { font-size: 1rem; font-weight: 650; }
+.appInfo p { overflow-wrap: anywhere; }
+.appInfo .category { display: inline-block; margin-top: 4px; color: var(--muted); font-size: .75rem; }
+
+.appIcon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  background: var(--tint);
+  color: var(--accent-text);
+}
+
+.appIcon svg { width: 22px; height: 22px; }
+.appAction { display: grid; justify-items: end; gap: 6px; max-width: 10rem; }
+.appAction button svg { width: 14px; height: 14px; }
+.appStatus {
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--soft);
+  color: var(--muted);
+  font-size: .75rem;
+  white-space: nowrap;
+}
+
+.appStatus[data-state="setup"] { color: var(--warning); background: var(--warning-bg); }
+.appStatus[data-state="connected"] { color: var(--success); background: var(--success-bg); }
+.alternate {
+  min-height: 30px;
+  color: var(--accent-text);
+  font-size: .75rem;
+  text-align: end;
+}
+
+.alternate:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+.catalogFooter p, .setupNote { font-size: .75rem; }
+.catalogFooter p { font-variant-numeric: tabular-nums; }
+.setupNote { padding: 10px 16px; }
+.pagination { display: flex; align-items: center; gap: 8px; }
+.notice { border-bottom: 1px solid var(--line); background: var(--warning-bg); }
+.notice p { color: var(--warning); }
+.empty { padding: 24px 16px; }
+
+@media (max-width: 800px) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 470px) {
+  .search { flex-basis: 100%; }
+  .app { grid-template-columns: auto minmax(0, 1fr); }
+  .appAction {
+    grid-column: 2;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    max-width: none;
+  }
+}

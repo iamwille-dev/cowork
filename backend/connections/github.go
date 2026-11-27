@@ -60,7 +60,7 @@ func (a *app) setupGitHub(w http.ResponseWriter, r *http.Request) {
 		var owner, verifier string
 		err = a.db.QueryRowContext(r.Context(), `SELECT owner_id,verifier FROM github_intents
    WHERE state=$1 AND browser_binding=$2 AND expires_at>now()`, state, cookie.Value).Scan(&owner, &verifier)
-		if err == nil && a.testers[owner] {
+		if err == nil && a.canUseOwner(owner) {
 			switch r.URL.Query().Get("setup_action") {
 			case "install", "update":
 				destination = a.github.AuthCodeURL(state, oauth2.S256ChallengeOption(verifier))
@@ -87,7 +87,7 @@ func (a *app) finishGitHub(w http.ResponseWriter, r *http.Request) {
 	ctx := context.WithValue(r.Context(), oauth2.HTTPClient, a.httpClient)
 	var owner, verifier string
 	err = a.db.QueryRowContext(ctx, `DELETE FROM github_intents WHERE state=$1 AND browser_binding=$2 AND expires_at>now() RETURNING owner_id,verifier`, state, cookie.Value).Scan(&owner, &verifier)
-	if err != nil || !a.testers[owner] {
+	if err != nil || !a.canUseOwner(owner) {
 		return
 	}
 	a.setGitHubCookie(w, "", -1)

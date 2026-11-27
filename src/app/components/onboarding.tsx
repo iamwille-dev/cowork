@@ -1,12 +1,14 @@
 'use client';
 
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { ArrowLeftIcon } from '@heroicons/react/24/outline';
+import Image from 'next/image';
+import { ArrowLeftIcon, ArrowRightIcon } from '@heroicons/react/24/outline';
 import { SlackConnectionForm, TelegramForm } from '../../settings';
 import type { ChannelAgent } from '../../channel-agents';
 import { api } from './api';
 import { ManagedConnections, saveConnectionKey, type AgentGrants } from './managed-connections';
 import { AgentPicker, agentCatalog, type AgentChoices } from './agent-picker';
+import catalogStyles from './connection-catalog.module.css';
 
 export type WorkspaceAgent = { ID: string; Role: string; Name: string; Channel?: string; ConnectionIDs?: string[] };
 type Telegram = { Username: string; Destination: string };
@@ -107,31 +109,42 @@ export function WorkspaceOnboarding<T extends Setup>({ setup, busy, save, config
   );
 
   if (stage === 'tools') return (
-    <section className="workspace-setup">
-      <header>
+    <section className={catalogStyles.setup}>
+      <header className={catalogStyles.intro}>
         <h1 ref={heading} tabIndex={-1}>Connect tools</h1>
-        <p>Connect the accounts your agents need. You can add more in Settings.</p>
+        <p>Connect the apps your agents need. You can add more in Settings.</p>
       </header>
-      <div className="setup-agents" aria-label="Your agents">
-        {agents.map(({ ID, Name, Role }) => <div key={ID}>
-          <strong>{Name}{Name !== Role && <span> · {Role}</span>}</strong>
-          <p>{agentCatalog.find(({ id }) => id === ID)?.description}</p>
-        </div>)}
+      <div className={catalogStyles.layout}>
+        <ManagedConnections enabled={managed} agents={agents} grants={grants} onGrants={saveGrants} savingGrants={busy}
+          keySaved={configured || keySaved} saveKey={async (value) => { await saveConnectionKey(value); setKeySaved(true); }}
+          onBusy={setToolBusy} onboarding />
+        <aside className={catalogStyles.team} aria-label="Your agents">
+          <header className={catalogStyles.teamHeader}><h2>Your agents</h2></header>
+          <ul className={catalogStyles.teamList} role="list">
+            {agents.map(({ ID, Name, Role }) => {
+              const agent = agentCatalog.find(({ id }) => id === ID);
+              return <li key={ID}>
+                {agent && <Image src={agent.artwork} alt="" unoptimized />}
+                <div><strong>{Name}</strong>{Name !== Role && <small>{Role}</small>}</div>
+              </li>;
+            })}
+          </ul>
+          <footer className={catalogStyles.teamFooter}>
+            <button className="primary" type="button" disabled={busy || keyBusy || toolBusy}
+              onClick={() => void save({ Step: 'channels' })}>
+              Continue to channels <ArrowRightIcon className="size-4" aria-hidden="true" />
+            </button>
+            {configured || keySaved ? <div><span className="status review" role="status">Agent Connections key saved</span></div>
+              : keyOpen ? <form className="stack" onSubmit={(event) => submit(event, (data) => { void saveExistingKey(data); })}>
+                <label>Agent Connections key
+                  <input name="Key" type="password" autoComplete="off" required placeholder="Paste your existing key" />
+                </label>
+                {keyError && <p role="alert">{keyError}</p>}
+                <div><button className="quiet" disabled={keyBusy}>Save key</button></div>
+              </form> : <button className="quiet" type="button" onClick={() => setKeyOpen(true)}>Use an existing key</button>}
+          </footer>
+        </aside>
       </div>
-      {managed ? <ManagedConnections enabled agents={agents} grants={grants} onGrants={saveGrants} savingGrants={busy}
-        keySaved={configured || keySaved} saveKey={async (value) => { await saveConnectionKey(value); setKeySaved(true); }} onBusy={setToolBusy} onboarding />
-        : <p>Tool setup is unavailable on this deployment. You can finish setup and connect tools later.</p>}
-      {configured || keySaved ? <p className="status review" role="status">Agent Connections key saved</p>
-        : keyOpen ? <form className="stack" onSubmit={(event) => submit(event, (data) => { void saveExistingKey(data); })}>
-          <label>Agent Connections key
-            <input name="Key" type="password" autoComplete="off" required placeholder="Paste the key from Agent Connections" />
-          </label>
-          {keyError && <p role="alert">{keyError}</p>}
-          <div><button className="quiet" disabled={keyBusy}>Save key</button></div>
-        </form> : <div><button className="quiet" type="button" onClick={() => setKeyOpen(true)}>Use an Agent Connections key</button></div>}
-      <footer className="setup-controls">
-        <button className="primary" disabled={busy || keyBusy || toolBusy} onClick={() => void save({ Step: 'channels' })}>Done for now</button>
-      </footer>
     </section>
   );
 

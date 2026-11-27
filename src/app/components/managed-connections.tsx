@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { api } from './api';
+import { ConnectionCatalog, connectionApps, type ConnectionAppId } from './connection-catalog';
 import type { WorkspaceAgent } from './onboarding';
 
 const prefix = '/integrations/agent-connections';
@@ -44,7 +45,9 @@ export function ManagedConnections({ enabled, agents, grants, onGrants, savingGr
   onBusy?: (value: boolean) => void;
 }) {
   const [connections, setConnections] = useState<Connection[]>();
-  const [providers, setProviders] = useState<Partial<Record<Provider, boolean>>>({});
+  const [providers, setProviders] = useState<Partial<Record<Provider, boolean>> | null>();
+  const [loadError, setLoadError] = useState('');
+  const [sshOpen, setSshOpen] = useState(false);
   const [workspaceKey, setWorkspaceKey] = useState<GatewayKey | null>();
   const [createdKey, setCreatedKey] = useState('');
   const [namedKey, setNamedKey] = useState('');
@@ -57,23 +60,33 @@ export function ManagedConnections({ enabled, agents, grants, onGrants, savingGr
   const [status, setStatus] = useState('');
 
   const refresh = useCallback(async () => {
-    const [kinds, entries, key] = await Promise.all([
-      gateway<Partial<Record<Provider, boolean>>>('/providers'), gateway<Connection[]>('/connections'),
-      gateway<GatewayKey | null>('/workspace/key'),
+    setLoadError('');
+    const results = await Promise.allSettled([
+      gateway<Partial<Record<Provider, boolean>>>('/providers').then(setProviders, (failure) => {
+        setProviders(null);
+        throw failure;
+      }),
+      gateway<Connection[]>('/connections').then(setConnections),
+      gateway<GatewayKey | null>('/workspace/key').then(setWorkspaceKey),
     ]);
-    setProviders(kinds);
-    setConnections(entries);
-    setWorkspaceKey(key);
+    const [providerResult, accountsResult, keyResult] = results;
+    if (providerResult.status === 'rejected') {
+      setLoadError('Couldn’t check app availability. Try again.');
+    } else if (accountsResult.status === 'rejected' || keyResult.status === 'rejected') {
+      setLoadError('Some connected account details couldn’t load.');
+    }
   }, []);
 
   useEffect(() => {
     if (!enabled) return;
-    void refresh().catch((failure: Error) => setError(failure.message));
+    void refresh();
     const url = new URL(window.location.href);
     const result = url.searchParams.get('github') ?? url.searchParams.get('google');
     if (result) {
       if (result === 'connected') setStatus('Connection saved.');
       else if (result === 'requested') setStatus('GitHub is waiting for installation approval. Authorize it here after approval.');
+      else if (result === 'scope') setError('Gmail read access was declined. Reconnect and grant read access to continue.');
+      else if (result === 'offline') setError('Google didn’t grant lasting access. Reconnect the Gmail account to try again.');
       else setError('The provider did not finish connecting. Start again when ready.');
       url.searchParams.delete('github');
       url.searchParams.delete('google');
@@ -104,6 +117,11 @@ export function ManagedConnections({ enabled, agents, grants, onGrants, savingGr
     });
   }
 
+  function connectApp(id: ConnectionAppId) {
+    if (id === 'ssh') setSshOpen(true);
+    else void connect(id);
+  }
+
   async function createWorkspaceKey(reveal: boolean) {
     const key = await gateway<GatewayKey>('/workspace/key', 'POST');
     setWorkspaceKey(key);
@@ -128,7 +146,7 @@ export function ManagedConnections({ enabled, agents, grants, onGrants, savingGr
     setNext(result.next);
   }
 
-  if (!enabled) return null;
+  if (!enabled && !onboarding) return null;
   const clients = new Map<string, string>();
   if (workspaceKey) clients.set(workspaceKey.id, workspaceKey.name);
   for (const connection of connections ?? []) {
@@ -137,48 +155,54 @@ export function ManagedConnections({ enabled, agents, grants, onGrants, savingGr
   }
 
   return <div className="stack">
-    <div className="setup-tool">
-      <h3>GitHub</h3>
-      <p>Choose which repositories the GitHub App can access.</p>
-      <div className="setup-controls">
-        <button className="quiet" type="button" disabled={busy || !providers.github} onClick={() => void connect('github')}>Connect GitHub</button>
-        {providers.github && <button className="quiet" type="button" disabled={busy} onClick={() => void connect('github', true)}>Authorize an existing installation</button>}
-      </div>
-    </div>
-    <div className="setup-tool">
-      <h3>Gmail</h3>
-      <p>Give an agent read access to a mailbox you choose.</p>
-      <button className="quiet" type="button" disabled={busy || !providers.gmail} onClick={() => void connect('gmail')}>Connect Gmail</button>
-    </div>
-    {!onboarding && <details className="setup-tool">
-      <summary>Connect an SSH host</summary>
+    <ConnectionCatalog busy={busy} serviceError={enabled ? loadError : 'Tool connections are unavailable on this deployment.'}
+      retry={enabled && loadError ? () => void refresh() : undefined}
+      apps={connectionApps.map((app) => ({
+        ...app,
+        connected: connections?.filter(({ kind }) => kind === app.id).length ?? 0,
+        availability: !enabled || providers === null ? 'unavailable'
+          : app.id === 'ssh' ? (onboarding ? 'settings' : 'ready')
+          : providers === undefined ? 'loading' : providers[app.id] ? 'ready' : 'setup',
+        connect: () => connectApp(app.id),
+        alternate: app.id === 'github'
+          ? { label: 'Use an existing installation', run: () => { void connect('github', true); } }
+          : undefined,
+      }))} />
+    {!onboarding && sshOpen && <section className="setup-tool" aria-label="Connect an SSH host">
+      <h3>Connect an SSH host</h3>
       <form className="stack w-full" onSubmit={(event) => {
         const values = formData(event);
         const form = event.currentTarget;
         void action(async () => {
           await gateway('/connections/ssh', 'POST', { ...values, port: Number(values.port || 22) });
           form.reset();
+          setSshOpen(false);
           await refresh();
         });
       }}>
-        <label>Host<input name="host" required /></label>
+        <label>Host<input name="host" required autoFocus /></label>
         <label>Port<input name="port" type="number" min="1" max="65535" defaultValue="22" required /></label>
         <label>SSH user<input name="user" required /></label>
         <label>Host key fingerprint<input name="fingerprint" required placeholder="SHA256:…" /></label>
         <label>Private key<textarea name="private_key" autoComplete="off" required rows={4} /></label>
-        <div><button className="quiet" disabled={busy}>Save SSH connection</button></div>
+        <div className="setup-controls">
+          <button className="quiet" disabled={busy}>Save SSH connection</button>
+          <button className="quiet" type="button" disabled={busy} onClick={() => setSshOpen(false)}>Cancel</button>
+        </div>
       </form>
-    </details>}
+    </section>}
 
-    {connections?.length ? <section className="setup-agents" aria-label="Connected accounts">
-      {connections.map((connection) => <div key={connection.id} className="stack">
+    {Boolean(connections?.length) && <section className="setup-agents" aria-label="Connected accounts">
+      <h2 className="font-semibold">Connected accounts</h2>
+      {connections?.map((connection) => <div key={connection.id} className="stack">
         <div className="setup-controls">
           <strong>{label(connection)}</strong><span className="status review">{labelProvider(connection.kind)} connected</span>
         </div>
         {connection.kind !== 'ssh' && agents.length > 0 && <fieldset className="grant-options">
           <legend>Allow access for</legend>
           {agents.map((agent) => <label key={agent.ID}>
-            <input type="checkbox" disabled={busy || savingGrants} checked={grants[agent.ID]?.includes(connection.id) ?? false} onChange={(event) => {
+            <input type="checkbox" disabled={busy || savingGrants || (onboarding && !keySaved && workspaceKey === undefined)}
+              checked={grants[agent.ID]?.includes(connection.id) ?? false} onChange={(event) => {
               const selected = grants[agent.ID] ?? [];
               const checked = event.currentTarget.checked;
               const updated = { ...grants, [agent.ID]: checked
@@ -245,7 +269,7 @@ export function ManagedConnections({ enabled, agents, grants, onGrants, savingGr
           </div>
         </details>}
       </div>)}
-    </section> : connections && <p>No accounts connected yet.</p>}
+    </section>}
 
     {namedKey && <div className="stack">
       <label>New connection key<input value={namedKey} readOnly /></label>
@@ -257,7 +281,7 @@ export function ManagedConnections({ enabled, agents, grants, onGrants, savingGr
         <button className="quiet" type="button" onClick={() => setNamedKey('')}>Hide key</button>
       </div>
     </div>}
-    {connections?.length && !keySaved && workspaceKey === null && <div>
+    {Boolean(connections?.length) && !keySaved && workspaceKey === null && <div>
       <button className="quiet" type="button" disabled={busy} onClick={() => void action(() => createWorkspaceKey(true))}>Generate and save a workspace key</button>
     </div>}
     {createdKey && <div className="stack">

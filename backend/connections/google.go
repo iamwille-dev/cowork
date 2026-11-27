@@ -59,7 +59,7 @@ func (a *app) finishGoogle(w http.ResponseWriter, r *http.Request) {
 	}
 	var owner, verifier string
 	err = a.db.QueryRowContext(r.Context(), `DELETE FROM google_intents WHERE state=$1 AND browser_binding=$2 AND expires_at>now() RETURNING owner_id,verifier`, state, cookie.Value).Scan(&owner, &verifier)
-	if err != nil || !a.testers[owner] {
+	if err != nil || !a.canUseOwner(owner) {
 		return
 	}
 	http.SetCookie(w, &http.Cookie{Name: intentCookie, Path: browserPrefix + "/google/callback", HttpOnly: true, Secure: strings.HasPrefix(a.origin, "https://"), SameSite: http.SameSiteLaxMode, MaxAge: -1})
