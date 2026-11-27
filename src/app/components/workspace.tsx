@@ -1,11 +1,12 @@
 'use client';
 
-import { Button } from './button';
+import { Button, buttonClassName } from './button';
 import { Input, Textarea } from './input';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth, useClerk } from '@clerk/nextjs';
-import { PlusIcon, UserPlusIcon } from '@heroicons/react/24/outline';
+import { ArrowLeftIcon, PlusIcon, UserPlusIcon } from '@heroicons/react/24/outline';
 import { WorkspaceShell } from '../../sidebar';
 import { Conversation } from '../../chat';
 import { ConversationIndex, type Message, type Thread } from '../../conversations';
@@ -16,6 +17,7 @@ import { api, initials, localDay } from './api';
 import { AuthForm, Modal } from './forms';
 import { Select } from './select';
 import { ClerkSignIn, useClerkMode } from './clerk-auth';
+import { ConnectionActivity } from './managed-connections';
 import { WorkspaceOnboarding, type WorkspaceAgent } from './onboarding';
 import { AssigneeOptions, TaskBoard, type ScheduleAction, type Task, type TaskAssignee, type TaskChanges } from './tasks';
 
@@ -40,17 +42,18 @@ type WorkspaceData = {
     Tasks?: Task[]; Reminders?: Reminder[]; Channels?: Record<string, string>;
   };
 };
-type View = 'conversations' | 'tasks' | 'reminders' | 'settings';
+type View = 'conversations' | 'tasks' | 'reminders' | 'settings' | 'activity';
 type ModalName = 'thread' | 'invite' | 'task' | 'reminder' | 'edit-schedule' | 'cancel-schedule';
 
-const titles: Record<View, string> = { conversations: 'Conversations', tasks: 'Tasks', reminders: 'Reminders', settings: 'Workspace settings' };
+const titles: Record<View, string> = { conversations: 'Conversations', tasks: 'Tasks', reminders: 'Reminders', settings: 'Workspace settings', activity: 'Activity' };
 const descriptions: Record<View, string> = {
   conversations: 'Chat with your agent and keep your team in the loop.',
   tasks: 'See what’s planned, who owns it, and what’s ready for review.',
   reminders: 'See what’s coming up and keep track of follow-ups.',
   settings: 'Manage your workspace, teammates, and integrations.',
+  activity: 'Review operations performed through Agent Connections.',
 };
-const shellPages: Record<View, string> = { conversations: 'chat', settings: 'admin', tasks: 'tasks', reminders: 'reminders' };
+const shellPages: Record<View, string> = { conversations: 'chat', settings: 'admin', activity: 'admin', tasks: 'tasks', reminders: 'reminders' };
 const shellRoutes: Record<string, View> = { chat: 'conversations', admin: 'settings', tasks: 'tasks', reminders: 'reminders' };
 const threadRoute = (id: string) => '/conversations/' + (id || 'workspace');
 const dataOf = (event: FormEvent<HTMLFormElement>) => {
@@ -287,6 +290,9 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
             {view === 'conversations' && threadId !== undefined && <Button variant="quiet" onClick={() => router.push('/conversations')}>All conversations</Button>}
             {current && !current.TelegramTopic && !current.Slack && <Button onClick={() => { setInviteMode('email'); setModal('invite'); }}><UserPlusIcon className="size-4" aria-hidden="true" /> Invite people</Button>}
             {view === 'tasks' && <Button onClick={() => { setNotice(''); setModal('task'); }}><PlusIcon className="size-4" aria-hidden="true" /> New task</Button>}
+            {view === 'activity' && <Link className={buttonClassName('quiet')} href="/settings?section=agent-connection">
+              <ArrowLeftIcon className="size-4" aria-hidden="true" /> Back to settings
+            </Link>}
           </div>
         </header>
         {view === 'conversations' && <section id="chat" className="page">
@@ -326,6 +332,11 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
         {view === 'reminders' && <section className="page"><ReminderCalendar selected={selectedDay} reminders={workspace.Reminders ?? []}
           select={setSelectedDay} add={() => setModal('reminder')}
           complete={(id) => void run(async () => { await write('reminder/done', { ID: id }); })} /></section>}
+        {view === 'activity' && <div className="page">
+          {state.admin && state.managedConnections ? <ConnectionActivity /> : <p className="panel p-4">
+            {state.managedConnections ? 'Workspace owners can view activity.' : 'Activity is available when managed Agent Connections are enabled.'}
+          </p>}
+        </div>}
         {view === 'settings' && <section className="page"><Settings theme={theme} members={state.directory} owner={state.admin}
           invite={workspace.Invite || ''} channels={workspace.Channels ?? {}} changeTheme={changeTheme} announce={setNotice}
           managedConnections={state.managedConnections ? { agents, grants, busy, saveGrants } : undefined}

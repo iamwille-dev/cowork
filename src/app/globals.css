@@ -174,14 +174,14 @@ main { @apply min-w-0; }
   background: var(--sidebar);
   border-radius: 12px 12px 0 0;
 }
-.settings-nav-header button {
-  @apply whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-medium;
+.settings-nav-header :is(button, a) {
+  @apply inline-flex items-center whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-medium;
   min-height: 38px;
   color: var(--muted);
 }
-.settings-nav-header button:hover { background: var(--soft); color: var(--ink); }
+.settings-nav-header :is(button, a):hover { background: var(--soft); color: var(--ink); }
 .settings-nav-header button[aria-current="page"] { background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
-.settings-nav-header button:focus-visible { outline-offset: -2px; }
+.settings-nav-header :is(button, a):focus-visible { outline-offset: -2px; }
 .settings-content { padding-inline: var(--settings-inset); }
 .settings-form-section { padding-block: 24px; }
 .settings-form-section + .settings-form-section { border-top: 1px solid var(--line); }

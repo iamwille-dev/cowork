@@ -2,7 +2,7 @@
 
 import { Button } from './button';
 import { Input, Textarea } from './input';
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { api } from './api';
 import { Select } from './select';
 import { ConnectionCatalog, connectionApps, type ConnectionAppId } from './connection-catalog';
@@ -54,10 +54,6 @@ export function ManagedConnections({ enabled, agents, grants, onGrants, savingGr
   const [workspaceKey, setWorkspaceKey] = useState<GatewayKey | null>();
   const [createdKey, setCreatedKey] = useState('');
   const [namedKey, setNamedKey] = useState('');
-  const [activity, setActivity] = useState<Activity[]>();
-  const [next, setNext] = useState<string>();
-  const [filter, setFilter] = useState('');
-  const [clientFilter, setClientFilter] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [status, setStatus] = useState('');
@@ -139,24 +135,7 @@ export function ManagedConnections({ enabled, agents, grants, onGrants, savingGr
     setStatus('Workspace key saved in Cowork.');
   }
 
-  async function loadActivity(connection: string, client: string, before?: string) {
-    const query = new URLSearchParams();
-    if (connection) query.set('connection', connection);
-    if (client) query.set('client', client);
-    if (before) query.set('before', before);
-    const result = await gateway<{ entries: Activity[]; next?: string }>('/activity?' + query);
-    setActivity((current) => before ? [...(current ?? []), ...result.entries] : result.entries);
-    setNext(result.next);
-  }
-
   if (!enabled && !onboarding) return null;
-  const clients = new Map<string, string>();
-  if (workspaceKey) clients.set(workspaceKey.id, workspaceKey.name);
-  for (const connection of connections ?? []) {
-    for (const agent of connection.agents ?? []) clients.set(agent.id, agent.name);
-    for (const id of connection.clients ?? []) clients.set(id, id);
-  }
-
   return <div className="stack">
     <ConnectionCatalog busy={busy} serviceError={enabled ? loadError : 'Tool connections are unavailable on this deployment.'}
       retry={enabled && loadError ? () => void refresh() : undefined}
@@ -317,40 +296,130 @@ export function ManagedConnections({ enabled, agents, grants, onGrants, savingGr
       })}>Copy MCP URL</Button>
     </div>}
 
-    {!onboarding && <details className="setup-tool" onToggle={(event) => {
-      if (event.currentTarget.open && !activity) void action(() => loadActivity(filter, clientFilter));
-    }}>
-      <summary>Activity</summary>
-      <label>Connection
-        <Select value={filter} onChange={(event) => {
-          const value = event.target.value;
-          setFilter(value);
-          void action(() => loadActivity(value, clientFilter));
-        }}>
-          <option value="">All connections</option>
-          {connections?.map((item) => <option value={item.id} key={item.id}>{label(item)}</option>)}
-        </Select>
-      </label>
-      <label>Credential
-        <Select value={clientFilter} onChange={(event) => {
-          const value = event.target.value;
-          setClientFilter(value);
-          void action(() => loadActivity(filter, value));
-        }}>
-          <option value="">All credentials</option>
-          {[...clients].map(([id, name]) => <option value={id} key={id}>{name}</option>)}
-        </Select>
-      </label>
-      {activity?.length ? <ul className="setup-agents w-full">{activity.map((event) => (
-        <li key={event.id}>
-          <strong>{event.operation.replaceAll('_', ' ')}</strong>
-          <span className={'status ml-2 ' + (event.succeeded ? 'review' : 'attention')}>{event.succeeded ? 'Succeeded' : 'Failed'}</span>
-          <p>{[event.agentName, event.connectionLabel, new Date(event.occurredAt).toLocaleString()].filter(Boolean).join(' · ')}</p>
-        </li>))}</ul> : activity && <p>No activity recorded.</p>}
-      {next && <Button variant="quiet" type="button" disabled={busy} onClick={() => void action(() => loadActivity(filter, clientFilter, next))}>Load more</Button>}
-    </details>}
     {status && <p role="status">{status}</p>}
     {error && <p role="alert">{error}</p>}
+  </div>;
+}
+
+type ActivityPage = { entries: Activity[]; next?: string };
+
+export function ConnectionActivity() {
+  const [options, setOptions] = useState<{ connections: Connection[]; credentials: Map<string, string> }>();
+  const [optionsError, setOptionsError] = useState('');
+  const [optionAttempt, setOptionAttempt] = useState(0);
+  const [filters, setFilters] = useState({ connection: '', client: '' });
+  const [cursors, setCursors] = useState<(string | undefined)[]>([undefined]);
+  const [page, setPage] = useState<ActivityPage>();
+  const [error, setError] = useState('');
+  const [attempt, setAttempt] = useState(0);
+  const top = useRef<HTMLDivElement>(null);
+  const before = cursors.at(-1);
+  const loading = !page && !error;
+
+  useEffect(() => {
+    let current = true;
+    void Promise.all([gateway<Connection[]>('/connections'), gateway<GatewayKey | null>('/workspace/key')])
+      .then(([connections, key]) => {
+        if (!current) return;
+        const credentials = new Map<string, string>();
+        if (key) credentials.set(key.id, key.name);
+        for (const connection of connections) {
+          for (const id of connection.clients ?? []) {
+            if (!credentials.has(id)) credentials.set(id, id);
+          }
+          for (const agent of connection.agents ?? []) credentials.set(agent.id, agent.name);
+        }
+        setOptions({ connections, credentials });
+      })
+      .catch(() => { if (current) setOptionsError('Could not load activity filters.'); });
+    return () => { current = false; };
+  }, [optionAttempt]);
+
+  useEffect(() => {
+    let current = true;
+    const query = new URLSearchParams();
+    if (filters.connection) query.set('connection', filters.connection);
+    if (filters.client) query.set('client', filters.client);
+    if (before) query.set('before', before);
+    void gateway<ActivityPage>('/activity?' + query)
+      .then((result) => { if (current) setPage(result); })
+      .catch((failure: Error) => { if (current) setError(failure.message); });
+    return () => { current = false; };
+  }, [filters, before, attempt]);
+
+  function changeFilter(name: keyof typeof filters, value: string) {
+    setPage(undefined);
+    setError('');
+    setFilters({ ...filters, [name]: value });
+    setCursors([undefined]);
+  }
+
+  function goToPage(nextCursors: typeof cursors, fromBottom: boolean) {
+    if (fromBottom) {
+      top.current?.focus({ preventScroll: true });
+      top.current?.scrollIntoView({ block: 'start' });
+    }
+    setPage(undefined);
+    setError('');
+    setCursors(nextCursors);
+  }
+
+  function pagination(fromBottom = false) {
+    const next = page?.next;
+    return <div className="flex flex-wrap items-center gap-2" role="group" aria-label={fromBottom ? 'Activity pages at end of log' : 'Activity pages'}>
+      <Button variant="quiet" type="button" disabled={loading || cursors.length === 1}
+        onClick={() => goToPage(cursors.slice(0, -1), fromBottom)}>Newer</Button>
+      <span className="px-1 text-sm text-[var(--muted)]" aria-live={fromBottom ? undefined : 'polite'}>Page {cursors.length}</span>
+      <Button variant="quiet" type="button" disabled={!next}
+        onClick={() => { if (next) goToPage([...cursors, next], fromBottom); }}>Older</Button>
+    </div>;
+  }
+
+  return <div className="stack">
+    <div ref={top} tabIndex={-1} className="flex scroll-mt-20 flex-wrap items-end justify-between gap-4">
+      <div className="grid w-full min-w-0 grid-cols-1 gap-3 min-[360px]:grid-cols-2 sm:max-w-md sm:flex-1">
+        <div className="grid min-w-0 gap-1">
+          <label htmlFor="activity-connection">Connection</label>
+          <Select id="activity-connection" value={filters.connection} disabled={!options} onChange={(event) => changeFilter('connection', event.target.value)}>
+            <option value="">All connections</option>
+            {options?.connections.map((item) => <option value={item.id} key={item.id}>{label(item)}</option>)}
+          </Select>
+        </div>
+        <div className="grid min-w-0 gap-1">
+          <label htmlFor="activity-credential">Credential</label>
+          <Select id="activity-credential" value={filters.client} disabled={!options} onChange={(event) => changeFilter('client', event.target.value)}>
+            <option value="">All credentials</option>
+            {options && [...options.credentials].map(([id, name]) => <option value={id} key={id}>{name}</option>)}
+          </Select>
+        </div>
+      </div>
+      {pagination()}
+    </div>
+    {optionsError && <div className="flex flex-wrap items-center gap-2">
+      <p role="alert">{optionsError}</p>
+      <Button variant="quiet" type="button" onClick={() => { setOptionsError(''); setOptionAttempt((value) => value + 1); }}>Retry filters</Button>
+    </div>}
+    <div className="panel">
+      {loading && <p className="p-4" role="status">Loading activity…</p>}
+      {error && <div className="flex flex-wrap items-center gap-2 p-4">
+        <p role="alert">{error}</p>
+        <Button variant="quiet" type="button" onClick={() => { setError(''); setAttempt((value) => value + 1); }}>Try again</Button>
+      </div>}
+      {page && (page.entries.length ? <ul className="divide-y divide-[var(--line)]" role="list" aria-label="Activity log">
+        {page.entries.map((event) => <li key={event.id} className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_auto_5.5rem] sm:items-center">
+          <div className="min-w-0 wrap-anywhere">
+            <strong>{event.operation.replaceAll('_', ' ')}</strong>
+            <p className="text-sm text-[var(--muted)]">{[event.agentName, event.connectionLabel].filter(Boolean).join(' · ')}</p>
+          </div>
+          <time className="col-span-2 text-sm text-[var(--muted)] tabular-nums sm:col-span-1 sm:col-start-2 sm:row-start-1"
+            dateTime={event.occurredAt}>{new Date(event.occurredAt).toLocaleString()}</time>
+          <span className={`status col-start-2 row-start-1 self-start justify-self-end sm:col-start-3 sm:self-center ${event.succeeded ? 'review' : 'attention'}`}>
+            {event.succeeded ? 'Succeeded' : 'Failed'}
+          </span>
+        </li>)}
+      </ul> : <p className="p-4">{filters.connection || filters.client ? 'No activity matches these filters.' : 'No activity recorded.'}</p>)}
+    </div>
+    {page && (page.next || cursors.length > 1) && <div className="flex justify-end">{pagination(true)}</div>}
   </div>;
 }
 
