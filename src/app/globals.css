@@ -144,27 +144,17 @@ main { @apply min-w-0; }
 .empty-state h2, .section-heading h2 { font-size: 1.125rem; }
 .empty-state p, .section-heading p { font-size: .9rem; }
 
-.task-toolbar { @apply mb-4 flex flex-wrap items-center justify-between gap-3; }
-.task-toolbar > span { color: var(--muted); font-size: .875rem; }
 .segmented { @apply inline-flex flex-wrap gap-1 rounded-full border p-1; background: var(--soft); border-color: var(--line); }
 .segmented button { @apply rounded-full px-3 py-1.5 text-sm font-medium; color: var(--muted); }
 .segmented button:hover { background: var(--soft); color: var(--ink); }
 .segmented button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
-.task-list { @apply grid; overflow: hidden; }
-.task-card + .task-card { border-top: 1px solid var(--line); }
-.task-card { @apply grid gap-3 px-4 py-4 sm:px-5; }
-.task-header, .dialog-heading { @apply flex items-start justify-between gap-3; }
-.task-title { min-width: 0; }
-.task-title h3 { font-size: 1rem; letter-spacing: -.01em; overflow-wrap: anywhere; }
-.task-title p { font-size: .875rem; }
+.dialog-heading { @apply flex items-start justify-between gap-3; }
+.dialog-heading > :first-child { min-width: 0; overflow-wrap: anywhere; }
 .status { @apply inline-flex w-fit shrink-0 rounded-full items-center gap-1.5 px-2 py-0.5 text-xs font-medium; background: var(--tint); color: var(--accent-text); }
 .status::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
 .status.review { background: var(--success-bg); color: var(--success); }
 .status.attention, .task-error { color: var(--warning); background: var(--warning-bg); }
 .task-error { @apply rounded-lg px-3 py-2 text-sm; }
-.task-details { @apply border-t pt-2; border-color: var(--line); font-size: .9rem; }
-.task-details p { margin-top: 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.task-details ol { list-style: decimal; padding-left: 22px; margin-top: 8px; color: var(--muted); }
 .artifact-list { @apply flex flex-wrap gap-2; }
 .artifact-list :is(a, button) { @apply rounded-lg border px-2.5 py-1.5 text-sm font-semibold; border-color: var(--line); color: var(--accent-text); }
 .artifact-list :is(a, button):hover { background: var(--tint); }
@@ -586,8 +576,6 @@ main[data-view="chat-list"] #chat { max-width: 1200px; }
 }
 .conversation-starter { margin: 0; padding: 16px; }
 .conversation-starter .quiet { white-space: normal; }
-.task-toolbar { margin: 0; padding: 10px clamp(12px, 2vw, 20px); border-bottom: 1px solid var(--line); }
-.task-card { gap: 9px; }
 .reminder-agenda { margin: 0; min-width: 0; }
 .guest-page[data-view="chat"] #workspace { flex: 1; }
 .guest-page > .shell-topbar { flex-shrink: 0; }

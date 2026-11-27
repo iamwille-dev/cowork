@@ -25,7 +25,12 @@ func signWorkerSession(payload string) []byte {
 }
 
 func workerAccount(r *http.Request, d *database, route string) (Account, bool) {
-	if r.Method != http.MethodPost || (route != "task" && route != "task/schedule" && route != "reminder") {
+	if r.Method != http.MethodPost {
+		return Account{}, false
+	}
+	switch route {
+	case "task", "task/schedule", "task/find", "task/update", "reminder":
+	default:
 		return Account{}, false
 	}
 	id, token, ok := strings.Cut(r.Header.Get("X-Cowork-Worker"), ".")

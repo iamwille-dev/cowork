@@ -14,9 +14,9 @@ const scheduledRunLease = 3 * time.Minute
 
 func scheduleTask(w http.ResponseWriter, r *http.Request, d *database, a Account, space *Workspace) {
 	var input struct {
-		Title, Brief, ThreadID, TimeZone, Recurrence string
-		Due                                          *time.Time
-		DelaySeconds                                 int64
+		Title, Brief, ThreadID, TimeZone, Recurrence, Assignee string
+		Due                                                    *time.Time
+		DelaySeconds                                           int64
 	}
 	if !decode(w, r, &input) {
 		return
@@ -50,9 +50,14 @@ func scheduleTask(w http.ResponseWriter, r *http.Request, d *database, a Account
 	if err != nil || input.TimeZone == "Local" {
 		location = time.UTC
 	}
+	agent, member, ok := taskAssignee(d, space, input.Assignee, space.threadAgent(input.ThreadID))
+	if !ok || member != "" {
+		fail(w, 400, "Select an agent in this workspace for the scheduled run.")
+		return
+	}
 	task := Task{
 		ID: key(), Title: title, Brief: brief, Author: a.Name, Status: "Scheduled",
-		ThreadID: input.ThreadID, AgentID: space.threadAgent(input.ThreadID).ID, ScheduledFor: &due, ScheduledTimeZone: location.String(),
+		ThreadID: input.ThreadID, AgentID: agent.ID, AgentRole: agent.Role, ScheduledFor: &due, ScheduledTimeZone: location.String(),
 	}
 	if input.Recurrence != "" {
 		task.Recurrence, task.RecurrenceStart = input.Recurrence, &due
@@ -86,7 +91,7 @@ func updateSchedule(w http.ResponseWriter, r *http.Request, d *database, a Accou
 	}
 	for index := range space.Tasks {
 		task := &space.Tasks[index]
-		if task.ID != input.ID || task.RecurrenceStart == nil || task.ScheduledFor == nil || recurrenceDays(task.Recurrence) == 0 {
+		if task.ID != input.ID || task.ScheduledFor == nil || task.RunRecurrence != "" {
 			continue
 		}
 		if task.Status == "Canceled" && input.Action == "cancel" {
@@ -100,8 +105,16 @@ func updateSchedule(w http.ResponseWriter, r *http.Request, d *database, a Accou
 		now := time.Now()
 		switch input.Action {
 		case "pause":
+			if task.RecurrenceStart == nil {
+				fail(w, 400, "Only recurring schedules can be paused.")
+				return
+			}
 			task.Status = "Paused"
 		case "resume":
+			if task.RecurrenceStart == nil {
+				fail(w, 400, "Only recurring schedules can be resumed.")
+				return
+			}
 			if task.Status == "Paused" && !task.ScheduledFor.After(now) {
 				next := nextOccurrence(*task, now)
 				task.ScheduledFor = &next
@@ -111,8 +124,8 @@ func updateSchedule(w http.ResponseWriter, r *http.Request, d *database, a Accou
 			task.Status = "Canceled"
 		case "edit":
 			title, brief := strings.TrimSpace(input.Title), strings.TrimSpace(input.Brief)
-			if title == "" || len(title) > 120 || brief == "" || len(brief) > 6000 || recurrenceDays(input.Recurrence) == 0 {
-				fail(w, 400, "Enter a title, a task brief, and a daily or weekly frequency.")
+			if title == "" || len(title) > 120 || brief == "" || len(brief) > 6000 || (input.Recurrence != "" && recurrenceDays(input.Recurrence) == 0) {
+				fail(w, 400, "Enter a title, a task brief, and a valid frequency.")
 				return
 			}
 			if input.LocalDue != "" {
@@ -128,8 +141,11 @@ func updateSchedule(w http.ResponseWriter, r *http.Request, d *database, a Accou
 					return
 				}
 				due = due.UTC()
-				task.ScheduledFor, task.RecurrenceStart = &due, &due
-			} else if task.Recurrence != input.Recurrence {
+				task.ScheduledFor = &due
+			}
+			if input.Recurrence == "" {
+				task.RecurrenceStart = nil
+			} else if input.LocalDue != "" || task.Recurrence != input.Recurrence {
 				task.RecurrenceStart = task.ScheduledFor
 			}
 			task.Title, task.Brief, task.Recurrence = title, brief, input.Recurrence
@@ -148,7 +164,7 @@ func updateSchedule(w http.ResponseWriter, r *http.Request, d *database, a Accou
 		view(w, d, a)
 		return
 	}
-	fail(w, 404, "Recurring schedule not found.")
+	fail(w, 404, "Schedule not found.")
 }
 
 // Use calendar dates in the schedule's time zone so offsets can change without drifting the scheduled hour.
@@ -242,6 +258,7 @@ func claimScheduledTask(now time.Time) (string, workerRequest, error) {
 		next := nextOccurrence(*task, now)
 		task.ScheduledFor = &next
 		run.ID = key()
+		run.RunRecurrence = task.Recurrence
 		run.Recurrence, run.RecurrenceStart = "", nil
 		space.Tasks = append(space.Tasks, run)
 	} else {
@@ -251,6 +268,9 @@ func claimScheduledTask(now time.Time) (string, workerRequest, error) {
 		return "", workerRequest{}, err
 	}
 	role := space.Role
+	if roles[run.AgentRole] {
+		role = run.AgentRole
+	}
 	if run.AgentID != "" {
 		if agent, ok := space.agent(run.AgentID); ok {
 			role = agent.Role

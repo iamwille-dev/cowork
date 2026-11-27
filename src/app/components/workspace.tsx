@@ -14,7 +14,7 @@ import { api, initials, localDay } from './api';
 import { AuthForm, Modal } from './forms';
 import { ClerkSignIn, useClerkMode } from './clerk-auth';
 import { WorkspaceOnboarding, type WorkspaceAgent } from './onboarding';
-import { TaskList, type ScheduleAction, type Task } from './tasks';
+import { AssigneeOptions, TaskBoard, type ScheduleAction, type Task, type TaskAssignee, type TaskChanges } from './tasks';
 
 type Reminder = { ID: string; Text: string; Due: string; Author: string; Done: boolean };
 type WorkspaceData = {
@@ -43,7 +43,7 @@ type ModalName = 'thread' | 'invite' | 'task' | 'reminder' | 'edit-schedule' | '
 const titles: Record<View, string> = { conversations: 'Conversations', tasks: 'Tasks', reminders: 'Reminders', settings: 'Workspace settings' };
 const descriptions: Record<View, string> = {
   conversations: 'Chat with your agent and keep your team in the loop.',
-  tasks: 'Track assigned work, scheduled runs, and results ready to review.',
+  tasks: 'See what’s planned, who owns it, and what’s ready for review.',
   reminders: 'See what’s coming up and keep track of follow-ups.',
   settings: 'Manage your workspace, teammates, and integrations.',
 };
@@ -63,6 +63,52 @@ function scheduleLocalDue(task: Task) {
   }).formatToParts(new Date(task.ScheduledFor));
   const fields = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
   return `${fields.year}-${fields.month}-${fields.day}T${fields.hour}:${fields.minute}`;
+}
+
+function NewTaskForm({ assignees, busy, notice, submit }: {
+  assignees: TaskAssignee[]; busy: boolean; notice: string;
+  submit: (route: string, data: object) => void;
+}) {
+  const [assignee, setAssignee] = useState(assignees[0]?.value ?? '');
+  const [timing, setTiming] = useState('planned');
+  const person = assignees.find(({ value }) => value === assignee);
+  const developer = person?.role === 'Developer';
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return <form className="stack" onSubmit={(event) => {
+    const { Title, Brief, Repository, UI, Due, Recurrence } = dataOf(event);
+    if (timing === 'scheduled') {
+      submit('task/schedule', {
+        Title, Brief, Assignee: assignee, Due: new Date(String(Due)).toISOString(), TimeZone: timeZone, Recurrence,
+      });
+      return;
+    }
+    submit('task', { Title, Brief, Assignee: assignee, Repository, UI: UI === 'on', PlanOnly: timing === 'planned' });
+  }}>
+    <label>Task title<input name="Title" required maxLength={120} /></label>
+    <label>Task brief<textarea name="Brief" required maxLength={6000} rows={4} /></label>
+    <label>Assignee<select required value={assignee} onChange={(event) => {
+      const next = assignees.find(({ value }) => value === event.target.value);
+      setAssignee(event.target.value);
+      if (next?.kind !== 'agent' || (timing === 'now' && next.role !== 'Developer')) setTiming('planned');
+    }}><AssigneeOptions assignees={assignees} /></select></label>
+    {person?.kind === 'agent' && <label>Timing<select value={timing} onChange={(event) => setTiming(event.target.value)}>
+      <option value="planned">Add to Planned</option>
+      {developer && <option value="now">Run now</option>}
+      <option value="scheduled">Schedule for later</option>
+    </select></label>}
+    {timing === 'scheduled' && <>
+      <label>First run ({timeZone})<input name="Due" type="datetime-local" required /></label>
+      <label>Frequency<select name="Recurrence" defaultValue="">
+        <option value="">Once</option><option value="daily">Daily</option><option value="weekly">Weekly</option>
+      </select></label>
+    </>}
+    {timing === 'now' && <>
+      <label>Repository URL (optional)<input name="Repository" type="url" maxLength={500} /></label>
+      <label className="checkbox"><input name="UI" type="checkbox" defaultChecked /> Include a UI screenshot</label>
+    </>}
+    <button className="primary justify-self-start" disabled={busy}>{busy ? 'Saving…' : timing === 'now' ? 'Run task' : timing === 'scheduled' ? 'Schedule task' : 'Create task'}</button>
+    {notice && <p role="status">{notice}</p>}
+  </form>;
 }
 
 type WorkspaceProps = { view: View; threadId?: string; initialMode?: 'signup' | 'login' };
@@ -88,22 +134,25 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
   const [needsSetup, setNeedsSetup] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [notice, setNotice] = useState('');
+  const [taskAnnouncement, setTaskAnnouncement] = useState('');
   const [modal, setModal] = useState<ModalName | null>(null);
   const [schedule, setSchedule] = useState<Task | null>(null);
   const [busy, setBusy] = useState(false);
   const [inviteMode, setInviteMode] = useState<'email' | 'teammate'>('email');
   const [selectedDay, setSelectedDay] = useState(() => new Date());
   const pending = useRef(false);
+  const revision = useRef(0);
 
   async function refresh() {
+    const startedAt = revision.current;
     try {
       const data = await api<WorkspaceData>('workspace');
-      if (!pending.current) {
+      if (!pending.current && startedAt === revision.current) {
         setState(data);
         setNeedsSetup(false);
       }
     } catch (error) {
-      if (pending.current) return;
+      if (pending.current || startedAt !== revision.current) return;
       const status = (error as { status?: number }).status;
       setState(null);
       setNeedsSetup(status === 428);
@@ -121,6 +170,7 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
   async function run(action: () => Promise<void>) {
     if (pending.current) return false;
     pending.current = true;
+    revision.current += 1;
     setBusy(true);
     setNotice('');
     try { await action(); return true; }
@@ -155,7 +205,11 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
   const selectedAgent = agents.find(({ ID }) => ID === current?.AgentID) ?? agents[0];
   const invitations = state?.threadInvitations ?? [];
   const teammates = state?.directory.filter(({ ID }) => ID !== state.viewerId) ?? [];
-  const developer = workspace?.Role === 'Developer';
+  const assignees: TaskAssignee[] = [
+    ...(agents.length ? agents : [{ ID: '', Name: `${workspace?.Role || 'Workspace'} agent`, Role: workspace?.Role }])
+      .map(({ ID, Name, Role }): TaskAssignee => ({ value: 'agent:' + ID, name: Name, kind: 'agent', role: Role })),
+    ...(state?.directory ?? []).map(({ ID, Name }): TaskAssignee => ({ value: 'member:' + ID, name: Name, kind: 'member' })),
+  ];
   const route = (id: string) => router.push(threadRoute(id));
   const close = () => { setModal(null); setSchedule(null); setNotice(''); };
   const scheduleDue = schedule ? scheduleLocalDue(schedule) : '';
@@ -167,6 +221,16 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
       close();
       setNotice({ pause: 'Schedule paused.', resume: 'Schedule resumed.', edit: 'Schedule updated.', cancel: 'Schedule canceled.' }[action]);
     });
+  }
+
+  async function updateTask(task: Task, changes: TaskChanges) {
+    setTaskAnnouncement('');
+    const saved = await run(async () => {
+      await write('task/update', { ID: task.ID, ExpectedStatus: task.Status, ...changes });
+      setTaskAnnouncement(changes.Status ? `${changes.Title ?? task.Title} moved.` : 'Task updated.');
+    });
+    if (!saved) void refresh();
+    return saved;
   }
 
   if (clerkSignOut && (needsSetup || (state?.admin && workspace?.OnboardingStep))) return (
@@ -202,6 +266,7 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
       ].slice(0, 6);
     }}>
     <main data-view={contentMode}>
+      {view === 'tasks' && <div className="sr-only" role="status">{taskAnnouncement}</div>}
       {notice && !modal && <div id="notice" role="status">{notice}</div>}
       {state === undefined && <p className="p-6" role="status">Loading workspace…</p>}
       {state === null && (clerkSignOut ? <div className="workspace-setup">
@@ -218,7 +283,7 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
             {view === 'conversations' && threadId === undefined && <button className="primary" onClick={() => setModal('thread')}><PlusIcon className="size-4" aria-hidden="true" /> New conversation</button>}
             {view === 'conversations' && threadId !== undefined && <button className="quiet" onClick={() => router.push('/conversations')}>All conversations</button>}
             {current && !current.TelegramTopic && !current.Slack && <button className="primary" onClick={() => { setInviteMode('email'); setModal('invite'); }}><UserPlusIcon className="size-4" aria-hidden="true" /> Invite people</button>}
-            {view === 'tasks' && <button className="primary" onClick={() => setModal('task')}><PlusIcon className="size-4" aria-hidden="true" /> Assign task</button>}
+            {view === 'tasks' && <button className="primary" onClick={() => { setNotice(''); setModal('task'); }}><PlusIcon className="size-4" aria-hidden="true" /> New task</button>}
           </div>
         </header>
         {view === 'conversations' && <section id="chat" className="page">
@@ -245,7 +310,8 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
             <ConversationIndex threads={threads} tasks={tasks} role={workspace.Role} open={route} />
           </>}
         </section>}
-        {view === 'tasks' && <section className="page"><TaskList tasks={tasks} busy={busy} manageSchedule={(action, task) => {
+        {view === 'tasks' && <section className="page"><TaskBoard tasks={tasks} assignees={assignees} busy={busy}
+          notice={notice} clearNotice={() => setNotice('')} update={updateTask} manageSchedule={(action, task) => {
           if (action === 'edit' || action === 'cancel') {
             setNotice('');
             setSchedule(task);
@@ -323,16 +389,11 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
         {notice && <p className="mt-3" role="status">{notice}</p>}
       </Modal>}
 
-      {modal === 'task' && <Modal title="Assign a task" close={close}><form className="stack" onSubmit={(event) => {
-        const data = dataOf(event);
-        void run(async () => { await write('task', { ...data, UI: developer && data.UI === 'on' }); close(); });
-      }}>
-        <label>Task title<input name="Title" required maxLength={120} placeholder="Build a launch page" /></label>
-        <label>Task brief<textarea name="Brief" required maxLength={6000} rows={5} /></label>
-        {developer && <><label>Repository URL (optional)<input name="Repository" type="url" maxLength={500} /></label>
-          <label className="checkbox"><input name="UI" type="checkbox" defaultChecked /> Include a UI screenshot</label></>}
-        <button className="primary" disabled={busy}>{busy ? 'Assigning task…' : developer ? 'Run Developer workflow' : 'Assign task'}</button>
-      </form>{notice && <p role="status">{notice}</p>}</Modal>}
+      {modal === 'task' && <Modal title="New task" close={close}>
+        <NewTaskForm assignees={assignees} busy={busy} notice={notice} submit={(path, data) => {
+          void run(async () => { await write(path, data); close(); });
+        }} />
+      </Modal>}
 
       {modal === 'edit-schedule' && schedule && <Modal title="Edit schedule" close={close}>
         <form className="stack" onSubmit={(event) => {
@@ -341,7 +402,8 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
         }}>
           <label>Task title<input name="Title" required maxLength={120} defaultValue={schedule.Title} /></label>
           <label>Task brief<textarea name="Brief" required maxLength={6000} rows={5} defaultValue={schedule.Brief} /></label>
-          <label>Frequency<select name="Recurrence" defaultValue={schedule.Recurrence}>
+          <label>Frequency<select name="Recurrence" defaultValue={schedule.Recurrence ?? ''}>
+            {!schedule.Recurrence && <option value="">Once</option>}
             <option value="daily">Daily</option><option value="weekly">Weekly</option>
           </select></label>
           <label>Next run ({schedule.ScheduledTimeZone || 'UTC'})<input name="LocalDue" type="datetime-local" required defaultValue={scheduleDue} /></label>
@@ -352,7 +414,7 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
 
       {modal === 'cancel-schedule' && schedule && <Modal title="Cancel schedule" close={close}>
         <div className="stack">
-          <p>Cancel future runs of <strong>{schedule.Title}</strong>? Any run already in progress will finish.</p>
+          <p>Cancel {schedule.Recurrence ? 'future runs' : 'the scheduled run'} of <strong>{schedule.Title}</strong>?</p>
           <div className="flex flex-wrap gap-2">
             <button type="button" className="quiet" onClick={close} disabled={busy}>Keep schedule</button>
             <button type="button" className="primary" onClick={() => void changeSchedule('cancel', schedule)} disabled={busy}>Cancel schedule</button>

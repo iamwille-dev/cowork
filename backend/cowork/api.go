@@ -45,14 +45,18 @@ type Task struct {
 	ID, Title, Brief, Repository, Author, Status, Error string
 	ThreadID                                            string `json:",omitempty"`
 	AgentID                                             string `json:",omitempty"`
+	AgentRole                                           string `json:",omitempty"`
+	AssigneeMemberID                                    string `json:",omitempty"`
 	UI                                                  bool
 	Steps                                               []string
 	Artifacts                                           []Artifact
 	ScheduledFor                                        *time.Time `json:",omitempty"`
 	ScheduledStarted                                    *time.Time `json:",omitempty"`
+	WorkflowStarted                                     *time.Time `json:",omitempty"`
 	ScheduledTimeZone                                   string     `json:",omitempty"`
 	Recurrence                                          string     `json:",omitempty"`
 	RecurrenceStart                                     *time.Time `json:",omitempty"`
+	RunRecurrence                                       string     `json:",omitempty"`
 	Result                                              string     `json:",omitempty"`
 }
 type Reminder struct {
@@ -357,6 +361,14 @@ func API(w http.ResponseWriter, r *http.Request) {
 		updateSchedule(w, r, d, account, space)
 		return
 	}
+	if route == "task/update" {
+		updateBoardTask(w, r, d, account, space)
+		return
+	}
+	if route == "task/find" {
+		findBoardTasks(w, r, space)
+		return
+	}
 	if route == "task" || route == "chat" {
 		runAgent(w, r, d, account, space, route, "")
 		return
@@ -500,8 +512,8 @@ func threadMessages(space *Workspace, id string) *[]Message {
 
 func runAgent(w http.ResponseWriter, r *http.Request, d *database, a Account, space *Workspace, route, role string) {
 	var input struct {
-		Title, Brief, Repository, Text, TimeZone, ThreadID string
-		UI                                                 bool
+		Title, Brief, Repository, Text, TimeZone, ThreadID, Assignee string
+		UI, PlanOnly                                                 bool
 	}
 	if !decode(w, r, &input) {
 		return
@@ -512,10 +524,16 @@ func runAgent(w http.ResponseWriter, r *http.Request, d *database, a Account, sp
 		return
 	}
 	agent := space.threadAgent(input.ThreadID)
-	if role == "" {
-		role = agent.Role
+	if role != "" && role != agent.Role {
+		agent = workspaceAgent{Role: role, Name: role + " agent"}
+		for _, candidate := range space.Agents {
+			if candidate.Role == role {
+				agent = candidate
+				break
+			}
+		}
 	}
-	request := workerRequest{Role: role, AgentName: agent.Name, WorkspaceID: space.ID, ThreadID: input.ThreadID}
+	request := workerRequest{Role: agent.Role, AgentName: agent.Name, WorkspaceID: space.ID, ThreadID: input.ThreadID}
 	if route == "chat" {
 		if telegramThread(space, input.ThreadID) || slackLinked(space, input.ThreadID) {
 			fail(w, 403, "Reply to this conversation in its messaging channel.")
@@ -541,13 +559,22 @@ func runAgent(w http.ResponseWriter, r *http.Request, d *database, a Account, sp
 			fail(w, 400, "Enter a title and a task brief within the displayed limits.")
 			return
 		}
-		request.Task = Task{ID: key(), Title: input.Title, Brief: input.Brief, Repository: strings.TrimSpace(input.Repository), Author: a.Name, Status: "Running", UI: input.UI, ThreadID: input.ThreadID, AgentID: agent.ID}
-		if role != "Developer" {
-			request.Task.Status = "Assigned"
+		assignee, member, ok := taskAssignee(d, space, input.Assignee, agent)
+		if !ok {
+			fail(w, 400, "Select an agent or a team member in this workspace.")
+			return
+		}
+		agent = assignee
+		request.Role, request.AgentName = agent.Role, agent.Name
+		request.Task = Task{ID: key(), Title: input.Title, Brief: input.Brief, Repository: strings.TrimSpace(input.Repository), Author: a.Name, Status: "Assigned", UI: input.UI, ThreadID: input.ThreadID, AgentID: agent.ID, AgentRole: agent.Role, AssigneeMemberID: member}
+		start := agent.Role == "Developer" && !input.PlanOnly
+		if start {
+			now := time.Now().UTC()
+			request.Task.Status, request.Task.WorkflowStarted = "Running", &now
 		}
 		space.Tasks = append(space.Tasks, request.Task)
 		w.Header().Set("X-Cowork-Record-Id", request.Task.ID)
-		if role != "Developer" {
+		if !start {
 			if save(d) != nil {
 				fail(w, 500, "Could not save task.")
 				return
@@ -608,6 +635,10 @@ func runAgent(w http.ResponseWriter, r *http.Request, d *database, a Account, sp
 			if task.ID != request.Task.ID {
 				continue
 			}
+			if task.Status != "Running" || task.WorkflowStarted == nil || !task.WorkflowStarted.Equal(*request.Task.WorkflowStarted) {
+				break
+			}
+			task.WorkflowStarted = nil
 			task.Steps, task.Artifacts = result.Steps, result.Artifacts
 			task.Error = result.Error
 			switch {

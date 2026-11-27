@@ -100,7 +100,7 @@ func TestRecurringScheduleCreatesSeparateRuns(t *testing.T) {
 	for _, at := range []time.Time{due, due.AddDate(0, 0, 7)} {
 		workspace, dispatch, err := claimScheduledTask(at)
 		run := dispatch.Task
-		if err != nil || workspace != space.ID || run.ID == "" || run.ID == id || run.ID == lastRun || run.Recurrence != "" {
+		if err != nil || workspace != space.ID || run.ID == "" || run.ID == id || run.ID == lastRun || run.Recurrence != "" || run.RunRecurrence != "weekly" {
 			t.Fatalf("expected a separate run, got %+v, error %v", run, err)
 		}
 		if err := finishScheduledTask(workspace, run, workerResponse{Reply: "Agenda draft"}); err != nil {
@@ -138,6 +138,7 @@ func TestManageRecurringSchedule(t *testing.T) {
 	d.Workspaces["space"] = &Workspace{ID: "space", Role: "Product Manager", Tasks: []Task{
 		{ID: "recurring", Title: "Original", Status: "Scheduled", Recurrence: "daily", ScheduledFor: &overdue, RecurrenceStart: &overdue, ScheduledTimeZone: "America/Regina"},
 		{ID: "one-time", Status: "Scheduled", ScheduledFor: &overdue},
+		{ID: "one-time-cancel", Status: "Scheduled", ScheduledFor: &overdue},
 	}}
 	if err := save(d); err != nil {
 		t.Fatal(err)
@@ -158,7 +159,8 @@ func TestManageRecurringSchedule(t *testing.T) {
 		}
 		return latest.Workspaces["space"].Tasks[0]
 	}
-	update(`{"ID":"one-time","Action":"cancel"}`, http.StatusNotFound)
+	update(`{"ID":"one-time","Action":"pause"}`, http.StatusBadRequest)
+	update(`{"ID":"one-time-cancel","Action":"cancel"}`, http.StatusOK)
 	paused := update(`{"ID":"recurring","Action":"pause"}`, http.StatusOK)
 	if paused.Status != "Paused" {
 		t.Fatalf("expected paused schedule, got %+v", paused)
@@ -204,7 +206,7 @@ func TestManageRecurringSchedule(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tasks := latest.Workspaces["space"].Tasks; len(tasks) != 3 || tasks[2].Result != "Finished" {
+	if tasks := latest.Workspaces["space"].Tasks; len(tasks) != 4 || tasks[2].Status != "Canceled" || tasks[3].Result != "Finished" {
 		t.Fatalf("expected in-progress result to be saved, got %+v", tasks)
 	}
 }

@@ -1,8 +1,11 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
+import { taskStatuses } from '../../task-status.ts';
 
 type RecordResult = { id: string; status?: string; due?: string; error?: string };
-export type WorkspaceWrite = (route: 'task' | 'task/schedule' | 'reminder', data: Record<string, unknown>) => Promise<RecordResult>;
+export type WorkspaceWrite = (route: 'task' | 'task/schedule' | 'task/update' | 'reminder', data: Record<string, unknown>) => Promise<RecordResult>;
+type TaskMatch = { ID: string; Title: string; Status: string; Author: string };
+export type WorkspaceFindTasks = (query: string) => Promise<{ tasks?: TaskMatch[]; more?: boolean; error?: string }>;
 
 const outcome = z.object({
   id: z.string().optional(),
@@ -11,6 +14,42 @@ const outcome = z.object({
   error: z.string().optional(),
 });
 const unavailable = { error: 'Creating workspace items requires a signed-in Cowork conversation.' };
+const boardUnavailable = { error: 'The task board requires a signed-in Cowork conversation.' };
+
+export const findTasks = createTool({
+  id: 'findTasks',
+  description: 'Find tasks in the current workspace by title or exact ID. Use this to identify one task and read its current status before updating it. Pass an empty query to list recent tasks.',
+  inputSchema: z.object({ query: z.string().trim().max(120) }),
+  outputSchema: z.object({
+    tasks: z.array(z.object({ ID: z.string(), Title: z.string(), Status: z.string(), Author: z.string() })).optional(),
+    more: z.boolean().optional(),
+    error: z.string().optional(),
+  }),
+  execute: async ({ query }, context) => {
+    const find = context?.requestContext?.get('workspaceFindTasks');
+    return typeof find === 'function' ? (find as WorkspaceFindTasks)(query) : boardUnavailable;
+  },
+});
+
+export const updateTask = createTool({
+  id: 'updateTask',
+  description: 'Edit a Cowork task’s title or brief, or move it to a board column. Only call on explicit participant request after finding one matching task with findTasks. Assigned means Planned and Completed means Done.',
+  inputSchema: z.object({
+    id: z.string().min(1),
+    expectedStatus: z.string().min(1).describe('The current status returned by findTasks'),
+    status: z.enum(taskStatuses).optional(),
+    title: z.string().trim().min(1).max(120).optional(),
+    brief: z.string().trim().min(1).max(6000).optional(),
+  }),
+  outputSchema: outcome,
+  execute: async (input, context) => {
+    const write = context?.requestContext?.get('workspaceWrite');
+    if (typeof write !== 'function') return boardUnavailable;
+    return (write as WorkspaceWrite)('task/update', {
+      ID: input.id, ExpectedStatus: input.expectedStatus, Status: input.status, Title: input.title, Brief: input.brief,
+    });
+  },
+});
 
 export const createTask = createTool({
   id: 'createTask',
