@@ -10,35 +10,7 @@
 }
 
 .toolbar button { display: inline-flex; align-items: center; gap: 6px; }
-.filter { position: relative; min-width: 0; max-width: min(14rem, 100%); }
-
-.filter select {
-  appearance: none;
-  min-height: 40px;
-  border-radius: 999px;
-  padding-inline: 14px 34px;
-  text-overflow: ellipsis;
-  cursor: pointer;
-}
-
-.filter select:hover { background: var(--soft); }
-
-.filter select:focus-visible {
-  border-color: transparent;
-  outline: 2px solid var(--focus);
-  outline-offset: -2px;
-}
-
-.filterChevron {
-  position: absolute;
-  inset-block: 0;
-  inset-inline-end: 12px;
-  margin-block: auto;
-  width: 15px;
-  height: 15px;
-  color: var(--muted);
-  pointer-events: none;
-}
+.filter { min-width: 0; max-width: min(14rem, 100%); }
 
 .scroll {
   overflow-x: auto;

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { api } from './api';
+import { Select } from './select';
 import { ConnectionCatalog, connectionApps, type ConnectionAppId } from './connection-catalog';
 import type { WorkspaceAgent } from './onboarding';
 
@@ -319,24 +320,24 @@ export function ManagedConnections({ enabled, agents, grants, onGrants, savingGr
     }}>
       <summary>Activity</summary>
       <label>Connection
-        <select value={filter} onChange={(event) => {
+        <Select value={filter} onChange={(event) => {
           const value = event.target.value;
           setFilter(value);
           void action(() => loadActivity(value, clientFilter));
         }}>
           <option value="">All connections</option>
           {connections?.map((item) => <option value={item.id} key={item.id}>{label(item)}</option>)}
-        </select>
+        </Select>
       </label>
       <label>Credential
-        <select value={clientFilter} onChange={(event) => {
+        <Select value={clientFilter} onChange={(event) => {
           const value = event.target.value;
           setClientFilter(value);
           void action(() => loadActivity(filter, value));
         }}>
           <option value="">All credentials</option>
           {[...clients].map(([id, name]) => <option value={id} key={id}>{name}</option>)}
-        </select>
+        </Select>
       </label>
       {activity?.length ? <ul className="setup-agents w-full">{activity.map((event) => (
         <li key={event.id}>

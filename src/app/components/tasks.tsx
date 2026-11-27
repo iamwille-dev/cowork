@@ -2,12 +2,13 @@
 
 import { useState, type DragEvent } from 'react';
 import {
-  ArrowPathRoundedSquareIcon, CalendarDaysIcon, CheckCircleIcon, ChevronDownIcon, ClockIcon, EllipsisVerticalIcon,
+  ArrowPathRoundedSquareIcon, CalendarDaysIcon, CheckCircleIcon, ClockIcon, EllipsisVerticalIcon,
   ExclamationCircleIcon, EyeIcon, LockClosedIcon, RectangleStackIcon, SparklesIcon, UserIcon,
 } from '@heroicons/react/24/outline';
 import { taskStatuses, type TaskStatus } from '../../task-status';
 import { initials } from './api';
 import { Modal } from './forms';
+import { Select } from './select';
 import styles from './task-board.module.css';
 
 type Cadence = 'daily' | 'weekly';
@@ -213,13 +214,13 @@ function TaskDetail({ task, person, assignees, busy, notice, close, update, mana
         <label>Task brief<textarea required maxLength={6000} rows={4} value={brief} onChange={(event) => setBrief(event.target.value)} /></label>
       </>}
       <div className={styles.detailFields}>
-        <label>Assignee<select value={assignee} required onChange={(event) => setAssignee(event.target.value)}>
+        <label>Assignee<Select value={assignee} required onChange={(event) => setAssignee(event.target.value)}>
           {!assignees.some(({ value }) => value === person.value) && <option value={person.value}>{person.name}</option>}
           <AssigneeOptions assignees={assignees} agentsOnly={scheduled} />
-        </select></label>
-        {movable && <label>Status<select value={status} onChange={(event) => setStatus(event.target.value as TaskStatus)}>
+        </Select></label>
+        {movable && <label>Status<Select value={status} onChange={(event) => setStatus(event.target.value as TaskStatus)}>
           {taskStatuses.map((value) => <option key={value} value={value}>{laneDetails[value].label}</option>)}
-        </select></label>}
+        </Select></label>}
       </div>
       <button className="primary justify-self-start" disabled={busy || !Object.keys(changes).length}>{busy ? 'Saving…' : 'Save changes'}</button>
     </form>}
@@ -275,11 +276,10 @@ export function TaskBoard({ tasks, assignees, busy, notice, clearNotice, update,
       </div>
       <label className={styles.filter}>
         <span className="sr-only">Filter by assignee</span>
-        <select value={assigneeFilter} onChange={(event) => setAssigneeFilter(event.target.value)}>
+        <Select variant="filter" value={assigneeFilter} onChange={(event) => setAssigneeFilter(event.target.value)}>
           <option value="">All assignees</option>
           <AssigneeOptions assignees={assignees} />
-        </select>
-        <ChevronDownIcon className={styles.filterChevron} aria-hidden="true" />
+        </Select>
       </label>
     </div>
     <div className={styles.scroll} tabIndex={0} role="region" aria-label="Task columns">

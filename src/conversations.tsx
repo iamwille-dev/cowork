@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { WorkspaceOverview } from './app/components/overview';
+import { Select } from './app/components/select';
 import { ChatBubbleLeftIcon, PaperClipIcon, MagnifyingGlassIcon, CheckCircleIcon, ChevronRightIcon } from '@heroicons/react/24/outline';
 
 export type Message = { Author: string; Text: string; At: string; SenderID?: string };
@@ -86,9 +87,9 @@ export function ConversationIndex({ threads, tasks, role, open }: ConversationDa
             <input type="search" placeholder="Search this inbox" value={query} onChange={(event) => setQuery(event.target.value)} />
           </label>
           <label className="conversation-filter">Status
-            <select value={filter} onChange={(event) => setFilter(event.target.value as Status)}>
+            <Select variant="filter" value={filter} onChange={(event) => setFilter(event.target.value as Status)}>
               {statuses.map((status) => <option key={status} value={status}>{status === 'All conversations' ? 'All statuses' : status}</option>)}
-            </select>
+            </Select>
           </label>
         </div>
         <ul role="list" className="conversation-inbox-list">

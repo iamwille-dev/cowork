@@ -181,6 +181,8 @@ Use the raised surface on a warm canvas. A single rule divides rows in inbox, ta
 
 Use surface-colored inputs with a stronger rule and neutral placeholder text. Search uses a capsule with a leading outline icon. Keep an accessible label on search and icon controls.
 
+Use the shared `Select` for single-choice dropdowns. Its default field has 8px corners. Use the `filter` variant for toolbar capsules. Both variants use an inset focus outline and support native options and option groups.
+
 ### Navigation
 
 Pair outline icons with text labels. Inactive destinations use muted text and a soft hover fill. The current destination uses the filled action capsule. Use the drawer at narrower workspace widths.

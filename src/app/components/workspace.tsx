@@ -12,6 +12,7 @@ import type { ChannelAgent } from '../../channel-agents';
 import { Settings, type GitProvider } from '../../settings';
 import { api, initials, localDay } from './api';
 import { AuthForm, Modal } from './forms';
+import { Select } from './select';
 import { ClerkSignIn, useClerkMode } from './clerk-auth';
 import { WorkspaceOnboarding, type WorkspaceAgent } from './onboarding';
 import { AssigneeOptions, TaskBoard, type ScheduleAction, type Task, type TaskAssignee, type TaskChanges } from './tasks';
@@ -86,21 +87,21 @@ function NewTaskForm({ assignees, busy, notice, submit }: {
   }}>
     <label>Task title<input name="Title" required maxLength={120} /></label>
     <label>Task brief<textarea name="Brief" required maxLength={6000} rows={4} /></label>
-    <label>Assignee<select required value={assignee} onChange={(event) => {
+    <label>Assignee<Select required value={assignee} onChange={(event) => {
       const next = assignees.find(({ value }) => value === event.target.value);
       setAssignee(event.target.value);
       if (next?.kind !== 'agent' || (timing === 'now' && next.role !== 'Developer')) setTiming('planned');
-    }}><AssigneeOptions assignees={assignees} /></select></label>
-    {person?.kind === 'agent' && <label>Timing<select value={timing} onChange={(event) => setTiming(event.target.value)}>
+    }}><AssigneeOptions assignees={assignees} /></Select></label>
+    {person?.kind === 'agent' && <label>Timing<Select value={timing} onChange={(event) => setTiming(event.target.value)}>
       <option value="planned">Add to Planned</option>
       {developer && <option value="now">Run now</option>}
       <option value="scheduled">Schedule for later</option>
-    </select></label>}
+    </Select></label>}
     {timing === 'scheduled' && <>
       <label>First run ({timeZone})<input name="Due" type="datetime-local" required /></label>
-      <label>Frequency<select name="Recurrence" defaultValue="">
+      <label>Frequency<Select name="Recurrence" defaultValue="">
         <option value="">Once</option><option value="daily">Daily</option><option value="weekly">Weekly</option>
-      </select></label>
+      </Select></label>
     </>}
     {timing === 'now' && <>
       <label>Repository URL (optional)<input name="Repository" type="url" maxLength={500} /></label>
@@ -354,9 +355,9 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
         const data = dataOf(event);
         void run(async () => { const result = await write('thread', data); close(); route(result.workspace.Threads!.at(-1)!.ID); });
       }}><label>Conversation title<input name="Text" required maxLength={200} /></label>
-        {agents.length > 1 && <label>Agent<select name="AgentID">
+        {agents.length > 1 && <label>Agent<Select name="AgentID">
           {agents.map(({ ID, Name, Role }) => <option key={ID} value={ID}>{Name === Role ? Name : `${Name} · ${Role}`}</option>)}
-        </select></label>}
+        </Select></label>}
         <button className="primary" disabled={busy}>Create conversation</button></form>
       {notice && <p role="status">{notice}</p>}</Modal>}
 
@@ -381,9 +382,9 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
           const data = dataOf(event);
           void run(async () => { await write('thread/invite', { ...data, ThreadID: current?.ID }); close(); setNotice('Conversation invitation sent.'); });
         }}>
-          <label>Workspace teammate<select name="MemberID">
+          <label>Workspace teammate<Select name="MemberID">
             {teammates.map((person) => <option key={person.ID} value={person.ID}>{person.Name} ({person.Email})</option>)}
-          </select></label>
+          </Select></label>
           <button className="primary" disabled={busy}>Send invitation</button>
         </form> : <p>There are no other members in this workspace.</p>)}
         {notice && <p className="mt-3" role="status">{notice}</p>}
@@ -402,10 +403,10 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
         }}>
           <label>Task title<input name="Title" required maxLength={120} defaultValue={schedule.Title} /></label>
           <label>Task brief<textarea name="Brief" required maxLength={6000} rows={5} defaultValue={schedule.Brief} /></label>
-          <label>Frequency<select name="Recurrence" defaultValue={schedule.Recurrence ?? ''}>
+          <label>Frequency<Select name="Recurrence" defaultValue={schedule.Recurrence ?? ''}>
             {!schedule.Recurrence && <option value="">Once</option>}
             <option value="daily">Daily</option><option value="weekly">Weekly</option>
-          </select></label>
+          </Select></label>
           <label>Next run ({schedule.ScheduledTimeZone || 'UTC'})<input name="LocalDue" type="datetime-local" required defaultValue={scheduleDue} /></label>
           <button className="primary" disabled={busy}>Save schedule</button>
         </form>
