@@ -1,18 +1,12 @@
 'use client';
 
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { ArrowLeftIcon, ChatBubbleLeftRightIcon, CodeBracketIcon, MegaphoneIcon, UserGroupIcon } from '@heroicons/react/24/outline';
+import { ArrowLeftIcon } from '@heroicons/react/24/outline';
 import { SlackConnectionForm, TelegramForm } from '../../settings';
 import type { ChannelAgent } from '../../channel-agents';
 import { api } from './api';
 import { ManagedConnections, saveConnectionKey, type AgentGrants } from './managed-connections';
-
-const catalog = [
-  { id: 'developer', role: 'Developer', description: 'Plan changes, work with your repositories, and build previews for review.', icon: CodeBracketIcon, messaging: 'ada' },
-  { id: 'product-manager', role: 'Product Manager', description: 'Turn feedback into priorities, draft briefs, and plan releases.', icon: ChatBubbleLeftRightIcon },
-  { id: 'sales-lead', role: 'Sales Lead', description: 'Research prospects, write follow-ups, and keep track of opportunities.', icon: UserGroupIcon, messaging: 'sam' },
-  { id: 'social-media', role: 'Social Media', description: 'Plan posts, draft copy, and coordinate the publishing calendar.', icon: MegaphoneIcon },
-] as const;
+import { AgentPicker, agentCatalog, type AgentChoices } from './agent-picker';
 
 export type WorkspaceAgent = { ID: string; Role: string; Name: string; Channel?: string; ConnectionIDs?: string[] };
 type Telegram = { Username: string; Destination: string };
@@ -39,7 +33,7 @@ export function WorkspaceOnboarding<T extends Setup>({ setup, busy, save, config
   const [lookupError, setLookupError] = useState('');
   const [attempt, setAttempt] = useState(0);
   const [join, setJoin] = useState(false);
-  const [chosen, setChosen] = useState<Record<string, string>>({});
+  const [choices, setChoices] = useState<AgentChoices>({});
   const [channel, setChannel] = useState<Channel>('cowork');
   const [keyOpen, setKeyOpen] = useState(false);
   const [keyBusy, setKeyBusy] = useState(false);
@@ -51,7 +45,7 @@ export function WorkspaceOnboarding<T extends Setup>({ setup, busy, save, config
   const stage = setup?.workspace?.OnboardingStep;
   const agents = setup?.workspace?.Agents ?? [];
   const messagingAgents = agents.flatMap((agent) => {
-    const option = catalog.find(({ id }) => id === agent.ID);
+    const option = agentCatalog.find(({ id }) => id === agent.ID);
     return option && 'messaging' in option ? [{ ...agent, slug: option.messaging }] : [];
   });
 
@@ -121,7 +115,7 @@ export function WorkspaceOnboarding<T extends Setup>({ setup, busy, save, config
       <div className="setup-agents" aria-label="Your agents">
         {agents.map(({ ID, Name, Role }) => <div key={ID}>
           <strong>{Name}{Name !== Role && <span> · {Role}</span>}</strong>
-          <p>{catalog.find(({ id }) => id === ID)?.description}</p>
+          <p>{agentCatalog.find(({ id }) => id === ID)?.description}</p>
         </div>)}
       </div>
       {managed ? <ManagedConnections enabled agents={agents} grants={grants} onGrants={saveGrants} savingGrants={busy}
@@ -191,43 +185,6 @@ export function WorkspaceOnboarding<T extends Setup>({ setup, busy, save, config
     </section>
   );
 
-  return (
-    <section className="workspace-setup">
-      <header>
-        <h1>Choose your agents</h1>
-        <p>Select one or more agents for your workspace. You can give each one a name.</p>
-      </header>
-      <form className="stack" onSubmit={(event) => submit(event, () => {
-        const Agents = catalog.filter(({ id }) => id in chosen).map(({ id }) => ({ ID: id, Name: chosen[id] }));
-        void save({ Agents });
-      })}>
-        <fieldset className="onboarding-roles">
-          <legend className="sr-only">Available agents</legend>
-          {catalog.map(({ id, role, description, icon: Icon }) => <div key={id} className="setup-agent-choice">
-            <label className="onboarding-role">
-              <Icon className="size-5" aria-hidden="true" />
-              <span><strong>{role}</strong><small>{description}</small></span>
-              <input type="checkbox" checked={id in chosen} onChange={(event) => {
-                const selected = event.currentTarget.checked;
-                setChosen((current) => {
-                  if (selected) return { ...current, [id]: '' };
-                  const next = { ...current };
-                  delete next[id];
-                  return next;
-                });
-              }} />
-            </label>
-            {id in chosen && <label className="setup-agent-name">{role} name
-              <input value={chosen[id]} placeholder={role} maxLength={48}
-                onChange={(event) => setChosen({ ...chosen, [id]: event.target.value })} />
-            </label>}
-          </div>)}
-        </fieldset>
-        <footer className="setup-controls">
-          <button className="primary" disabled={busy || Object.keys(chosen).length === 0}>Continue</button>
-          <button className="quiet" type="button" disabled={busy} onClick={() => setJoin(true)}>I have an invite code</button>
-        </footer>
-      </form>
-    </section>
-  );
+  return <AgentPicker choices={choices} setChoices={setChoices} busy={busy}
+    join={() => setJoin(true)} continueSetup={(Agents) => { void save({ Agents }); }} />;
 }

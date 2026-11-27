@@ -171,6 +171,9 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
 
   if (clerkSignOut && (needsSetup || (state?.admin && workspace?.OnboardingStep))) return (
     <main>
+      <header className="setup-session">
+        <button className="quiet" type="button" disabled={busy} onClick={() => void run(clerkSignOut)}>Sign out</button>
+      </header>
       {notice && <div id="notice" role="alert">{notice}</div>}
       <WorkspaceOnboarding setup={state ?? undefined} busy={busy} configured={Boolean(state?.agentConnectionHasKey)}
         telegram={state?.telegramAgents} managed={Boolean(state?.managedConnections)} grants={grants} saveGrants={saveGrants}
@@ -181,8 +184,6 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
         })}
         saveTelegram={(settings) => run(async () => { await write('telegram', settings); })}
       />
-      <div className="workspace-setup pt-0"><div><button className="quiet" type="button" disabled={busy}
-        onClick={() => void run(clerkSignOut)}>Sign out</button></div></div>
     </main>
   );
 

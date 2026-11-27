@@ -9,7 +9,8 @@
     "allowImportingTsExtensions": true,
     "jsx": "react-jsx",
     "types": [
-      "node"
+      "node",
+      "next/image-types/global"
     ],
     "lib": [
       "dom",
