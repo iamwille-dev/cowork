@@ -12,7 +12,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 
 	"github.com/clerk/clerk-sdk-go/v2"
 	clerkhttp "github.com/clerk/clerk-sdk-go/v2/http"
@@ -334,12 +333,9 @@ func onboardingAgents(choices []workspaceAgent) ([]workspaceAgent, error) {
 			return nil, errors.New("Choose each available agent only once.")
 		}
 		seen[choice.ID] = true
-		name := strings.TrimSpace(choice.Name)
-		if !utf8.ValidString(name) || utf8.RuneCountInString(name) > 48 || strings.ContainsAny(name, "\r\n\t") {
-			return nil, errors.New("Agent names can be up to 48 characters on one line.")
-		}
-		if name == "" {
-			name = role
+		name, err := workspaceAgentName(choice.Name, role)
+		if err != nil {
+			return nil, err
 		}
 		*choice = workspaceAgent{ID: choice.ID, Role: role, Name: name}
 	}

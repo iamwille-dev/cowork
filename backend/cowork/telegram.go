@@ -32,8 +32,10 @@ func recordTelegramMessage(space *Workspace, input telegramMessage) (*Thread, bo
 	var thread *Thread
 	for i := range space.Threads {
 		if space.Threads[i].TelegramTopic == input.Topic {
-			thread = &space.Threads[i]
-			break
+			if _, active := space.agent(space.Threads[i].AgentID); active {
+				thread = &space.Threads[i]
+				break
+			}
 		}
 	}
 	if thread == nil {
@@ -94,7 +96,7 @@ func receiveTelegramMessage(w http.ResponseWriter, r *http.Request) {
 		agentName = namedChannelAgents[input.Agent].Name
 	}
 	for _, agent := range space.Agents {
-		if agent.Role == role {
+		if agent.Role == role && agent.ID != "" {
 			agentName = agent.Name
 			thread.AgentID = agent.ID
 			break
@@ -168,7 +170,7 @@ func telegramBotKey(workspace, agent string) string {
 }
 
 func telegramInstallationMatches(d *database, space *Workspace, agent, version, destination string) bool {
-	if (agent != "" && namedChannelAgents[agent].Name == "") || version == "" {
+	if (agent != "" && namedChannelAgents[agent].Name == "") || version == "" || space.channelAgentRemoved(agent) {
 		return false
 	}
 	bot := d.TelegramBots[telegramBotKey(space.ID, agent)]
@@ -206,6 +208,10 @@ func updateTelegramBot(w http.ResponseWriter, r *http.Request, d *database, acco
 	}
 	if input.Agent != "" && namedChannelAgents[input.Agent].Name == "" {
 		fail(w, 400, "Unknown Telegram agent.")
+		return
+	}
+	if !input.Remove && space.channelAgentRemoved(input.Agent) {
+		fail(w, http.StatusConflict, "Add this agent to the workspace before connecting Telegram.")
 		return
 	}
 	botKey := telegramBotKey(space.ID, input.Agent)

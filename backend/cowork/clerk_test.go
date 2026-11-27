@@ -89,6 +89,8 @@ func TestClerkOnboarding(t *testing.T) {
 	if !strings.Contains(created.Body.String(), `"OnboardingStep":"tools"`) {
 		t.Fatal(created.Body.String())
 	}
+	request("POST", "/api/agent/add", `{"ID":"social-media"}`, session, http.StatusConflict)
+	request("POST", "/api/agent/update", `{"ID":"developer","Name":"Ada"}`, session, http.StatusConflict)
 	request("POST", "/api/agent-grants", `{"Grants":{"developer":["abcdefghijklmnopqrstuvwxyz0123456789"]}}`, session, http.StatusOK)
 	request("POST", "/api/onboarding", `{"Step":"channels"}`, session, http.StatusOK)
 	request("POST", "/api/onboarding", `{"Step":"complete","Channel":"cowork"}`, session, http.StatusOK)
@@ -104,6 +106,17 @@ func TestClerkOnboarding(t *testing.T) {
 	if len(space.Agents) != 2 || space.Agents[0].Role != "Developer" || space.Agents[0].Name != "Sammy" ||
 		len(space.Agents[0].ConnectionIDs) != 1 || space.OnboardingStep != "" || space.threadAgent(space.Threads[0].ID).Name != "Taylor" {
 		t.Fatalf("unexpected workspace: %#v", space)
+	}
+	request("POST", "/api/agent/add", `{"ID":"social-media"}`, session, http.StatusOK)
+	request("POST", "/api/agent/update", `{"ID":"developer","Name":"Ada","Channel":"slack"}`, session, http.StatusOK)
+	d, err = load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	space = d.Workspaces[newAccount.Workspace]
+	if len(space.Agents) != 3 || space.Agents[2].Name != "Social Media" || space.Agents[2].Channel != "cowork" ||
+		space.OnboardingStep != "" || len(space.Agents[0].ConnectionIDs) != 1 || space.Agents[0].Name != "Ada" || space.Agents[0].Channel != "slack" {
+		t.Fatalf("unexpected workspace after managing agents: %#v", space)
 	}
 	old := Account{ID: key(), Name: "Kim", Email: "kim@example.test", Salt: "fixture", Workspace: key()}
 	old.Password = digest("test password", old.Salt)

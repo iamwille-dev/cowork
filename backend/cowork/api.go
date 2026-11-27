@@ -78,6 +78,7 @@ type Workspace struct {
 	Channels                map[string]string
 	AgentConnectionEnabled  bool             `json:",omitempty"`
 	Agents                  []workspaceAgent `json:",omitempty"`
+	RemovedAgentRoles       map[string]bool  `json:",omitempty"`
 	OnboardingStep          string           `json:",omitempty"`
 }
 
@@ -126,6 +127,7 @@ func view(w http.ResponseWriter, d *database, a Account) {
 		}
 	}
 	space.Invitations = nil
+	space.RemovedAgentRoles = nil
 	for _, member := range d.Accounts {
 		if member.Workspace == space.ID {
 			members = append(members, member.Name)
@@ -377,6 +379,18 @@ func API(w http.ResponseWriter, r *http.Request) {
 		updateAgentConnection(w, r, d, account, space)
 		return
 	}
+	if route == "agent/add" {
+		addWorkspaceAgent(w, r, d, account, space)
+		return
+	}
+	if route == "agent/update" {
+		updateWorkspaceAgent(w, r, d, account, space)
+		return
+	}
+	if route == "agent/remove" {
+		removeWorkspaceAgent(w, r, d, account, space)
+		return
+	}
 	if route == "agent-grants" {
 		updateAgentGrants(w, r, d, account, space)
 		return
@@ -521,6 +535,10 @@ func runAgent(w http.ResponseWriter, r *http.Request, d *database, a Account, sp
 	messages := threadMessages(space, input.ThreadID)
 	if messages == nil {
 		fail(w, 404, "Conversation not found.")
+		return
+	}
+	if (route == "chat" || (role == "" && input.Assignee == "")) && space.threadHasRemovedAgent(input.ThreadID) {
+		fail(w, http.StatusConflict, "The agent for this conversation was removed. Start a new conversation to continue.")
 		return
 	}
 	agent := space.threadAgent(input.ThreadID)

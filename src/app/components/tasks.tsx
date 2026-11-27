@@ -115,7 +115,7 @@ function assigneeFor(task: Task, assignees: TaskAssignee[]): TaskAssignee {
   if (task.AgentID) {
     const value = 'agent:' + task.AgentID;
     return assignees.find((person) => person.value === value) ??
-      { value, name: task.AgentRole ? task.AgentRole + ' agent' : 'Former agent', kind: 'agent', role: task.AgentRole };
+      { value, name: task.AgentRole ? `Former ${task.AgentRole} agent` : 'Former agent', kind: 'agent', role: task.AgentRole };
   }
   const agent = assignees.find((person) => person.kind === 'agent' && (!task.AgentRole || person.role === task.AgentRole));
   return agent ?? { value: '', name: (task.AgentRole || 'Workspace') + ' agent', kind: 'agent', role: task.AgentRole };

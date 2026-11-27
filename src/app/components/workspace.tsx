@@ -18,7 +18,8 @@ import { AuthForm, Modal } from './forms';
 import { Select } from './select';
 import { ClerkSignIn, useClerkMode } from './clerk-auth';
 import { ConnectionActivity } from './managed-connections';
-import { WorkspaceOnboarding, type WorkspaceAgent } from './onboarding';
+import { WorkspaceOnboarding } from './onboarding';
+import type { WorkspaceAgent } from '../lib/workspace-agents';
 import { AssigneeOptions, TaskBoard, type ScheduleAction, type Task, type TaskAssignee, type TaskChanges } from './tasks';
 
 type Reminder = { ID: string; Text: string; Due: string; Author: string; Done: boolean };
@@ -173,14 +174,14 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
     return () => window.clearInterval(timer);
   }, []);
 
-  async function run(action: () => Promise<void>) {
+  async function run(action: () => Promise<void>, onError: (message: string) => void = setNotice) {
     if (pending.current) return false;
     pending.current = true;
     revision.current += 1;
     setBusy(true);
     setNotice('');
     try { await action(); return true; }
-    catch (error) { setNotice((error as Error).message); return false; }
+    catch (error) { onError((error as Error).message); return false; }
     finally { pending.current = false; setBusy(false); }
   }
 
@@ -204,16 +205,18 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
   }, ...(workspace?.Threads ?? [])];
   const current = threadId === undefined ? undefined : threads.find(({ ID }) => ID === threadId);
   const agents = workspace?.Agents ?? [];
-  const grants = Object.fromEntries(agents.map(({ ID, ConnectionIDs }) => [ID, ConnectionIDs ?? []]));
+  const workspaceAgents = agents.length ? agents : [{ ID: '', Name: `${workspace?.Role || 'Workspace'} agent`, Role: workspace?.Role ?? '' }];
+  const managedAgents = agents.filter(({ ID }) => ID !== '');
+  const grants = Object.fromEntries(managedAgents.map(({ ID, ConnectionIDs }) => [ID, ConnectionIDs ?? []]));
   const saveGrants = (value: typeof grants) => {
     void run(async () => { await write('agent-grants', { Grants: value }); });
   };
   const selectedAgent = agents.find(({ ID }) => ID === current?.AgentID) ?? agents[0];
+  const removedAgent = Boolean(current?.AgentID && !agents.some(({ ID }) => ID === current.AgentID));
   const invitations = state?.threadInvitations ?? [];
   const teammates = state?.directory.filter(({ ID }) => ID !== state.viewerId) ?? [];
   const assignees: TaskAssignee[] = [
-    ...(agents.length ? agents : [{ ID: '', Name: `${workspace?.Role || 'Workspace'} agent`, Role: workspace?.Role }])
-      .map(({ ID, Name, Role }): TaskAssignee => ({ value: 'agent:' + ID, name: Name, kind: 'agent', role: Role })),
+    ...workspaceAgents.map(({ ID, Name, Role }): TaskAssignee => ({ value: 'agent:' + ID, name: Name, kind: 'agent', role: Role })),
     ...(state?.directory ?? []).map(({ ID, Name }): TaskAssignee => ({ value: 'member:' + ID, name: Name, kind: 'member' })),
   ];
   const route = (id: string) => router.push(threadRoute(id));
@@ -298,7 +301,8 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
         {view === 'conversations' && <section id="chat" className="page">
           {current ? <div id="conversation-root">
             <Conversation key={current.ID} role={selectedAgent?.Role ?? workspace.Role} agentName={selectedAgent?.Name} viewer={state.name} threadId={current.ID}
-              readOnly={Boolean(current.TelegramTopic || current.Slack)} channel={current.Slack ? 'Slack' : current.TelegramTopic ? 'Telegram' : undefined}
+              readOnly={removedAgent || Boolean(current.TelegramTopic || current.Slack)} channel={current.Slack ? 'Slack' : current.TelegramTopic ? 'Telegram' : undefined}
+              readOnlyMessage={removedAgent ? 'The agent for this conversation was removed. Start a new conversation to continue.' : undefined}
               messages={current.Messages ?? []}
               tasks={tasks.filter((task) => (task.ThreadID ?? '') === current.ID && (task.Status === 'Ready for review' || task.Status === 'Failed' || task.Status === 'Blocked'))}
               send={async (transport) => {
@@ -338,8 +342,11 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
           </p>}
         </div>}
         {view === 'settings' && <section className="page"><Settings theme={theme} members={state.directory} owner={state.admin}
+          agents={workspaceAgents} busy={busy} addAgent={(settings, onError) => run(async () => { await write('agent/add', settings); }, onError)}
+          updateAgent={(settings, onError) => run(async () => { await write('agent/update', settings); }, onError)}
+          removeAgent={(id, onError) => run(async () => { await write('agent/remove', { ID: id }); }, onError)}
           invite={workspace.Invite || ''} channels={workspace.Channels ?? {}} changeTheme={changeTheme} announce={setNotice}
-          managedConnections={state.managedConnections ? { agents, grants, busy, saveGrants } : undefined}
+          managedConnections={state.managedConnections ? { agents: managedAgents, grants, busy, saveGrants } : undefined}
           agentConnection={{ enabled: Boolean(workspace.AgentConnectionEnabled), hasKey: Boolean(state.agentConnectionHasKey) }}
           saveAgentConnection={(settings) => run(async () => {
             await write('agent-connection', settings);

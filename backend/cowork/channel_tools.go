@@ -13,6 +13,7 @@ import (
 
 type channelActor struct {
 	WorkspaceID, Channel, Agent, Installation, Conversation, SenderID, Author string
+	AgentInstance                                                             *string `json:",omitempty"`
 }
 
 var namedChannelAgents = map[string]struct{ Name, Role string }{
@@ -25,6 +26,19 @@ func channelAgentRole(space *Workspace, agent string) string {
 		return space.Role
 	}
 	return namedChannelAgents[agent].Role
+}
+
+func (space *Workspace) channelAgentRemoved(slug string) bool {
+	role := namedChannelAgents[slug].Role
+	if !space.RemovedAgentRoles[role] {
+		return false
+	}
+	for _, agent := range space.Agents {
+		if agent.Role == role {
+			return false
+		}
+	}
+	return true
 }
 
 var channelWorkspaceID = regexp.MustCompile(`^[a-f0-9]{48}$`)
@@ -75,25 +89,36 @@ func ChannelToolBridge(w http.ResponseWriter, r *http.Request) {
 	}
 
 	role := channelAgentRole(space, input.Agent)
-	if !roles[role] {
+	if !roles[role] || space.channelAgentRemoved(input.Agent) {
 		fail(w, 403, "Channel agent unavailable.")
+		return
+	}
+	var activeAgent workspaceAgent
+	for _, agent := range space.Agents {
+		if agent.Role == role {
+			activeAgent = agent
+			break
+		}
+	}
+	if input.AgentInstance != nil && *input.AgentInstance != activeAgent.ID {
+		fail(w, 403, "Channel agent changed in this workspace.")
 		return
 	}
 
 	switch r.URL.Path {
+	case "/internal/channel-tools/available":
+		jsonReply(w, http.StatusOK, map[string]string{"agentID": activeAgent.ID})
 	case "/internal/channel-tools/slack-message":
 		recordSlackTurn(w, d, space, input.channelActor, input.Data)
 	case "/internal/channel-tools/context":
 		context := workerRequest{Role: role, WorkspaceID: space.ID, AgentConnectionPaused: !space.AgentConnectionEnabled && d.AgentConnectionKeys[space.ID] != ""}
-		for _, agent := range space.Agents {
-			if agent.Role == role {
-				context.AgentName = agent.Name
-				ids := append([]string{}, agent.ConnectionIDs...)
-				context.AgentConnectionIDs = &ids
-				break
-			}
+		if activeAgent.ID != "" {
+			context.AgentName = activeAgent.Name
+			ids := append([]string{}, activeAgent.ConnectionIDs...)
+			context.AgentConnectionIDs = &ids
 		}
-		if len(space.Agents) > 0 && context.AgentConnectionIDs == nil {
+		primary, _ := space.agent("")
+		if primary.ID != "" && context.AgentConnectionIDs == nil {
 			fail(w, 403, "Channel agent is disabled in this workspace.")
 			return
 		}

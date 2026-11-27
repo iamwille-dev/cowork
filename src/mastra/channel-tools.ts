@@ -12,6 +12,7 @@ export type ChannelActor = {
   WorkspaceID: string;
   Channel: 'slack' | 'telegram';
   Agent?: ChannelAgent | '';
+  AgentInstance?: string;
   Installation: string;
   Conversation: string;
   SenderID: string;
@@ -34,7 +35,7 @@ type TaskResult = {
   Artifacts?: { Name: string }[];
 };
 
-function bridge(actor: ChannelActor, operation: 'context' | 'task' | 'slack-message', Data?: Record<string, unknown>) {
+function bridge(actor: ChannelActor, operation: 'available' | 'context' | 'task' | 'slack-message', Data?: Record<string, unknown>) {
   const key = process.env.MASTRA_ENCRYPTION_KEY?.trim() ?? '';
   const secret = actor.Channel === 'slack'
     ? createHash('sha256').update('cowork-slack-tools\0').update(key).digest('hex')
@@ -46,6 +47,13 @@ function bridge(actor: ChannelActor, operation: 'context' | 'task' | 'slack-mess
     body: JSON.stringify({ ...actor, Data }),
     signal: AbortSignal.timeout(operation === 'task' ? 100_000 : 5000),
   });
+}
+
+export async function channelAgentInstance(actor: ChannelActor) {
+  const response = await bridge(actor, 'available').catch(() => undefined);
+  if (!response?.ok) return;
+  const result = await response.json().catch(() => undefined) as { agentID?: string } | undefined;
+  return result?.agentID;
 }
 
 export async function saveSlackMessage(actor: ChannelActor, data: {

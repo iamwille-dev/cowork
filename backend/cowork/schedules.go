@@ -50,6 +50,10 @@ func scheduleTask(w http.ResponseWriter, r *http.Request, d *database, a Account
 	if err != nil || input.TimeZone == "Local" {
 		location = time.UTC
 	}
+	if input.Assignee == "" && space.threadHasRemovedAgent(input.ThreadID) {
+		fail(w, http.StatusBadRequest, "Select an active agent for the scheduled run.")
+		return
+	}
 	agent, member, ok := taskAssignee(d, space, input.Assignee, space.threadAgent(input.ThreadID))
 	if !ok || member != "" {
 		fail(w, 400, "Select an agent in this workspace for the scheduled run.")
@@ -249,6 +253,11 @@ func claimScheduledTask(now time.Time) (string, workerRequest, error) {
 	space, task := nextScheduledTask(d, now)
 	if task == nil {
 		return "", workerRequest{}, nil
+	}
+	if _, active := space.agent(task.AgentID); !active {
+		// Let a claimed run finish, and cancel recovery if its lease expired after removal.
+		task.Status, task.ScheduledStarted = "Canceled", nil
+		return "", workerRequest{}, save(d)
 	}
 	run := *task
 	run.Status = "Running"

@@ -5,10 +5,12 @@ import Link from 'next/link';
 import { channelAgents, channelAgentIds, type ChannelAgent } from './channel-agents';
 import { api } from './app/components/api';
 import { ManagedConnections, type AgentGrants } from './app/components/managed-connections';
-import type { WorkspaceAgent } from './app/components/onboarding';
+import { SettingsAgents } from './app/components/settings-agents';
+import type { AgentSetup, AgentUpdate, WorkspaceAgent } from './app/lib/workspace-agents';
 
 const sections = [
   { id: 'appearance', title: 'Appearance' },
+  { id: 'agents', title: 'Agents' },
   { id: 'members', title: 'Members' },
   { id: 'channels', title: 'Messaging channels' },
   { id: 'agent-connection', title: 'Agent Connection' },
@@ -23,6 +25,11 @@ type SettingsProps = {
   theme: Theme;
   members: { ID: string; Name: string; Email: string; Role: string }[];
   owner: boolean;
+  agents: WorkspaceAgent[];
+  busy: boolean;
+  addAgent: (input: AgentSetup, onError: (message: string) => void) => Promise<boolean>;
+  updateAgent: (input: AgentUpdate, onError: (message: string) => void) => Promise<boolean>;
+  removeAgent: (id: string, onError: (message: string) => void) => Promise<boolean>;
   invite: string;
   channels: Partial<Record<'WhatsApp' | 'Telegram', string>>;
   telegramBot?: string;
@@ -366,18 +373,24 @@ function GitTokenForm({ provider, configured, owner, saveGitToken }: {
 
 export function Settings(props: SettingsProps) {
   const [active, setActive] = useState<(typeof sections)[number]['id']>('appearance');
+  const settingsNav = useRef<HTMLElement>(null);
   useEffect(() => {
     const section = sections.find(({ id }) => id === new URLSearchParams(window.location.search).get('section'));
     if (section) setActive(section.id);
   }, []);
+  function openSection(id: typeof active) {
+    setActive(id);
+    settingsNav.current?.querySelector<HTMLButtonElement>(`[data-section="${id}"]`)?.focus();
+  }
+
   return (
     <div className="settings-page">
       <header className="settings-nav-header">
-        <nav aria-label="Settings sections">
+        <nav ref={settingsNav} aria-label="Settings sections">
           <ul role="list" className="flex flex-wrap gap-1 py-2">
             {sections.map((section) => (
               <li key={section.id}>
-                <button type="button" onClick={() => setActive(section.id)} aria-current={active === section.id ? 'page' : undefined}>
+                <button type="button" data-section={section.id} onClick={() => setActive(section.id)} aria-current={active === section.id ? 'page' : undefined}>
                   {section.title}
                 </button>
               </li>
@@ -390,6 +403,14 @@ export function Settings(props: SettingsProps) {
         {active === 'appearance' && (
           <SettingsSection title="Color theme" description="Choose how Cowork looks in this browser.">
             <ThemeOptions theme={props.theme} changeTheme={props.changeTheme} />
+          </SettingsSection>
+        )}
+        {active === 'agents' && (
+          <SettingsSection title="Workspace agents" description="These agents are available for conversations and task assignments.">
+            <SettingsAgents agents={props.agents} owner={props.owner} busy={props.busy} addAgent={props.addAgent} updateAgent={props.updateAgent}
+              removeAgent={props.removeAgent}
+              openTools={props.managedConnections ? () => openSection('agent-connection') : undefined}
+              openChannels={() => openSection('channels')} />
           </SettingsSection>
         )}
         {active === 'members' && (
@@ -441,7 +462,8 @@ export function Settings(props: SettingsProps) {
             <SettingsIntro title="Messaging channels" description="Connect your Cowork agent to the places your team chats." />
             <SettingsGroup id="slack-settings" title="Slack" logo="slack">
               <div className="settings-provider-entries">
-                {channelAgentIds.map((agent) => <SlackConnectionForm key={agent} owner={props.owner} agent={agent} />)}
+                {channelAgentIds.map((agent) => <SlackConnectionForm key={agent} owner={props.owner} agent={agent}
+                  workspaceName={props.agents.find(({ ID, Role }) => ID && Role === channelAgents[agent].role)?.Name} />)}
                 <SlackConnectionForm owner={props.owner} />
               </div>
             </SettingsGroup>
@@ -451,7 +473,8 @@ export function Settings(props: SettingsProps) {
                   const telegram = props.telegramAgents?.[agent];
                   return (
                     <TelegramForm key={JSON.stringify([agent, telegram?.Username, telegram?.Destination])} owner={props.owner}
-                      agent={agent} telegramBot={telegram?.Username} destination={telegram?.Destination} saveTelegram={props.saveTelegram} />
+                      agent={agent} name={props.agents.find(({ ID, Role }) => ID && Role === channelAgents[agent].role)?.Name}
+                      telegramBot={telegram?.Username} destination={telegram?.Destination} saveTelegram={props.saveTelegram} />
                   );
                 })}
                 {props.telegramBot && <TelegramForm key={JSON.stringify([props.telegramBot, props.channels.Telegram])}

@@ -7,12 +7,11 @@ import Image from 'next/image';
 import { ArrowLeftIcon, ArrowRightIcon } from '@heroicons/react/24/outline';
 import { SlackConnectionForm, TelegramForm } from '../../settings';
 import type { ChannelAgent } from '../../channel-agents';
+import type { AgentChannel, WorkspaceAgent } from '../lib/workspace-agents';
 import { api } from './api';
 import { ManagedConnections, saveConnectionKey, type AgentGrants } from './managed-connections';
 import { AgentPicker, agentCatalog, type AgentChoices } from './agent-picker';
 import catalogStyles from './connection-catalog.module.css';
-
-export type WorkspaceAgent = { ID: string; Role: string; Name: string; Channel?: string; ConnectionIDs?: string[] };
 type Telegram = { Username: string; Destination: string };
 type Setup = {
   workspace?: { Agents?: WorkspaceAgent[]; OnboardingStep?: 'tools' | 'channels' };
@@ -20,7 +19,6 @@ type Setup = {
   Imported?: boolean;
   NewWorkspace?: boolean;
 };
-type Channel = 'cowork' | 'slack' | 'telegram';
 
 export function WorkspaceOnboarding<T extends Setup>({ setup, busy, save, configured, managed, grants, saveGrants, telegram, saveTelegram }: {
   setup?: T;
@@ -38,7 +36,7 @@ export function WorkspaceOnboarding<T extends Setup>({ setup, busy, save, config
   const [attempt, setAttempt] = useState(0);
   const [join, setJoin] = useState(false);
   const [choices, setChoices] = useState<AgentChoices>({});
-  const [channel, setChannel] = useState<Channel>('cowork');
+  const [channel, setChannel] = useState<AgentChannel>('cowork');
   const [keyOpen, setKeyOpen] = useState(false);
   const [keyBusy, setKeyBusy] = useState(false);
   const [keyError, setKeyError] = useState('');

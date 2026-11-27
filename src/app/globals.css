@@ -202,6 +202,10 @@ main { @apply min-w-0; }
 .settings-form-row { display: grid; gap: 12px 24px; align-items: start; }
 .settings-form-body { min-width: 0; max-width: 36rem; }
 .settings-form-body :is([data-button-variant="primary"], [data-button-variant="quiet"]) { max-width: 100%; white-space: normal; }
+.settings-agent-roles .onboarding-role:hover { border-color: var(--line-strong); }
+.settings-agent-roles .onboarding-role:has(input:checked) { border-color: var(--accent); }
+.settings-agent-roles .onboarding-role:has(input:focus-visible) { outline: 2px solid var(--focus); outline-offset: 2px; }
+.settings-agent-roles input[type="radio"] { flex-shrink: 0; }
 .settings-provider-entries > * { gap: 8px; }
 .settings-provider-entries > * + * {
   margin-top: 16px;

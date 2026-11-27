@@ -28,7 +28,9 @@ func boundSlackThread(space *Workspace, actor channelActor) *Thread {
 	for i := range space.Threads {
 		thread := &space.Threads[i]
 		if thread.Slack != nil && thread.Slack.Installation == actor.Installation && thread.Slack.Conversation == actor.Conversation {
-			return thread
+			if _, active := space.agent(thread.AgentID); active {
+				return thread
+			}
 		}
 	}
 	return nil

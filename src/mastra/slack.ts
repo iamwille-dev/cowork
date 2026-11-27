@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { coworkStateDir } from '../state.ts';
 import { createClient } from '@libsql/client';
 import type { ChannelHandler } from '@mastra/core/channels';
-import { respondFromChannel, saveSlackMessage, type ChannelActor } from './channel-tools.ts';
+import { channelAgentInstance, respondFromChannel, saveSlackMessage, type ChannelActor } from './channel-tools.ts';
 import { Agent } from '@mastra/core/agent';
 import { Mastra } from '@mastra/core/mastra';
 import { LibSQLStore } from '@mastra/libsql';
@@ -171,6 +171,14 @@ function createIntegration(settings: NonNullable<ReturnType<typeof configuration
       return sent;
     };
     const handle: ChannelHandler = async (thread, message, defaultHandler) => {
+      const actor: ChannelActor = {
+        WorkspaceID: workspace, Channel: 'slack', Agent: agentId, Installation: id, Conversation: thread.id,
+        SenderID: message.author.userId, Author: message.author.fullName || message.author.userName,
+      };
+      if (agentId) {
+        actor.AgentInstance = await channelAgentInstance(actor);
+        if (actor.AgentInstance === undefined) return;
+      }
       // Slack Connect and external guests cannot use the linked workspace's tools.
       const userResponse = await fetch('https://slack.com/api/users.info?' + new URLSearchParams({ user: message.author.userId }), {
         headers: { Authorization: 'Bearer ' + token }, signal: AbortSignal.timeout(5000),
@@ -181,13 +189,10 @@ function createIntegration(settings: NonNullable<ReturnType<typeof configuration
       const user = identity?.user;
       if (!identity?.ok || !user || (user.team_id ?? user.team) !== team || user.is_stranger ||
           user.is_external || user.suspended || user.is_bot || user.is_restricted || user.is_ultra_restricted || user.deleted) {
-        if (!agentId || message.isMention || thread.isDM) await defaultHandler(thread, message);
+        if ((!agentId || message.isMention || thread.isDM) &&
+          (!agentId || await channelAgentInstance(actor) !== undefined)) await defaultHandler(thread, message);
         return;
       }
-      const actor: ChannelActor = {
-        WorkspaceID: workspace, Channel: 'slack', Agent: agentId, Installation: id, Conversation: thread.id,
-        SenderID: message.author.userId, Author: message.author.fullName || message.author.userName,
-      };
       const { channel, threadTs } = adapter.decodeThreadId(thread.id);
       const passive = Boolean(agentId && replyContext.getStore()?.source !== 'mention' && !thread.isDM);
       let mirrored: Awaited<ReturnType<typeof saveSlackMessage>> | undefined;
@@ -222,7 +227,7 @@ function createIntegration(settings: NonNullable<ReturnType<typeof configuration
           name = displayName;
           await thread.startTyping(status).catch(() => undefined);
         });
-        if (reply && await installationActive()) {
+        if (reply && await installationActive() && (!agentId || await channelAgentInstance(actor) !== undefined)) {
           let replyId: string | undefined;
           if (name !== settings.name) {
             const response = await fetch('https://slack.com/api/chat.postMessage', {

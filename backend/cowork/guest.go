@@ -78,7 +78,7 @@ func guestThreadTitle(space *Workspace, threadID string) string {
 }
 
 func guestView(w http.ResponseWriter, space *Workspace, grant guestGrant, messages []Message) {
-	jsonReply(w, 200, map[string]any{"name": grant.Name, "role": space.threadAgent(grant.ThreadID).Role, "title": guestThreadTitle(space, grant.ThreadID), "messages": messages})
+	jsonReply(w, 200, map[string]any{"name": grant.Name, "role": space.threadAgent(grant.ThreadID).Role, "title": guestThreadTitle(space, grant.ThreadID), "messages": messages, "readOnly": space.threadHasRemovedAgent(grant.ThreadID)})
 }
 
 func guestSession(w http.ResponseWriter, r *http.Request, d *database, route string) {
@@ -150,6 +150,10 @@ func guestSession(w http.ResponseWriter, r *http.Request, d *database, route str
 }
 
 func guestChat(w http.ResponseWriter, r *http.Request, d *database, grant guestGrant, space *Workspace, messages *[]Message) {
+	if space.threadHasRemovedAgent(grant.ThreadID) {
+		fail(w, http.StatusConflict, "The agent for this conversation was removed.")
+		return
+	}
 	var input struct{ Text, TimeZone string }
 	if !decode(w, r, &input) {
 		return

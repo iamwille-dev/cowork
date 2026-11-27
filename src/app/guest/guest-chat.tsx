@@ -8,7 +8,7 @@ import { Conversation } from '../../chat';
 import type { Message } from '../../conversations';
 import { api } from '../components/api';
 
-type GuestConversation = { name: string; role: string; title: string; messages?: Message[] };
+type GuestConversation = { name: string; role: string; title: string; messages?: Message[]; readOnly?: boolean };
 
 export function GuestChat() {
   const [token, setToken] = useState<string | null>();
@@ -69,6 +69,7 @@ export function GuestChat() {
       <header className="workspace-header"><div><h1>{conversation.title}</h1><p className="text-sm">Guest access</p></div></header>
       <div id="conversation-root">
         <Conversation guest role={conversation.role} viewer={conversation.name} threadId="" messages={conversation.messages ?? []}
+          readOnly={conversation.readOnly} readOnlyMessage="The agent for this conversation was removed."
           send={async (transport) => {
             if (sending.current) return;
             sending.current = true;

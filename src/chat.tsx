@@ -18,6 +18,7 @@ type ConversationProps = {
   threadId: string;
   guest?: boolean;
   readOnly?: boolean;
+  readOnlyMessage?: string;
   channel?: 'Slack' | 'Telegram';
   messages: WorkspaceMessage[];
   tasks?: Task[];
@@ -78,7 +79,7 @@ function ConversationStart({ role }: { role: string }) {
   );
 }
 
-export function Conversation({ role, agentName, viewer, threadId, guest, readOnly, channel, messages, tasks = [], send }: ConversationProps) {
+export function Conversation({ role, agentName, viewer, threadId, guest, readOnly, readOnlyMessage, channel, messages, tasks = [], send }: ConversationProps) {
   const [pending, setPending] = useState<{ message: WorkspaceMessage; before: number } | null>(null);
   const error = useRef<Error | undefined>(undefined);
   const chat = useChat({ api: '/api/web-chat', onError: (failure) => { error.current = failure; } });
@@ -121,7 +122,7 @@ export function Conversation({ role, agentName, viewer, threadId, guest, readOnl
     <AssistantRuntimeProvider runtime={runtime}>
       <ThreadPrimitive.Root className="conversation-shell">
         <ThreadPrimitive.Viewport className="conversation-viewport" aria-label="Conversation history">
-          <ConversationStart role={role} />
+          {!readOnly && <ConversationStart role={role} />}
           <div className="chat-transcript" role="log" aria-label="Messages">
             <ThreadPrimitive.Messages components={{ Message: ConversationMessage }} />
             <ThreadPrimitive.If running>
@@ -136,7 +137,7 @@ export function Conversation({ role, agentName, viewer, threadId, guest, readOnl
         </ThreadPrimitive.Viewport>
         <div className="chat-dock">
           <ThreadPrimitive.ScrollToBottom className="chat-latest" behavior="smooth">Latest messages</ThreadPrimitive.ScrollToBottom>
-          {readOnly ? <p className="px-4 py-2 text-sm">Reply in {channel ?? 'the linked channel'}.</p> : <ComposerPrimitive.Root className="chat-composer">
+          {readOnly ? <p className="px-4 py-2 text-sm">{readOnlyMessage ?? `Reply in ${channel ?? 'the linked channel'}.`}</p> : <ComposerPrimitive.Root className="chat-composer">
             <ComposerPrimitive.Input className={fieldClassName()} aria-label="Message" placeholder="Message your agent…" rows={1} maxLength={4000} />
             <div className="chat-composer-actions">
               <ComposerPrimitive.Send className={buttonClassName('primary', 'chat-send')} aria-label="Send message">Send</ComposerPrimitive.Send>

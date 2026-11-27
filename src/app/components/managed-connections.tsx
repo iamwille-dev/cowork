@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { api } from './api';
 import { Select } from './select';
 import { ConnectionCatalog, connectionApps, type ConnectionAppId } from './connection-catalog';
-import type { WorkspaceAgent } from './onboarding';
+import type { WorkspaceAgent } from '../lib/workspace-agents';
 
 const prefix = '/integrations/agent-connections';
 type Provider = 'github' | 'gmail';
