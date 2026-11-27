@@ -2,7 +2,7 @@
 
 import { useState, type DragEvent } from 'react';
 import {
-  ArrowPathRoundedSquareIcon, CalendarDaysIcon, CheckCircleIcon, ClockIcon, EllipsisVerticalIcon,
+  ArrowPathRoundedSquareIcon, CalendarDaysIcon, CheckCircleIcon, ChevronDownIcon, ClockIcon, EllipsisVerticalIcon,
   ExclamationCircleIcon, EyeIcon, LockClosedIcon, RectangleStackIcon, SparklesIcon, UserIcon,
 } from '@heroicons/react/24/outline';
 import { taskStatuses, type TaskStatus } from '../../task-status';
@@ -279,6 +279,7 @@ export function TaskBoard({ tasks, assignees, busy, notice, clearNotice, update,
           <option value="">All assignees</option>
           <AssigneeOptions assignees={assignees} />
         </select>
+        <ChevronDownIcon className={styles.filterChevron} aria-hidden="true" />
       </label>
     </div>
     <div className={styles.scroll} tabIndex={0} role="region" aria-label="Task columns">
