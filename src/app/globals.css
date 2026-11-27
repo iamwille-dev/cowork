@@ -119,6 +119,10 @@ main { @apply min-w-0; }
 #chat-members-count { display: none; color: var(--muted); font-size: .8125rem; }
 .page { max-width: 1280px; margin-inline: auto; }
 .panel { @apply rounded-xl border; background: var(--surface); border-color: var(--line); box-shadow: var(--shadow); }
+.new-chat-menu { z-index: 55; width: min(16rem, calc(100vw - 24px)); padding: 6px; overflow: auto; outline: none; }
+.new-chat-menu button { @apply flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm; min-height: 44px; }
+.new-chat-menu button[data-focus] { background: var(--soft); }
+.new-chat-menu button > svg { color: var(--accent-text); }
 .stack { @apply grid gap-4; }
 .empty-state { @apply grid justify-items-center gap-2 px-5 py-12 text-center; }
 .empty-state h2, .section-heading h2 { font-size: 1.125rem; }

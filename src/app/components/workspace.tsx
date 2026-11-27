@@ -2,7 +2,7 @@
 
 import { Button, buttonClassName } from './button';
 import { Input, Textarea } from './input';
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, useTransition, type FormEvent } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth, useClerk } from '@clerk/nextjs';
@@ -15,6 +15,7 @@ import type { ChannelAgent } from '../../channel-agents';
 import { Settings, type GitProvider } from '../../settings';
 import { api, initials, localDay } from './api';
 import { AuthForm, Modal } from './forms';
+import { NewChatMenu } from './new-chat-menu';
 import { Select } from './select';
 import { ClerkSignIn, useClerkMode } from './clerk-auth';
 import { ConnectionActivity } from './managed-connections';
@@ -44,7 +45,7 @@ type WorkspaceData = {
   };
 };
 type View = 'conversations' | 'tasks' | 'reminders' | 'settings' | 'activity';
-type ModalName = 'thread' | 'invite' | 'task' | 'reminder' | 'edit-schedule' | 'cancel-schedule';
+type ModalName = 'invite' | 'task' | 'reminder' | 'edit-schedule' | 'cancel-schedule';
 
 const titles: Record<View, string> = { conversations: 'Conversations', tasks: 'Tasks', reminders: 'Reminders', settings: 'Workspace settings', activity: 'Activity' };
 const descriptions: Record<View, string> = {
@@ -137,6 +138,7 @@ function ClerkWorkspace(props: WorkspaceProps) {
 
 function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: WorkspaceProps & { clerkSignOut?: () => Promise<void> }) {
   const router = useRouter();
+  const [openingChat, startChatTransition] = useTransition();
   const [state, setState] = useState<WorkspaceData | null>();
   const [needsSetup, setNeedsSetup] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
@@ -220,6 +222,17 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
     ...(state?.directory ?? []).map(({ ID, Name }): TaskAssignee => ({ value: 'member:' + ID, name: Name, kind: 'member' })),
   ];
   const route = (id: string) => router.push(threadRoute(id));
+  function startChat(AgentID: string) {
+    if (pending.current || openingChat) return;
+    startChatTransition(async () => {
+      await run(async () => {
+        const { workspace } = await write('thread', { AgentID });
+        const thread = workspace.Threads?.at(-1);
+        if (!thread) throw new Error('Cowork could not open the new chat.');
+        startChatTransition(() => route(thread.ID));
+      });
+    });
+  }
   const close = () => { setModal(null); setSchedule(null); setNotice(''); };
   const scheduleDue = schedule ? scheduleLocalDue(schedule) : '';
   const contentMode = current ? 'chat' : view === 'conversations' ? 'chat-list' : view;
@@ -289,7 +302,7 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
         <header className="workspace-header">
           <div><h1>{current?.Title || titles[view]}</h1>{threadId === undefined && <p className="workspace-page-description">{descriptions[view]}</p>}{current && state.members.length > 1 && <span id="chat-members-count">{state.members.length} workspace members</span>}</div>
           <div className="flex flex-wrap justify-end gap-2">
-            {view === 'conversations' && threadId === undefined && <Button onClick={() => setModal('thread')}><PlusIcon className="size-4" aria-hidden="true" /> New conversation</Button>}
+            {view === 'conversations' && threadId === undefined && <NewChatMenu agents={workspaceAgents} busy={busy} opening={openingChat} onChoose={startChat} />}
             {view === 'conversations' && threadId !== undefined && <Button variant="quiet" onClick={() => router.push('/conversations')}>All conversations</Button>}
             {current && !current.TelegramTopic && !current.Slack && <Button onClick={() => { setInviteMode('email'); setModal('invite'); }}><UserPlusIcon className="size-4" aria-hidden="true" /> Invite people</Button>}
             {view === 'tasks' && <Button onClick={() => { setNotice(''); setModal('task'); }}><PlusIcon className="size-4" aria-hidden="true" /> New task</Button>}
@@ -370,16 +383,6 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
             }).finally(() => { button.disabled = false; });
           }} /></section>}
       </section>}
-
-      {modal === 'thread' && <Modal title="New conversation" close={close}><form className="stack" onSubmit={(event) => {
-        const data = dataOf(event);
-        void run(async () => { const result = await write('thread', data); close(); route(result.workspace.Threads!.at(-1)!.ID); });
-      }}><label>Conversation title<Input name="Text" required maxLength={200} /></label>
-        {agents.length > 1 && <label>Agent<Select name="AgentID">
-          {agents.map(({ ID, Name, Role }) => <option key={ID} value={ID}>{Name === Role ? Name : `${Name} · ${Role}`}</option>)}
-        </Select></label>}
-        <Button type="submit" disabled={busy}>Create conversation</Button></form>
-      {notice && <p role="status">{notice}</p>}</Modal>}
 
       {modal === 'invite' && <Modal title="Invite people" close={close}>
         <div className="segmented mb-4" role="group" aria-label="Invitation type">

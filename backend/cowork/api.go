@@ -455,14 +455,17 @@ func API(w http.ResponseWriter, r *http.Request) {
 		}
 	case "thread":
 		title := strings.TrimSpace(input.Text)
-		if title == "" || utf8.RuneCountInString(title) > 200 {
-			fail(w, 400, "Enter a conversation title of up to 200 characters.")
+		if utf8.RuneCountInString(title) > 200 {
+			fail(w, 400, "Use a conversation title of up to 200 characters.")
 			return
 		}
 		agent, ok := space.agent(input.AgentID)
 		if !ok {
 			fail(w, 400, "Choose an agent enabled in this workspace.")
 			return
+		}
+		if title == "" {
+			title = "Chat with " + agent.Name
 		}
 		space.Threads = append(space.Threads, Thread{ID: key(), Title: title, Author: account.Name, CreatedAt: time.Now(), AgentID: agent.ID})
 	case "reminder":
