@@ -198,16 +198,16 @@ export function ManagedConnections({ enabled, agents, grants, onGrants, savingGr
         <div className="setup-controls">
           <strong>{label(connection)}</strong><span className="status review">{labelProvider(connection.kind)} connected</span>
         </div>
-        {connection.kind !== 'ssh' && agents.length > 0 && <fieldset className="grant-options">
+        {agents.length > 0 && <fieldset className="grant-options">
           <legend>Allow access for</legend>
           {agents.map((agent) => <label key={agent.ID}>
-            <input type="checkbox" disabled={busy || savingGrants || (onboarding && !keySaved && workspaceKey === undefined)}
+            <input type="checkbox" disabled={busy || savingGrants || (!keySaved && workspaceKey === undefined)}
               checked={grants[agent.ID]?.includes(connection.id) ?? false} onChange={(event) => {
               const selected = grants[agent.ID] ?? [];
               const checked = event.currentTarget.checked;
               const updated = { ...grants, [agent.ID]: checked
                 ? [...selected, connection.id] : selected.filter((id) => id !== connection.id) };
-              if (checked && onboarding && !keySaved && workspaceKey === null) {
+              if (checked && !keySaved && workspaceKey === null) {
                 void action(async () => {
                   await createWorkspaceKey(false);
                   onGrants(updated);

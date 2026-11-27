@@ -1,6 +1,6 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
-import type { agentConnection, ConnectionClient } from './agent-connection.ts';
+import type { AgentConnection, ConnectionClient } from './agent-connection.ts';
 import { repositoryURL, type GitTokens } from './repositories.ts';
 
 const githubRepo = z.object({ full_name: z.string(), html_url: z.string() });
@@ -18,7 +18,6 @@ const installationRepos = z.object({ data: z.object({
 type Provider = keyof GitTokens;
 type Repo = { name: string; url: string };
 type Inventory = { source: string; provider: Provider; repositories: Map<string, Repo>; complete: boolean };
-type Connection = ReturnType<typeof agentConnection>;
 
 function mcpReader(client: ConnectionClient) {
   const signal = AbortSignal.timeout(30_000);
@@ -59,7 +58,7 @@ async function connectedGithub(client: ConnectionClient, result: Inventory) {
   const { call, signal } = mcpReader(client);
   const github = await githubConnections(call);
   if (!github.length) return false;
-  let scannedInstallation = false;
+  let hasInventory = false;
   for (const { id } of github) {
     try {
       const ids: number[] = [];
@@ -68,6 +67,7 @@ async function connectedGithub(client: ConnectionClient, result: Inventory) {
         return { total: data.total_count, rows: data.installations };
       }, (rows) => ids.push(...rows.map((row) => row.id)));
       if (!listed) result.complete = false;
+      if (listed && ids.length === 0) hasInventory = true;
       for (const installationId of new Set(ids)) {
         try {
           const complete = await mcpPages(async (page) => {
@@ -76,11 +76,11 @@ async function connectedGithub(client: ConnectionClient, result: Inventory) {
             }));
             return { total: data.total_count, rows: data.repositories };
           }, (rows) => addRepositories(result, rows.map(({ full_name, html_url }) => ({ name: full_name, url: html_url }))));
-          scannedInstallation = true;
+          hasInventory = true;
           if (!complete) result.complete = false;
         } catch {
           result.complete = false;
-          if (signal.aborted) return scannedInstallation;
+          if (signal.aborted) return hasInventory;
         }
       }
     } catch {
@@ -88,7 +88,7 @@ async function connectedGithub(client: ConnectionClient, result: Inventory) {
       if (signal.aborted) break;
     }
   }
-  return scannedInstallation;
+  return hasInventory;
 }
 
 async function builtInInventory(provider: Provider, token: string) {
@@ -121,14 +121,14 @@ async function builtInInventory(provider: Provider, token: string) {
   return result;
 }
 
-export function repositoryInventory(connection: Connection, tokens: GitTokens = {}) {
+export function repositoryInventory(connection: AgentConnection | undefined, tokens: GitTokens = {}) {
   return createTool({
     id: 'list_repositories',
     description: 'List or count repositories visible to the workspace credentials. Checks Agent Connections first, then Cowork’s saved GitHub or GitLab tokens if needed. Use for account-wide requests without a repository URL.',
     inputSchema: z.object({ provider: z.enum(['github', 'gitlab']).optional().describe('Specify only if the participant requests a provider.') }),
     execute: async ({ provider }) => {
       const results: Inventory[] = [];
-      if (connection && provider !== 'gitlab') {
+      if (connection?.hasTools('github_list_installations', 'github_list_repositories') && provider !== 'gitlab') {
         const result = inventory('Agent Connections GitHub App', 'github');
         const available = await connection.connect((client) => connectedGithub(client, result)).catch(() => false);
         if (result.repositories.size || (available && !tokens.github)) results.push(result);
@@ -160,7 +160,7 @@ const gitlabMetadata = gitlabRepo.extend({
   visibility: z.string().optional(),
 });
 
-export function repositoryMetadata(connection: Connection, tokens: GitTokens = {}) {
+export function repositoryMetadata(connection: AgentConnection | undefined, tokens: GitTokens = {}) {
   return createTool({
     id: 'get_repository',
     description: 'Look up repository metadata such as default branch, description, or visibility. Checks the Agent Connections GitHub grant first, then Cowork’s saved token for the same provider. Use pull_repository when you need file contents.',
@@ -169,7 +169,7 @@ export function repositoryMetadata(connection: Connection, tokens: GitTokens = {
       const repository = repositoryURL(url);
       if (!repository) return { error: 'Use a GitHub.com or GitLab.com HTTPS repository URL.' };
       const { provider, parts } = repository;
-      if (provider === 'github' && connection) {
+      if (provider === 'github' && connection?.hasTools('github_get_repository')) {
         const metadata = await connection.connect(async (client) => {
           const { call, signal } = mcpReader(client);
           const [owner, repo] = parts;
