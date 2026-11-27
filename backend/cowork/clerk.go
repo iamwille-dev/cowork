@@ -301,7 +301,7 @@ func onboardingAPI(w http.ResponseWriter, r *http.Request, d *database, profile 
 			for i := range space.Agents {
 				agent := &space.Agents[i]
 				agent.Channel = "cowork"
-				if agent.Role == "Developer" || agent.Role == "Sales Lead" {
+				if input.Channel == "slack" || agent.Role == "Developer" || agent.Role == "Sales Lead" {
 					agent.Channel = input.Channel
 				}
 			}

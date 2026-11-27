@@ -45,7 +45,7 @@ func TestManageWorkspaceAgents(t *testing.T) {
 	post("owner", "agent/add", `{"ID":"developer"}`, http.StatusConflict)
 	post("owner", "agent/add", `{"ID":"unknown"}`, http.StatusBadRequest)
 	post("owner", "agent/add", `{"ID":"sales-lead","Name":"Invalid\nName"}`, http.StatusBadRequest)
-	post("owner", "agent/add", `{"ID":"social-media","Channel":"slack"}`, http.StatusBadRequest)
+	post("owner", "agent/add", `{"ID":"social-media","Channel":"telegram"}`, http.StatusBadRequest)
 	post("owner", "agent/add", sales, http.StatusOK)
 	post("owner", "agent/add", sales, http.StatusOK)
 	post("owner", "agent/add", `{"ID":"sales-lead","Name":"Different"}`, http.StatusConflict)

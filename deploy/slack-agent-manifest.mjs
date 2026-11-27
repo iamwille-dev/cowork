@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { channelAgents } from '../src/channel-agents.ts';
+import { channelAgents, roleAgentId } from '../src/channel-agents.ts';
 
 const agent = process.argv[2];
 const origin = URL.parse(process.argv[3] ?? 'https://cowork.iamwille.xyz');
@@ -14,5 +14,5 @@ const base = origin.origin + '/integrations/slack/' + agent;
 manifest.display_information = { name, description: `Chat with ${name}, your Cowork ${role} agent.` };
 manifest.features.bot_user.display_name = name;
 manifest.oauth_config.redirect_urls = [base + '/oauth/callback'];
-manifest.settings.event_subscriptions.request_url = base + '/events';
+manifest.settings.event_subscriptions.request_url = `${origin.origin}/api/agents/${roleAgentId(role)}/channels/slack/webhook`;
 console.log(JSON.stringify(manifest, null, 2));

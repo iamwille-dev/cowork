@@ -81,16 +81,19 @@ Copy `.env.example` to `.env` in the project root and set `OPENROUTER_API_KEY` t
 
 ## Add the agent to Slack
 
-In Cowork, the workspace owner opens **Settings → Messaging channels → Slack → Add to Slack**, chooses their Slack workspace, and approves the installation in Slack. Slack may require an admin to approve it. Send Cowork a DM, or invite it to a channel and mention it. Use **Disconnect Slack** in Cowork or remove the Cowork app from Slack to end the connection.
+In Cowork, the workspace owner opens **Settings → Messaging channels → Slack** and selects **Add to Slack** on an agent. The first time, generate an app configuration token for your Slack workspace under **Your App Configuration Tokens** and enter its refresh token in Cowork. Cowork stores and rotates it on the server so the workspace can connect additional agents without entering another token. [Slack app settings](https://api.slack.com/apps) · [Slack configuration tokens](https://docs.slack.dev/app-manifests/configuring-apps-with-app-manifests/#managing-configuration-tokens)
 
-### Configure the shared Slack app
+Cowork creates one Slack app per agent using the saved Cowork name for both the app and the bot. Approve the installation in Slack. If Cowork shows a verification link, use it to verify the Events API request URL in the Slack app’s **App Manifest** settings. Then DM the bot, or invite it to a channel and mention it by name. Slack app names can be up to 35 characters, and Slack normalizes the bot’s mention username. [Slack manifest reference](https://docs.slack.dev/reference/app-manifest/)
 
-1. Create the Cowork app once in [Slack app settings](https://api.slack.com/apps) using the [production app manifest](deploy/slack-app-manifest.json). Set its app ID, OAuth client ID and secret, and signing secret on the worker as `SLACK_APP_ID`, `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, and `SLACK_SIGNING_SECRET`. Set `COWORK_PUBLIC_URL` to the public HTTPS origin and `MASTRA_ENCRYPTION_KEY` to a stable random secret of at least 32 characters. Set `OPENROUTER_API_KEY` for replies.
-2. Register `<origin>/integrations/slack/oauth/callback` under **OAuth & Permissions**. Add the bot scopes from the [Slack manifest](deploy/slack-app-manifest.json). Keep bot token rotation disabled for this integration.
-3. Under **Event Subscriptions**, verify `<origin>/integrations/slack/events` and subscribe to bot events `app_mention`, `message.channels`, `message.groups`, `message.im`, `message.mpim`, and `app_uninstalled`. Enable the Messages tab in **App Home** and allow users to send messages.
-4. Activate distribution in **Manage Distribution**. The integration supports workspace-level installations. See [Slack app distribution](https://docs.slack.dev/app-management/distribution/).
+Set `COWORK_PUBLIC_URL` to the public HTTPS origin, `MASTRA_ENCRYPTION_KEY` to a stable random secret of at least 32 characters on the worker and Encore, and `OPENROUTER_API_KEY` on the worker. Cowork stores provisioning credentials and installation tokens in the worker’s `slack-oauth.db`. Keep that state volume and encryption key across restarts. The app installs in the Slack workspace that issued the configuration token.
 
-Each Slack workspace is associated with one Cowork workspace. When the workspace owner chooses Slack during onboarding, the named agent's internal public Slack threads are mirrored into Cowork under a stable conversation ID. Participants reply in Slack. Direct messages and private Slack channels keep their history in Slack. The worker stores installation tokens encrypted in `backend/.cowork/slack-oauth.db`. Run one worker per deployment and retain the state volume and encryption key across restarts.
+Disconnecting removes the Slack installation from the workspace. Reconnecting reuses the same app and applies the agent’s current Cowork name. For an agent already connected through a shared or fixed-name app, disconnect that installation before adding its dedicated app.
+
+### Manage legacy Slack installations
+
+Existing shared Cowork apps use `SLACK_APP_ID`, `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, and `SLACK_SIGNING_SECRET` on the worker. Their OAuth and Events API URLs are in the [legacy app manifest](deploy/slack-app-manifest.json).
+
+Each Slack workspace is associated with one Cowork workspace. When the workspace owner chooses Slack as an agent's preferred channel, its internal public Slack threads are mirrored into Cowork under a stable conversation ID. Participants reply in Slack. Direct messages and private Slack channels keep their history in Slack. Run one worker per deployment.
 
 ## Telegram group conversations
 
@@ -101,13 +104,15 @@ Each Slack workspace is associated with one Cowork workspace. When the workspace
 
 Mastra Channels uses the [Telegram adapter](https://mastra.ai/blog/introducing-channels) in polling mode. Run one worker per deployment. Slack and Telegram use the connected Cowork workspace’s tool configuration.
 
-## Named agents in Slack and Telegram
+## Fixed-name Slack apps and Telegram bots
 
-**Ada** handles Developer work and **Sam** handles Sales Lead work. Cowork workspace owners can connect both from **Settings → Messaging channels**. In Slack, invite each bot to the channel and select its real @mention, or DM the bot directly. In Telegram, tag each connected bot’s registered `@username` or reply to its message.
+The legacy Slack apps are **Ada** for Developer work and **Sam** for Sales Lead work. In Telegram, tag each connected bot’s registered `@username` or reply to its message.
 
-For Slack, register a distinct distributed app for each agent. Generate each manifest with `node deploy/slack-agent-manifest.mjs ada` or `node deploy/slack-agent-manifest.mjs sam`. Pass your public HTTPS origin as a second argument for a different deployment. Import each manifest in Slack app settings, then set the app ID, OAuth client ID and secret, and signing secret using the matching `SLACK_ADA_` or `SLACK_SAM_` variables listed in `.env.example`. Deploy to make the agent-specific Events API URLs available, verify each URL, and enable distribution for both apps. Cowork keeps all Slack agents for a workspace linked to the same Slack team.
+For legacy fixed-name Slack installations, the worker reads the app ID, OAuth client ID and secret, and signing secret from the matching `SLACK_ADA_` or `SLACK_SAM_` variables listed in `.env.example`.
 
-Cowork uses the workspace's chosen agent name on replies when Slack grants `chat:write.customize`. Update the Slack app manifest, set the worker variable `COWORK_SLACK_CUSTOM_NAMES=1`, and reauthorize existing installations to grant this scope. The installed app listing and @mention use Slack's configured bot identity.
+The fixed-name apps use `/api/agents/developer/channels/slack/webhook` for Ada and `/api/agents/sales-lead/channels/slack/webhook` for Sam. Existing installations can continue using their `/integrations/slack/<name>/events` URLs.
+
+Cowork uses the workspace's chosen agent name on replies when Slack grants `chat:write.customize`. Update the Slack app manifest and reauthorize existing installations to grant this scope. The installed app listing and @mention use Slack's configured bot identity.
 
 For Telegram, create a distinct bot for each agent in BotFather. In Cowork, save each bot’s token and Telegram group ID in its agent’s section. Both bots can use the same Telegram group. Cowork displays each verified Telegram handle in Settings. Existing Cowork bot connections can still be managed there.
 

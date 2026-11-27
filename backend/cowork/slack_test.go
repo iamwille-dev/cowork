@@ -17,7 +17,10 @@ func TestSlackThreadKeepsOneCoworkConversation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	space := &Workspace{ID: key(), Role: "Developer", Agents: []workspaceAgent{{ID: "developer", Role: "Developer", Name: "Sammy", Channel: "slack"}}}
+	space := &Workspace{ID: key(), Role: "Developer", Agents: []workspaceAgent{
+		{ID: "developer", Role: "Developer", Name: "Sammy", Channel: "slack"},
+		{ID: "product-manager", Role: "Product Manager", Name: "Nova", Channel: "slack"},
+	}}
 	d.Workspaces[space.ID] = space
 	if err := save(d); err != nil {
 		t.Fatal(err)
@@ -51,12 +54,22 @@ func TestSlackThreadKeepsOneCoworkConversation(t *testing.T) {
 	privateActor := actor
 	privateActor.Conversation = "slack:D123:17000000.1"
 	record(privateActor, "private-1", false, http.StatusBadRequest)
+	managed := actor
+	managed.Agent, managed.Installation = "agent:product-manager", "managed-install"
+	record(managed, "managed-1", false, http.StatusForbidden)
+	replacement := "product-manager-" + key()
+	managed.AgentInstance = &replacement
+	record(managed, "managed-1", false, http.StatusForbidden)
+	instance := "product-manager"
+	managed.AgentInstance = &instance
+	record(managed, "managed-1", false, http.StatusOK)
 	reloaded, err := load()
 	if err != nil {
 		t.Fatal(err)
 	}
 	threads := reloaded.Workspaces[space.ID].Threads
-	if len(threads) != 1 || len(threads[0].Messages) != 2 || threads[0].Messages[1].Author != "Sammy" || !threads[0].Messages[1].Agent {
+	if len(threads) != 2 || len(threads[0].Messages) != 2 || threads[0].Messages[1].Author != "Sammy" || !threads[0].Messages[1].Agent ||
+		threads[1].AgentID != instance || threads[1].Slack == nil || threads[1].Slack.Installation != managed.Installation {
 		t.Fatalf("unexpected Slack transcript: %+v", threads)
 	}
 }

@@ -34,7 +34,9 @@ func workspaceAgentChannel(role, channel string) (string, error) {
 	switch channel {
 	case "", "cowork":
 		return "cowork", nil
-	case "slack", "telegram":
+	case "slack":
+		return channel, nil
+	case "telegram":
 		if role != "Developer" && role != "Sales Lead" {
 			return "", errors.New("This agent is available in Cowork.")
 		}

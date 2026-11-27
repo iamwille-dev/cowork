@@ -12,8 +12,8 @@ const defaultDetails: AgentDetails = { name: '', channel: 'cowork' };
 type UpdateAgent = (input: AgentUpdate, onError: (message: string) => void) => Promise<boolean>;
 type RemoveAgent = (id: string, onError: (message: string) => void) => Promise<boolean>;
 
-function AgentFields({ role, messaging, details, setDetails, busy, channelHelp }: {
-  role: string; messaging: boolean; details: AgentDetails; setDetails: (details: AgentDetails) => void; busy: boolean;
+function AgentFields({ role, telegram, details, setDetails, busy, channelHelp }: {
+  role: string; telegram: boolean; details: AgentDetails; setDetails: (details: AgentDetails) => void; busy: boolean;
   channelHelp?: string;
 }) {
   const helpId = useId();
@@ -22,20 +22,20 @@ function AgentFields({ role, messaging, details, setDetails, busy, channelHelp }
       <Input value={details.name} placeholder={role} maxLength={48} disabled={busy}
         onChange={(event) => setDetails({ ...details, name: event.target.value })} />
     </label>
-    {messaging && <div className="grid gap-1.5">
+    <div className="grid gap-1.5">
       <label>Preferred channel
         <Select value={details.channel} disabled={busy} aria-describedby={channelHelp ? helpId : undefined}
           onChange={(event) => setDetails({ ...details, channel: event.target.value as AgentChannel })}>
-          {Object.entries(channelNames).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+          {Object.entries(channelNames).filter(([id]) => telegram || id !== 'telegram').map(([id, name]) => <option key={id} value={id}>{name}</option>)}
         </Select>
       </label>
       {channelHelp && <small id={helpId}>{channelHelp}</small>}
-    </div>}
+    </div>
   </>;
 }
 
-function EditAgentForm({ agent, messaging, busy, updateAgent, canRemove, removeAgent, close, saved, removed }: {
-  agent: WorkspaceAgent; messaging: boolean; busy: boolean; updateAgent: UpdateAgent; close: () => void; saved: () => void;
+function EditAgentForm({ agent, telegram, busy, updateAgent, canRemove, removeAgent, close, saved, removed }: {
+  agent: WorkspaceAgent; telegram: boolean; busy: boolean; updateAgent: UpdateAgent; close: () => void; saved: () => void;
   canRemove: boolean; removeAgent: RemoveAgent; removed: () => void;
 }) {
   const [initial] = useState<AgentDetails>(() => ({ name: agent.Name, channel: agent.Channel ?? 'cowork' }));
@@ -45,7 +45,7 @@ function EditAgentForm({ agent, messaging, busy, updateAgent, canRemove, removeA
   const [removeError, setRemoveError] = useState('');
   const heading = useRef<HTMLHeadingElement>(null);
   const nameChanged = details.name !== initial.name;
-  const channelChanged = messaging && details.channel !== initial.channel;
+  const channelChanged = details.channel !== initial.channel;
   useEffect(() => { heading.current?.focus(); }, []);
 
   return <><form id="edit-agent-form" className="stack mt-4" aria-labelledby="edit-agent-heading" onSubmit={async (event) => {
@@ -58,7 +58,7 @@ function EditAgentForm({ agent, messaging, busy, updateAgent, canRemove, removeA
     if (await updateAgent(changes, setError)) saved();
   }}>
     <h3 id="edit-agent-heading" ref={heading} tabIndex={-1}>Edit agent</h3>
-    <AgentFields role={agent.Role} messaging={messaging} details={details} setDetails={setDetails} busy={busy}
+    <AgentFields role={agent.Role} telegram={telegram} details={details} setDetails={setDetails} busy={busy}
       channelHelp="Connect or disconnect Slack and Telegram in Messaging channels." />
     {error && <p role="alert">{error}</p>}
     <div className="setup-controls">
@@ -75,7 +75,7 @@ function EditAgentForm({ agent, messaging, busy, updateAgent, canRemove, removeA
     <div className="stack">
       <p className="wrap-anywhere">Remove <strong>{agent.Name}</strong> from this workspace?</p>
       <p>Conversations assigned to this agent become read-only, and upcoming schedules are canceled. You can still view and reassign their tasks.</p>
-      {messaging && <p>The agent stops responding in Slack and Telegram. You can manage the Slack app installation in Messaging channels.</p>}
+      <p>The agent stops responding in connected messaging channels. You can remove the app from Slack in your Slack workspace.</p>
       {removeError && <p role="alert">{removeError}</p>}
       <div className="setup-controls">
         <Button variant="quiet" disabled={busy} onClick={() => setConfirmRemove(false)}>Cancel</Button>
@@ -113,7 +113,7 @@ export function SettingsAgents({ agents, owner, busy, addAgent, updateAgent, rem
   const selected = available.find(({ id }) => id === role);
   const canAdd = owner && available.length > 0;
   const showForm = canAdd && adding;
-  const hasMessaging = agentCatalog.some((option) => 'messaging' in option && agents.some(({ Role }) => Role === option.role));
+  const hasMessaging = agents.some(({ ID }) => ID);
 
   useEffect(() => { if (showForm) formHeading.current?.focus(); }, [showForm]);
   useEffect(() => { if (message) feedback.current?.focus(); }, [message]);
@@ -134,7 +134,7 @@ export function SettingsAgents({ agents, owner, busy, addAgent, updateAgent, rem
         const messaging = Boolean(option && 'messaging' in option);
         const isEditing = editing === agent.ID;
         const roleLabel = agent.Name !== agent.Role ? agent.Role : '';
-        const channelLabel = messaging && agent.Channel && agent.Channel !== 'cowork' ? `Prefers ${channelNames[agent.Channel]}` : '';
+        const channelLabel = agent.Channel && agent.Channel !== 'cowork' ? `Prefers ${channelNames[agent.Channel]}` : '';
         const subtitle = [roleLabel, channelLabel].filter(Boolean).join(' · ');
         return <li key={agent.ID}>
           <div className="flex items-start gap-3">
@@ -151,7 +151,7 @@ export function SettingsAgents({ agents, owner, busy, addAgent, updateAgent, rem
                 setMessage('');
               }}>Edit</Button>}
           </div>
-          {owner && isEditing && <EditAgentForm agent={agent} messaging={messaging} busy={busy} updateAgent={updateAgent}
+          {owner && isEditing && <EditAgentForm agent={agent} telegram={messaging} busy={busy} updateAgent={updateAgent}
             canRemove={agents.length > 1} removeAgent={removeAgent}
             close={() => { setEditing(undefined); editTrigger.current?.focus(); }}
             saved={() => { setEditing(undefined); setMessage('Agent settings saved.'); }}
@@ -191,7 +191,7 @@ export function SettingsAgents({ agents, owner, busy, addAgent, updateAgent, rem
           }} />
         </label>)}
       </fieldset>
-      {selected && <AgentFields role={selected.role} messaging={'messaging' in selected} details={details} setDetails={setDetails} busy={busy}
+      {selected && <AgentFields role={selected.role} telegram={'messaging' in selected} details={details} setDetails={setDetails} busy={busy}
         channelHelp={details.channel === 'cowork' ? undefined : `Finish connecting ${channelNames[details.channel]} in Messaging channels.`} />}
       {error && <p role="alert">{error}</p>}
       <Button className="justify-self-start" type="submit" disabled={busy || !selected}>{busy ? 'Adding agent…' : 'Add to workspace'}</Button>

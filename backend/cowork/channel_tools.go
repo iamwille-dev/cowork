@@ -89,16 +89,26 @@ func ChannelToolBridge(w http.ResponseWriter, r *http.Request) {
 	}
 
 	role := channelAgentRole(space, input.Agent)
+	var activeAgent workspaceAgent
+	if id, managed := strings.CutPrefix(input.Agent, "agent:"); input.Channel == "slack" && managed {
+		var active bool
+		activeAgent, active = space.agent(id)
+		if id == "" || !active || input.AgentInstance == nil || *input.AgentInstance != id {
+			fail(w, 403, "Channel agent unavailable.")
+			return
+		}
+		role = activeAgent.Role
+	} else {
+		for _, agent := range space.Agents {
+			if agent.Role == role {
+				activeAgent = agent
+				break
+			}
+		}
+	}
 	if !roles[role] || space.channelAgentRemoved(input.Agent) {
 		fail(w, 403, "Channel agent unavailable.")
 		return
-	}
-	var activeAgent workspaceAgent
-	for _, agent := range space.Agents {
-		if agent.Role == role {
-			activeAgent = agent
-			break
-		}
 	}
 	if input.AgentInstance != nil && *input.AgentInstance != activeAgent.ID {
 		fail(w, 403, "Channel agent changed in this workspace.")

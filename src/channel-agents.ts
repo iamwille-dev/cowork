@@ -5,3 +5,7 @@ export const channelAgents = {
 
 export type ChannelAgent = keyof typeof channelAgents;
 export const channelAgentIds = Object.keys(channelAgents) as ChannelAgent[];
+
+export function roleAgentId(role: string) {
+  return role.toLowerCase().replaceAll(' ', '-');
+}

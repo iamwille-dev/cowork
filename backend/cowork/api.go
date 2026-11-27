@@ -331,7 +331,14 @@ func API(w http.ResponseWriter, r *http.Request) {
 	space := d.Workspaces[account.Workspace]
 	if r.Method == "GET" {
 		if route == "slack-context" {
-			jsonReply(w, 200, map[string]any{"id": space.ID, "role": space.Role, "owner": space.Owner == account.ID})
+			type slackAgentSummary struct{ ID, Role, Name string }
+			agents := make([]slackAgentSummary, 0, len(space.Agents))
+			for _, agent := range space.Agents {
+				if agent.ID != "" {
+					agents = append(agents, slackAgentSummary{agent.ID, agent.Role, agent.Name})
+				}
+			}
+			jsonReply(w, 200, map[string]any{"id": space.ID, "role": space.Role, "owner": space.Owner == account.ID, "agents": agents})
 			return
 		}
 		if route == "chat-session" {

@@ -15,6 +15,10 @@ type slackThread struct {
 var slackPublicThread = regexp.MustCompile(`^slack:C[A-Z0-9]+:[0-9]+\.[0-9]+$`)
 
 func slackAgent(space *Workspace, agent string) (workspaceAgent, bool) {
+	if id, managed := strings.CutPrefix(agent, "agent:"); managed {
+		active, ok := space.agent(id)
+		return active, id != "" && ok && active.Channel == "slack"
+	}
 	role := channelAgentRole(space, agent)
 	for _, candidate := range space.Agents {
 		if candidate.Role == role && candidate.Channel == "slack" {

@@ -42,7 +42,7 @@ export function WorkspaceOnboarding<T extends Setup>({ setup, busy, save, config
   const [keyError, setKeyError] = useState('');
   const [keySaved, setKeySaved] = useState(false);
   const [toolBusy, setToolBusy] = useState(false);
-  const [connectedSlack, setConnectedSlack] = useState<Partial<Record<ChannelAgent, boolean>>>({});
+  const [connectedSlack, setConnectedSlack] = useState<Record<string, boolean>>({});
   const heading = useRef<HTMLHeadingElement>(null);
   const stage = setup?.workspace?.OnboardingStep;
   const agents = setup?.workspace?.Agents ?? [];
@@ -67,9 +67,9 @@ export function WorkspaceOnboarding<T extends Setup>({ setup, busy, save, config
     if (stage) heading.current?.focus();
   }, [stage]);
 
-  const channelReady = channel === 'cowork' || messagingAgents.some(({ slug }) =>
-    channel === 'slack' ? connectedSlack[slug] : Boolean(telegram?.[slug]?.Username),
-  );
+  const channelReady = channel === 'cowork' || (channel === 'slack'
+    ? agents.some(({ ID }) => connectedSlack[ID])
+    : messagingAgents.some(({ slug }) => Boolean(telegram?.[slug]?.Username)));
 
   const submit = (event: FormEvent<HTMLFormElement>, action: (form: FormData) => void) => {
     event.preventDefault();
@@ -160,21 +160,21 @@ export function WorkspaceOnboarding<T extends Setup>({ setup, busy, save, config
           ['cowork', 'Cowork', 'Start a conversation here in your workspace.'],
           ['slack', 'Slack', 'Install the app to chat in Slack. Public channel threads appear in Cowork.'],
           ['telegram', 'Telegram', 'Connect an existing Telegram bot to a group.'],
-        ] as const).filter(([id]) => id === 'cowork' || messagingAgents.length > 0).map(([id, title, description]) => (
+        ] as const).filter(([id]) => id !== 'telegram' || messagingAgents.length > 0).map(([id, title, description]) => (
           <label key={id} className="onboarding-role">
             <span><strong>{title}</strong><small>{description}</small></span>
             <input type="radio" name="where-to-work" value={id} checked={channel === id} onChange={() => setChannel(id)} />
           </label>
         ))}
       </fieldset>
-      {channel !== 'cowork' && <div className="setup-agents">
-        {messagingAgents.length === 0 && <p>Messaging setup is available for the Developer and Sales Lead agents.</p>}
-        {messagingAgents.map(({ slug, Name }) => channel === 'slack'
-          ? <SlackConnectionForm key={slug} owner agent={slug} workspaceName={Name} onConnected={(value) => {
-            setConnectedSlack((current) => current[slug] === value ? current : { ...current, [slug]: value });
-          }} />
-          : <TelegramForm key={slug} owner agent={slug} name={Name} telegramBot={telegram?.[slug]?.Username}
-            destination={telegram?.[slug]?.Destination} saveTelegram={saveTelegram} />)}
+      {channel === 'slack' && <div className="setup-agents">
+        {agents.map((agent) => <SlackConnectionForm key={agent.ID} owner workspaceAgent={agent} onConnected={(value) => {
+          setConnectedSlack((current) => current[agent.ID] === value ? current : { ...current, [agent.ID]: value });
+        }} />)}
+      </div>}
+      {channel === 'telegram' && <div className="setup-agents">
+        {messagingAgents.map(({ slug, Name }) => <TelegramForm key={slug} owner agent={slug} name={Name}
+          telegramBot={telegram?.[slug]?.Username} destination={telegram?.[slug]?.Destination} saveTelegram={saveTelegram} />)}
       </div>}
       <footer className="setup-controls">
         <Button disabled={busy || !channelReady} onClick={() => void save({ Step: 'complete', Channel: channel })}>
