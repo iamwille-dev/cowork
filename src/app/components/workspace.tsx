@@ -9,7 +9,7 @@ import { useAuth, useClerk } from '@clerk/nextjs';
 import { ArrowLeftIcon, PlusIcon, UserPlusIcon } from '@heroicons/react/24/outline';
 import { WorkspaceShell } from '../../sidebar';
 import { Conversation } from '../../chat';
-import { ConversationIndex, type Message, type Thread } from '../../conversations';
+import { ConversationIndex, threadRoute, type Message, type Thread } from '../../conversations';
 import { ReminderCalendar } from '../../reminders';
 import type { ChannelAgent } from '../../channel-agents';
 import { Settings, type GitProvider } from '../../settings';
@@ -57,7 +57,6 @@ const descriptions: Record<View, string> = {
 };
 const shellPages: Record<View, string> = { conversations: 'chat', settings: 'admin', activity: 'admin', tasks: 'tasks', reminders: 'reminders' };
 const shellRoutes: Record<string, View> = { chat: 'conversations', admin: 'settings', tasks: 'tasks', reminders: 'reminders' };
-const threadRoute = (id: string) => '/conversations/' + (id || 'workspace');
 const dataOf = (event: FormEvent<HTMLFormElement>) => {
   event.preventDefault();
   return Object.fromEntries(new FormData(event.currentTarget));

@@ -660,19 +660,24 @@ main[data-view="chat-list"] #chat { max-width: 1200px; }
 .conversation-filter { display: flex; align-items: center; gap: 8px; }
 .conversation-inbox-caption { background: var(--surface); border-radius: 11px 11px 0 0; font-size: .825rem; color: var(--muted); }
 .conversation-inbox-caption h2 { color: var(--ink); font-size: .925rem; }
-.inbox-thread { padding: 14px clamp(12px, 3vw, 23px); }
-.inbox-thread:focus-within { background: var(--canvas); }
+.inbox-thread { position: relative; isolation: isolate; padding: 14px clamp(12px, 3vw, 23px); }
+.inbox-thread:focus-within { background: var(--soft); }
+@media (hover: hover) {
+  .inbox-thread:hover { background: var(--soft); }
+}
 .inbox-thread + .inbox-thread { border-top: 1px solid var(--line); }
 .inbox-thread-main { display: flex; align-items: start; gap: 12px; }
 .inbox-thread-icon { width: 34px; height: 34px; background: var(--sidebar); color: var(--ink); }
 .inbox-thread-text { flex: 1; min-width: 0; }
-.inbox-thread-text .discussion-title { font-weight: 700; text-align: left; }
-.inbox-thread-text .discussion-title:hover { text-decoration: underline; }
+.inbox-thread-text .discussion-title { font-weight: 700; }
+.inbox-thread-text .discussion-title::after { content: ''; position: absolute; inset: 0; z-index: 1; }
+.inbox-thread-text .discussion-title:focus-visible { outline: none; }
+.inbox-thread-text .discussion-title:focus-visible::after { outline: 2px solid var(--focus); outline-offset: -2px; }
 .inbox-thread-text p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .88rem; }
 .inbox-thread-text p strong { font-weight: 550; }
 .inbox-thread-meta { display: grid; gap: 6px; justify-items: end; color: var(--muted); font-size: .75rem; }
 .inbox-thread-footer { display: flex; flex-wrap: wrap; align-items: start; justify-content: space-between; gap: 8px; margin: 10px 0 0 46px; color: var(--muted); font-size: .8rem; }
-.inbox-thread-footer .discussion-artifacts { margin-top: 0; }
+.inbox-thread-footer .discussion-artifacts { position: relative; z-index: 2; margin-top: 0; }
 @media (max-width: 740px) {
   .onboarding { grid-template-columns: minmax(0, 1fr); min-height: auto; }
   .onboarding-story { gap: 18px; padding: 25px 21px; }

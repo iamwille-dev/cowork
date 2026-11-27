@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { Button } from './app/components/button';
 import { Input } from './app/components/input';
 import { useState } from 'react';
@@ -7,6 +8,7 @@ import { ChatBubbleLeftIcon, PaperClipIcon, MagnifyingGlassIcon, CheckCircleIcon
 
 export type Message = { Author: string; Text: string; At: string; SenderID?: string };
 export type Thread = { ID: string; Title: string; Author: string; AgentID?: string; CreatedAt?: string; TelegramTopic?: string; Slack?: object; Messages?: Message[] };
+export const threadRoute = (id: string) => '/conversations/' + (id || 'workspace');
 type Artifact = { Name: string; URL: string };
 type Task = { ID: string; Title: string; Status: string; ThreadID?: string; Artifacts?: Artifact[] };
 type ConversationData = { threads: Thread[]; tasks: Task[]; role: string; open: (id: string) => void };
@@ -103,7 +105,7 @@ export function ConversationIndex({ threads, tasks, role, open }: ConversationDa
               <div className="inbox-thread-main">
                 <span className="inbox-thread-icon" aria-hidden="true"><ChatBubbleLeftIcon className="size-5" /></span>
                 <div className="inbox-thread-text">
-                  <button type="button" className="discussion-title" onClick={() => open(thread.ID)}>{thread.Title}</button>
+                  <Link href={threadRoute(thread.ID)} prefetch={false} className="discussion-title">{thread.Title}</Link>
                   <p>{latest ? <><strong>{latest.Author}:</strong> {latest.Text}</> : 'No messages yet'}</p>
                 </div>
                 <div className="inbox-thread-meta">
