@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAuth, useClerk } from '@clerk/nextjs';
 import { PlusIcon, UserPlusIcon } from '@heroicons/react/24/outline';
 import { WorkspaceShell } from '../../sidebar';
 import { Conversation } from '../../chat';
@@ -11,6 +12,8 @@ import type { ChannelAgent } from '../../channel-agents';
 import { Settings, type GitProvider } from '../../settings';
 import { api, initials, localDay } from './api';
 import { AuthForm, Modal } from './forms';
+import { ClerkSignIn, useClerkMode } from './clerk-auth';
+import { WorkspaceOnboarding, type WorkspaceAgent } from './onboarding';
 import { TaskList, type ScheduleAction, type Task } from './tasks';
 
 type Reminder = { ID: string; Text: string; Due: string; Author: string; Done: boolean };
@@ -18,6 +21,7 @@ type WorkspaceData = {
   name: string;
   admin: boolean;
   agentConnectionHasKey?: boolean;
+  managedConnections?: boolean;
   telegramBot?: string;
   telegramAgents?: Partial<Record<ChannelAgent, { Username: string; Destination: string }>>;
   gitTokenStatus?: Partial<Record<GitProvider, boolean>>;
@@ -27,6 +31,8 @@ type WorkspaceData = {
   threadInvitations: { ID: string; ThreadID: string; From: string }[];
   workspace: {
     AgentConnectionEnabled?: boolean;
+    Agents?: WorkspaceAgent[];
+    OnboardingStep?: 'tools' | 'channels';
     Role: string; Invite?: string; Messages?: Message[]; Threads?: Thread[];
     Tasks?: Task[]; Reminders?: Reminder[]; Channels?: Record<string, string>;
   };
@@ -59,9 +65,27 @@ function scheduleLocalDue(task: Task) {
   return `${fields.year}-${fields.month}-${fields.day}T${fields.hour}:${fields.minute}`;
 }
 
-export function Workspace({ view, threadId, initialMode }: { view: View; threadId?: string; initialMode?: 'signup' | 'login' }) {
+type WorkspaceProps = { view: View; threadId?: string; initialMode?: 'signup' | 'login' };
+
+export function Workspace(props: WorkspaceProps) {
+  const mode = useClerkMode();
+  if (mode === 'clerk') return <ClerkWorkspace {...props} />;
+  if (mode === 'unavailable') return <main className="workspace-setup"><p role="alert">Cowork sign-in is unavailable on this deployment.</p></main>;
+  return <WorkspaceContent {...props} />;
+}
+
+function ClerkWorkspace(props: WorkspaceProps) {
+  const { isLoaded, isSignedIn, userId } = useAuth();
+  const { signOut } = useClerk();
+  if (!isLoaded) return <main className="workspace-setup"><p role="status">Loading Cowork…</p></main>;
+  if (!isSignedIn) return <ClerkSignIn initialMode={props.initialMode} />;
+  return <WorkspaceContent key={userId} {...props} clerkSignOut={() => signOut({ redirectUrl: '/conversations' })} />;
+}
+
+function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: WorkspaceProps & { clerkSignOut?: () => Promise<void> }) {
   const router = useRouter();
   const [state, setState] = useState<WorkspaceData | null>();
+  const [needsSetup, setNeedsSetup] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [notice, setNotice] = useState('');
   const [modal, setModal] = useState<ModalName | null>(null);
@@ -74,10 +98,16 @@ export function Workspace({ view, threadId, initialMode }: { view: View; threadI
   async function refresh() {
     try {
       const data = await api<WorkspaceData>('workspace');
-      if (!pending.current) setState(data);
+      if (!pending.current) {
+        setState(data);
+        setNeedsSetup(false);
+      }
     } catch (error) {
-      if (!pending.current) setState(null);
-      if ((error as { status?: number }).status !== 401) setNotice((error as Error).message);
+      if (pending.current) return;
+      const status = (error as { status?: number }).status;
+      setState(null);
+      setNeedsSetup(status === 428);
+      if (status !== 401 && status !== 428) setNotice((error as Error).message);
     }
   }
 
@@ -117,6 +147,12 @@ export function Workspace({ view, threadId, initialMode }: { view: View; threadI
     Messages: workspace?.Messages ?? [],
   }, ...(workspace?.Threads ?? [])];
   const current = threadId === undefined ? undefined : threads.find(({ ID }) => ID === threadId);
+  const agents = workspace?.Agents ?? [];
+  const grants = Object.fromEntries(agents.map(({ ID, ConnectionIDs }) => [ID, ConnectionIDs ?? []]));
+  const saveGrants = (value: typeof grants) => {
+    void run(async () => { await write('agent-grants', { Grants: value }); });
+  };
+  const selectedAgent = agents.find(({ ID }) => ID === current?.AgentID) ?? agents[0];
   const invitations = state?.threadInvitations ?? [];
   const teammates = state?.directory.filter(({ ID }) => ID !== state.viewerId) ?? [];
   const developer = workspace?.Role === 'Developer';
@@ -133,12 +169,29 @@ export function Workspace({ view, threadId, initialMode }: { view: View; threadI
     });
   }
 
+  if (clerkSignOut && (needsSetup || (state?.admin && workspace?.OnboardingStep))) return (
+    <main>
+      {notice && <div id="notice" role="alert">{notice}</div>}
+      <WorkspaceOnboarding setup={state ?? undefined} busy={busy} configured={Boolean(state?.agentConnectionHasKey)}
+        telegram={state?.telegramAgents} managed={Boolean(state?.managedConnections)} grants={grants} saveGrants={saveGrants}
+        save={(settings) => run(async () => {
+          const data = await write('onboarding', settings);
+          setNeedsSetup(false);
+          if (!data.workspace.OnboardingStep) router.replace('/conversations');
+        })}
+        saveTelegram={(settings) => run(async () => { await write('telegram', settings); })}
+      />
+      <div className="workspace-setup pt-0"><div><button className="quiet" type="button" disabled={busy}
+        onClick={() => void run(clerkSignOut)}>Sign out</button></div></div>
+    </main>
+  );
+
   return <WorkspaceShell
     page={shellPages[view]} invitationCount={invitations.length} theme={theme}
     account={state ? { name: state.name, initials: initials(state.name), role: state.workspace.Role } : undefined}
     navigate={(page) => router.push('/' + shellRoutes[page])}
     toggleTheme={() => changeTheme(theme === 'dark' ? 'light' : 'dark')}
-    signOut={() => void run(async () => { await api('logout', {}); setState(null); router.push('/conversations'); })}
+    signOut={() => void run(clerkSignOut ?? (async () => { await api('logout', {}); setState(null); router.push('/conversations'); }))}
     search={(query) => {
       const text = query.trim().toLowerCase();
       if (!text) return [];
@@ -150,20 +203,28 @@ export function Workspace({ view, threadId, initialMode }: { view: View; threadI
     <main data-view={contentMode}>
       {notice && !modal && <div id="notice" role="status">{notice}</div>}
       {state === undefined && <p className="p-6" role="status">Loading workspace…</p>}
-      {state === null && <AuthForm initialMode={initialMode} busy={busy} submit={(mode, data) => void run(async () => { await write(mode, data); })} />}
+      {state === null && (clerkSignOut ? <div className="workspace-setup">
+        {!notice && <p role="alert">Cowork couldn’t verify your sign-in.</p>}
+        <div className="setup-controls">
+          <button className="quiet" type="button" onClick={() => void refresh()}>Try again</button>
+          <button className="quiet" type="button" onClick={() => void run(clerkSignOut)}>Sign out</button>
+        </div>
+      </div> : <AuthForm initialMode={initialMode} busy={busy} submit={(mode, data) => void run(async () => { await write(mode, data); })} />)}
       {state && workspace && <section id="workspace">
         <header className="workspace-header">
           <div><h1>{current?.Title || titles[view]}</h1>{threadId === undefined && <p className="workspace-page-description">{descriptions[view]}</p>}{current && state.members.length > 1 && <span id="chat-members-count">{state.members.length} workspace members</span>}</div>
           <div className="flex flex-wrap justify-end gap-2">
             {view === 'conversations' && threadId === undefined && <button className="primary" onClick={() => setModal('thread')}><PlusIcon className="size-4" aria-hidden="true" /> New conversation</button>}
             {view === 'conversations' && threadId !== undefined && <button className="quiet" onClick={() => router.push('/conversations')}>All conversations</button>}
-            {current && !current.TelegramTopic && <button className="primary" onClick={() => { setInviteMode('email'); setModal('invite'); }}><UserPlusIcon className="size-4" aria-hidden="true" /> Invite people</button>}
+            {current && !current.TelegramTopic && !current.Slack && <button className="primary" onClick={() => { setInviteMode('email'); setModal('invite'); }}><UserPlusIcon className="size-4" aria-hidden="true" /> Invite people</button>}
             {view === 'tasks' && <button className="primary" onClick={() => setModal('task')}><PlusIcon className="size-4" aria-hidden="true" /> Assign task</button>}
           </div>
         </header>
         {view === 'conversations' && <section id="chat" className="page">
           {current ? <div id="conversation-root">
-            <Conversation key={current.ID} role={workspace.Role} viewer={state.name} threadId={current.ID} readOnly={Boolean(current.TelegramTopic)} messages={current.Messages ?? []}
+            <Conversation key={current.ID} role={selectedAgent?.Role ?? workspace.Role} agentName={selectedAgent?.Name} viewer={state.name} threadId={current.ID}
+              readOnly={Boolean(current.TelegramTopic || current.Slack)} channel={current.Slack ? 'Slack' : current.TelegramTopic ? 'Telegram' : undefined}
+              messages={current.Messages ?? []}
               tasks={tasks.filter((task) => (task.ThreadID ?? '') === current.ID && (task.Status === 'Ready for review' || task.Status === 'Failed' || task.Status === 'Blocked'))}
               send={async (transport) => {
                 await run(async () => {
@@ -197,6 +258,7 @@ export function Workspace({ view, threadId, initialMode }: { view: View; threadI
           complete={(id) => void run(async () => { await write('reminder/done', { ID: id }); })} /></section>}
         {view === 'settings' && <section className="page"><Settings theme={theme} members={state.directory} owner={state.admin}
           invite={workspace.Invite || ''} channels={workspace.Channels ?? {}} changeTheme={changeTheme} announce={setNotice}
+          managedConnections={state.managedConnections ? { agents, grants, busy, saveGrants } : undefined}
           agentConnection={{ enabled: Boolean(workspace.AgentConnectionEnabled), hasKey: Boolean(state.agentConnectionHasKey) }}
           saveAgentConnection={(settings) => run(async () => {
             await write('agent-connection', settings);
@@ -224,7 +286,11 @@ export function Workspace({ view, threadId, initialMode }: { view: View; threadI
       {modal === 'thread' && <Modal title="New conversation" close={close}><form className="stack" onSubmit={(event) => {
         const data = dataOf(event);
         void run(async () => { const result = await write('thread', data); close(); route(result.workspace.Threads!.at(-1)!.ID); });
-      }}><label>Conversation title<input name="Text" required maxLength={200} /></label><button className="primary" disabled={busy}>Create conversation</button></form>
+      }}><label>Conversation title<input name="Text" required maxLength={200} /></label>
+        {agents.length > 1 && <label>Agent<select name="AgentID">
+          {agents.map(({ ID, Name, Role }) => <option key={ID} value={ID}>{Name === Role ? Name : `${Name} · ${Role}`}</option>)}
+        </select></label>}
+        <button className="primary" disabled={busy}>Create conversation</button></form>
       {notice && <p role="status">{notice}</p>}</Modal>}
 
       {modal === 'invite' && <Modal title="Invite people" close={close}>

@@ -19,11 +19,13 @@ export type ChannelActor = {
 };
 
 type Role = keyof typeof roleInstructions;
-type ChannelMessage = { Author: string; Text: string; SenderID?: string };
+export type ChannelMessage = { Author: string; Text: string; SenderID?: string; Agent?: boolean };
 type ToolContext = {
   Role: Role;
+  AgentName?: string;
   AgentConnectionWorkspace?: string;
   AgentConnectionKey?: string;
+  AgentConnectionIDs?: string[];
   GitTokens?: GitTokens;
 };
 type TaskResult = {
@@ -35,7 +37,7 @@ type TaskResult = {
   Artifacts?: { Name: string }[];
 };
 
-function bridge(actor: ChannelActor, operation: 'context' | 'task', Data?: Record<string, unknown>) {
+function bridge(actor: ChannelActor, operation: 'context' | 'task' | 'slack-message', Data?: Record<string, unknown>) {
   const key = process.env.MASTRA_ENCRYPTION_KEY?.trim() ?? '';
   const secret = actor.Channel === 'slack'
     ? createHash('sha256').update('cowork-slack-tools\0').update(key).digest('hex')
@@ -49,17 +51,31 @@ function bridge(actor: ChannelActor, operation: 'context' | 'task', Data?: Recor
   });
 }
 
+export async function saveSlackMessage(actor: ChannelActor, data: {
+  ID: string; Title?: string; Text: string; At: string; Reply?: boolean;
+}) {
+  const result = await bridge(actor, 'slack-message', data);
+  if (!result.ok) throw new Error('Cowork could not record the Slack message.');
+  return result.json() as Promise<{ Sync: boolean; ThreadID?: string; Duplicate?: boolean; Messages?: ChannelMessage[] }>;
+}
+
+const progressLabels: Record<string, string> = {
+  list_repositories: 'Looking up repositories…',
+  createTask: 'Creating a Cowork task…',
+};
+
 export async function respondFromChannel(
   actor: ChannelActor,
   messages: ChannelMessage[],
   installationActive: () => Promise<boolean> = async () => true,
+  progress?: (status: string, agentName: string) => Promise<void>,
 ) {
   if (!liveModel || !messages.length) return;
   if (!await installationActive()) return;
   const response = await bridge(actor, 'context');
   if (!response.ok) throw new Error('Cowork could not load channel tools.');
   const context = await response.json() as ToolContext;
-  const connection = agentConnection(context.AgentConnectionWorkspace, context.AgentConnectionKey);
+  const connection = agentConnection(context.AgentConnectionWorkspace, context.AgentConnectionKey, context.AgentConnectionIDs);
   const requestContext = new RequestContext<{ workspaceWrite: WorkspaceWrite }>();
   const writes = new Map<string, ReturnType<WorkspaceWrite>>();
   const recorded: TaskResult[] = [];
@@ -87,7 +103,7 @@ export async function respondFromChannel(
   });
 
   const canList = Boolean(connection || Object.keys(context.GitTokens ?? {}).length);
-  const name = actor.Agent ? channelAgents[actor.Agent].name : 'Cowork';
+  const name = context.AgentName || (actor.Agent ? channelAgents[actor.Agent].name : 'Cowork');
   const agent = new Agent({
     id: 'cowork-channel-tools-' + context.Role.toLowerCase().replaceAll(' ', '-'),
     name,
@@ -100,11 +116,22 @@ Keep replies concise. Only the latest participant message authorizes a tool call
     },
   });
   try {
-    const result = await agent.generate(
-      `Respond to the latest message from ${actor.SenderID}. Conversation in chronological order:\n${JSON.stringify(messages)}`,
-      { requestContext, maxSteps: 5 },
-    );
-    return [result.text.trim(), recorded.length ? taskConfirmation(recorded) : ''].filter(Boolean).join('\n\n');
+    const prompt = `Respond to the latest message from ${actor.SenderID}. Conversation in chronological order:\n${JSON.stringify(messages)}`;
+    const options = { requestContext, maxSteps: 5 };
+    let reply: string;
+    if (progress) {
+      await progress('Working…', name);
+      const result = await agent.stream(prompt, options);
+      for await (const event of result.fullStream) {
+        if (event.type === 'tool-call' && Object.hasOwn(progressLabels, event.payload.toolName)) {
+          await progress(progressLabels[event.payload.toolName], name);
+        }
+      }
+      reply = await result.text;
+    } else {
+      reply = (await agent.generate(prompt, options)).text;
+    }
+    return [reply.trim(), recorded.length ? taskConfirmation(recorded) : ''].filter(Boolean).join('\n\n');
   } catch (error) {
     if (recorded.length) return taskConfirmation(recorded);
     throw error;

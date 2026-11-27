@@ -81,12 +81,26 @@ func ChannelToolBridge(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch r.URL.Path {
+	case "/internal/channel-tools/slack-message":
+		recordSlackTurn(w, d, space, input.channelActor, input.Data)
 	case "/internal/channel-tools/context":
 		context := workerRequest{Role: role, WorkspaceID: space.ID}
-		if len(d.GitTokens[space.ID]) > 0 {
+		for _, agent := range space.Agents {
+			if agent.Role == role {
+				context.AgentName = agent.Name
+				ids := append([]string{}, agent.ConnectionIDs...)
+				context.AgentConnectionIDs = &ids
+				break
+			}
+		}
+		if len(space.Agents) > 0 && context.AgentConnectionIDs == nil {
+			fail(w, 403, "Channel agent is disabled in this workspace.")
+			return
+		}
+		if context.AgentConnectionIDs == nil && len(d.GitTokens[space.ID]) > 0 {
 			context.GitTokens, err = unlockGitTokens(space.ID, d.GitTokens[space.ID])
 		}
-		if err == nil && space.AgentConnectionEnabled {
+		if err == nil && space.AgentConnectionEnabled && (context.AgentConnectionIDs == nil || len(*context.AgentConnectionIDs) > 0) {
 			context.AgentConnectionWorkspace = space.ID
 			if stored := d.AgentConnectionKeys[space.ID]; stored != "" {
 				aead, cipherErr := agentConnectionCipher(false)
@@ -106,10 +120,17 @@ func ChannelToolBridge(w http.ResponseWriter, r *http.Request) {
 		var data struct {
 			Title, Brief, Repository string
 			UI                       bool
+			ThreadID                 string
 		}
 		if err := json.Unmarshal(input.Data, &data); err != nil {
 			fail(w, 400, "Invalid task.")
 			return
+		}
+		data.ThreadID = ""
+		if input.Channel == "slack" {
+			if thread := boundSlackThread(space, input.channelActor); thread != nil {
+				data.ThreadID = thread.ID
+			}
 		}
 		// Construct the task request from allowlisted fields. Its workspace and author
 		// come from the channel binding, outside the model's tool inputs.

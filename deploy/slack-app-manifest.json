@@ -22,6 +22,7 @@
       "bot": [
         "app_mentions:read",
         "chat:write",
+        "chat:write.customize",
         "channels:history",
         "channels:read",
         "groups:history",

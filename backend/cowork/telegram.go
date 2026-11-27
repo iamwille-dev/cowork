@@ -88,6 +88,18 @@ func receiveTelegramMessage(w http.ResponseWriter, r *http.Request) {
 		jsonReply(w, 200, map[string]string{})
 		return
 	}
+	role := channelAgentRole(space, input.Agent)
+	agentName := role + " agent"
+	if input.Agent != "" {
+		agentName = namedChannelAgents[input.Agent].Name
+	}
+	for _, agent := range space.Agents {
+		if agent.Role == role {
+			agentName = agent.Name
+			thread.AgentID = agent.ID
+			break
+		}
+	}
 	if save(d) != nil {
 		fail(w, 500, "Could not save Telegram message.")
 		return
@@ -97,7 +109,7 @@ func receiveTelegramMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	turn := workerRequest{
-		Role: channelAgentRole(space, input.Agent), WorkspaceID: space.ID, ThreadID: thread.ID, TimeZone: "UTC",
+		Role: role, AgentName: agentName, WorkspaceID: space.ID, ThreadID: thread.ID, TimeZone: "UTC",
 		ChannelActor: &channelActor{
 			WorkspaceID: space.ID, Channel: "telegram", Agent: input.Agent, Installation: input.Version,
 			Conversation: input.ChatID, SenderID: input.SenderID, Author: input.Author,
@@ -126,11 +138,7 @@ func receiveTelegramMessage(w http.ResponseWriter, r *http.Request) {
 		fail(w, 404, "Conversation not found.")
 		return
 	}
-	author := turn.Role + " agent"
-	if input.Agent != "" {
-		author = namedChannelAgents[input.Agent].Name
-	}
-	*messages = append(*messages, Message{Author: author, Text: result.Reply, At: time.Now()})
+	*messages = append(*messages, Message{Author: turn.AgentName, Text: result.Reply, At: time.Now(), Agent: true})
 	if save(latest) != nil {
 		fail(w, 500, "Could not save Telegram reply.")
 		return

@@ -1,7 +1,6 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
-import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import type { agentConnection } from './agent-connection.ts';
+import type { agentConnection, ConnectionClient } from './agent-connection.ts';
 import { repositoryURL, type GitTokens } from './repositories.ts';
 
 const githubRepo = z.object({ full_name: z.string(), html_url: z.string() });
@@ -21,7 +20,7 @@ type Repo = { name: string; url: string };
 type Inventory = { source: string; provider: Provider; repositories: Map<string, Repo>; complete: boolean };
 type Connection = ReturnType<typeof agentConnection>;
 
-function mcpReader(client: Client) {
+function mcpReader(client: ConnectionClient) {
   const signal = AbortSignal.timeout(30_000);
   const call = async (name: string, args: Record<string, unknown>) => {
     const response = await client.callTool({ name, arguments: args }, undefined, { timeout: 8_000, signal });
@@ -56,7 +55,7 @@ async function mcpPages<T>(read: (page: number) => Promise<{ total: number; rows
   return false;
 }
 
-async function connectedGithub(client: Client, result: Inventory) {
+async function connectedGithub(client: ConnectionClient, result: Inventory) {
   const { call, signal } = mcpReader(client);
   const github = await githubConnections(call);
   if (!github.length) return false;

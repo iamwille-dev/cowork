@@ -20,23 +20,31 @@ import (
 	"unicode/utf8"
 )
 
-type Account struct{ ID, Name, Email, Salt, Password, Workspace string }
+type Account struct {
+	ID, Name, Email, Salt, Password, Workspace string
+	ClerkID                                    string `json:",omitempty"`
+}
 type Message struct {
 	Author, Text    string
 	At              time.Time
+	Agent           bool   `json:",omitempty"`
 	SenderID        string `json:",omitempty"`
 	TelegramMessage string `json:",omitempty"`
+	SlackMessage    string `json:",omitempty"`
 }
 type Artifact struct{ Name, URL string }
 type Thread struct {
 	ID, Title, Author string
 	CreatedAt         time.Time
 	Messages          []Message
-	TelegramTopic     string `json:",omitempty"`
+	AgentID           string       `json:",omitempty"`
+	TelegramTopic     string       `json:",omitempty"`
+	Slack             *slackThread `json:",omitempty"`
 }
 type Task struct {
 	ID, Title, Brief, Repository, Author, Status, Error string
 	ThreadID                                            string `json:",omitempty"`
+	AgentID                                             string `json:",omitempty"`
 	UI                                                  bool
 	Steps                                               []string
 	Artifacts                                           []Artifact
@@ -64,7 +72,9 @@ type Workspace struct {
 	Tasks                   []Task
 	Reminders               []Reminder
 	Channels                map[string]string
-	AgentConnectionEnabled  bool `json:",omitempty"`
+	AgentConnectionEnabled  bool             `json:",omitempty"`
+	Agents                  []workspaceAgent `json:",omitempty"`
+	OnboardingStep          string           `json:",omitempty"`
 }
 
 var roles = map[string]bool{"Developer": true, "Product Manager": true, "Sales Lead": true, "Social Media": true}
@@ -128,7 +138,7 @@ func view(w http.ResponseWriter, d *database, a Account) {
 	if !isOwner {
 		space.Invite = ""
 	}
-	jsonReply(w, 200, map[string]any{"name": a.Name, "admin": isOwner, "workspace": space, "members": members, "directory": directory, "viewerId": a.ID, "threadInvitations": invitations, "gitTokenStatus": gitTokenStatus(d.GitTokens[space.ID]), "telegramBot": d.TelegramBots[space.ID].Username, "telegramAgents": telegramAgentSettings(d, space.ID), "agentConnectionHasKey": isOwner && d.AgentConnectionKeys[space.ID] != ""})
+	jsonReply(w, 200, map[string]any{"name": a.Name, "admin": isOwner, "workspace": space, "members": members, "directory": directory, "viewerId": a.ID, "threadInvitations": invitations, "gitTokenStatus": gitTokenStatus(d.GitTokens[space.ID]), "telegramBot": d.TelegramBots[space.ID].Username, "telegramAgents": telegramAgentSettings(d, space.ID), "agentConnectionHasKey": isOwner && d.AgentConnectionKeys[space.ID] != "", "managedConnections": clerkEnabled() && os.Getenv("AGENT_CONNECTIONS_ENABLED") == "1"})
 }
 
 type credentials struct{ Name, Email, Password, Role, Invite string }
@@ -189,11 +199,13 @@ type workerRequest struct {
 	Guest                    bool              `json:",omitempty"`
 	AgentConnectionWorkspace string            `json:",omitempty"`
 	AgentConnectionKey       string            `json:",omitempty"`
+	AgentConnectionIDs       *[]string         `json:",omitempty"`
 	UseWorkspaceMemory       bool              `json:",omitempty"`
 	WorkspaceID              string            `json:",omitempty"`
 	ThreadID                 string            `json:",omitempty"`
 	Task                     Task
 	Role                     string
+	AgentName                string `json:",omitempty"`
 	TimeZone                 string
 	Messages                 []Message
 }
@@ -254,6 +266,27 @@ func API(w http.ResponseWriter, r *http.Request) {
 		jsonReply(w, 200, map[string]string{"status": "ok"})
 		return
 	}
+	var subject string
+	var profile clerkProfile
+	if clerkEnabled() && !strings.HasPrefix(route, "guest/") {
+		if route == "signup" || route == "login" || route == "logout" {
+			fail(w, http.StatusGone, "Use Clerk to sign in or out.")
+			return
+		}
+		subject, _ = clerkSession(w, r)
+		if route == "onboarding" {
+			if subject == "" {
+				fail(w, http.StatusUnauthorized, "Sign in to continue.")
+				return
+			}
+			var err error
+			profile, err = profileForClerk(r.Context(), subject)
+			if err != nil {
+				fail(w, http.StatusForbidden, "Could not load your Clerk account. Make sure your primary email is verified and try again.")
+				return
+			}
+		}
+	}
 	mutex.Lock()
 	defer mutex.Unlock()
 	d, err := load()
@@ -270,6 +303,20 @@ func API(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	account, ok := d.Accounts[d.Sessions[tokenFor(r)]]
+	if clerkEnabled() {
+		if route == "onboarding" {
+			onboardingAPI(w, r, d, profile)
+			return
+		}
+		account, ok = accountForClerk(d, subject)
+		if !ok && subject == "" {
+			account, ok = workerAccount(r, d, route)
+		}
+		if !ok && subject != "" && route == "workspace" {
+			fail(w, http.StatusPreconditionRequired, "Finish setting up your workspace.")
+			return
+		}
+	}
 	if !ok {
 		fail(w, 401, "Sign in to continue.")
 		return
@@ -310,11 +357,15 @@ func API(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if route == "task" || route == "chat" {
-		runAgent(w, r, d, account, space, route, space.Role)
+		runAgent(w, r, d, account, space, route, "")
 		return
 	}
 	if route == "agent-connection" {
 		updateAgentConnection(w, r, d, account, space)
+		return
+	}
+	if route == "agent-grants" {
+		updateAgentGrants(w, r, d, account, space)
 		return
 	}
 	if route == "telegram" {
@@ -326,8 +377,8 @@ func API(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		Text, ID, Channel, Destination, ThreadID, MemberID, Email string
-		Due                                                       time.Time
+		Text, ID, Channel, Destination, ThreadID, MemberID, Email, AgentID string
+		Due                                                                time.Time
 	}
 	if !decode(w, r, &input) {
 		return
@@ -381,7 +432,12 @@ func API(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400, "Enter a conversation title of up to 200 characters.")
 			return
 		}
-		space.Threads = append(space.Threads, Thread{ID: key(), Title: title, Author: account.Name, CreatedAt: time.Now()})
+		agent, ok := space.agent(input.AgentID)
+		if !ok {
+			fail(w, 400, "Choose an agent enabled in this workspace.")
+			return
+		}
+		space.Threads = append(space.Threads, Thread{ID: key(), Title: title, Author: account.Name, CreatedAt: time.Now(), AgentID: agent.ID})
 	case "reminder":
 		if strings.TrimSpace(input.Text) == "" || input.Due.IsZero() {
 			fail(w, 400, "Enter a reminder and a due time.")
@@ -454,10 +510,14 @@ func runAgent(w http.ResponseWriter, r *http.Request, d *database, a Account, sp
 		fail(w, 404, "Conversation not found.")
 		return
 	}
-	request := workerRequest{Role: role, WorkspaceID: space.ID, ThreadID: input.ThreadID}
+	agent := space.threadAgent(input.ThreadID)
+	if role == "" {
+		role = agent.Role
+	}
+	request := workerRequest{Role: role, AgentName: agent.Name, WorkspaceID: space.ID, ThreadID: input.ThreadID}
 	if route == "chat" {
-		if telegramThread(space, input.ThreadID) {
-			fail(w, 403, "Reply to this conversation in Telegram.")
+		if telegramThread(space, input.ThreadID) || slackLinked(space, input.ThreadID) {
+			fail(w, 403, "Reply to this conversation in its messaging channel.")
 			return
 		}
 		input.Text = strings.TrimSpace(input.Text)
@@ -480,7 +540,7 @@ func runAgent(w http.ResponseWriter, r *http.Request, d *database, a Account, sp
 			fail(w, 400, "Enter a title and a task brief within the displayed limits.")
 			return
 		}
-		request.Task = Task{ID: key(), Title: input.Title, Brief: input.Brief, Repository: strings.TrimSpace(input.Repository), Author: a.Name, Status: "Running", UI: input.UI, ThreadID: input.ThreadID}
+		request.Task = Task{ID: key(), Title: input.Title, Brief: input.Brief, Repository: strings.TrimSpace(input.Repository), Author: a.Name, Status: "Running", UI: input.UI, ThreadID: input.ThreadID, AgentID: agent.ID}
 		if role != "Developer" {
 			request.Task.Status = "Assigned"
 		}
@@ -496,7 +556,11 @@ func runAgent(w http.ResponseWriter, r *http.Request, d *database, a Account, sp
 		}
 	}
 
-	if route == "chat" && space.AgentConnectionEnabled && protectCredentialThread(d, space.ID, input.ThreadID) {
+	if agent.ID != "" {
+		ids := append([]string{}, agent.ConnectionIDs...)
+		request.AgentConnectionIDs = &ids
+	}
+	if route == "chat" && space.AgentConnectionEnabled && (agent.ID == "" || len(agent.ConnectionIDs) > 0) && protectCredentialThread(d, space.ID, input.ThreadID) {
 		request.AgentConnectionWorkspace = space.ID
 		if stored := d.AgentConnectionKeys[space.ID]; stored != "" {
 			aead, err := agentConnectionCipher(false)
@@ -510,7 +574,7 @@ func runAgent(w http.ResponseWriter, r *http.Request, d *database, a Account, sp
 		}
 	}
 
-	if route == "chat" && len(d.GitTokens[space.ID]) > 0 && protectCredentialThread(d, space.ID, input.ThreadID) {
+	if route == "chat" && agent.ID == "" && len(d.GitTokens[space.ID]) > 0 && protectCredentialThread(d, space.ID, input.ThreadID) {
 		tokens, err := unlockGitTokens(space.ID, d.GitTokens[space.ID])
 		if err != nil {
 			fail(w, 500, "Could not unlock the saved Git tokens.")
@@ -524,7 +588,11 @@ func runAgent(w http.ResponseWriter, r *http.Request, d *database, a Account, sp
 		return
 	}
 	mutex.Unlock()
-	result, err := worker(r.Context(), route, request, tokenFor(r))
+	session := tokenFor(r)
+	if clerkEnabled() && route == "chat" {
+		session = newWorkerSession(a.ID)
+	}
+	result, err := worker(r.Context(), route, request, session)
 	mutex.Lock()
 	latest, loadErr := load()
 	if loadErr != nil {
@@ -561,7 +629,7 @@ func runAgent(w http.ResponseWriter, r *http.Request, d *database, a Account, sp
 			fail(w, 404, "Conversation not found.")
 			return
 		}
-		*messages = append(*messages, Message{Author: space.Role + " agent", Text: result.Reply, At: time.Now()})
+		*messages = append(*messages, Message{Author: request.AgentName, Text: result.Reply, At: time.Now(), Agent: true})
 	}
 	if save(latest) != nil {
 		fail(w, 500, "Could not save result.")

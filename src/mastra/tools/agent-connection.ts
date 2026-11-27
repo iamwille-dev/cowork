@@ -4,24 +4,40 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { z } from 'zod';
 
-const endpoint = 'https://agent-connections.iamwille.xyz/mcp';
+const endpoint = process.env.AGENT_CONNECTIONS_MCP_URL?.trim() || 'https://agent-connections.iamwille.xyz/mcp';
 const connectionId = z.string().min(1).describe('Connection ID returned by list_connections.');
 
-export function agentConnection(workspaceId?: string, savedKey?: string) {
+export type ConnectionClient = Pick<Client, 'callTool'>;
+
+export function agentConnection(workspaceId?: string, savedKey?: string, allowedIDs?: string[]) {
   if (!workspaceId) return undefined;
+  const allowed = allowedIDs && new Set(allowedIDs);
+  if (allowed?.size === 0) return undefined;
   const key = savedKey || (workspaceId === process.env.AGENT_CONNECTION_WORKSPACE_ID
     ? process.env.AGENT_CONNECTION_KEY?.trim()
     : undefined);
   if (!key) return undefined;
 
-  async function connect<T>(use: (client: Client) => Promise<T>) {
+  async function connect<T>(use: (client: ConnectionClient) => Promise<T>) {
     const client = new Client({ name: 'cowork', version: '1.0.0' });
     const transport = new StreamableHTTPClientTransport(new URL(endpoint), {
       requestInit: { headers: { Authorization: `Bearer ${key}` }, redirect: 'error' },
     });
     try {
       await client.connect(transport, { timeout: 5_000 });
-      return await use(client);
+      if (!allowed) return await use(client);
+      return await use({ callTool: async (params, schema, options) => {
+        if (params.name !== 'list_connections') {
+          const id = params.arguments?.connection_id;
+          if (typeof id !== 'string' || !allowed.has(id)) throw new Error('Connection access is not enabled for this agent.');
+          return client.callTool(params, schema, options);
+        }
+        const result = await client.callTool(params, schema, options);
+        if (result.isError) return result;
+        const entries = (result.structuredContent as { connections?: unknown } | undefined)?.connections;
+        const connections = Array.isArray(entries) ? entries.filter((item) => typeof item?.id === 'string' && allowed.has(item.id)) : [];
+        return { ...result, structuredContent: { connections }, content: [] };
+      } });
     } finally {
       await transport.close().catch(() => {});
     }

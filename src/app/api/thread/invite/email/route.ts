@@ -12,8 +12,10 @@ function reply(data: object, status = 200) {
 
 export async function POST(request: NextRequest) {
   if (!request.headers.get('content-type')?.startsWith('application/json')) return reply({ error: 'Use a JSON request.' }, 415);
-  const session = request.cookies.get('cowork_session')?.value;
-  if (!session) return reply({ error: 'Sign in to send an invitation.' }, 401);
+  const clerkMode = process.env.COWORK_AUTH === 'clerk';
+  const legacySession = request.cookies.get('cowork_session')?.value;
+  const cookie = clerkMode ? request.headers.get('cookie') : legacySession && `cowork_session=${legacySession}`;
+  if (!cookie) return reply({ error: 'Sign in to send an invitation.' }, 401);
 
   const input: unknown = await request.json().catch(() => null);
   if (!input || typeof input !== 'object' || !('Email' in input) || !('ThreadID' in input)
@@ -28,7 +30,7 @@ export async function POST(request: NextRequest) {
     return reply({ error: 'Invitation email is unavailable. Check the server’s SES settings and Cowork URL.' }, 503);
   }
 
-  const headers = { 'Content-Type': 'application/json', Cookie: `cowork_session=${session}` };
+  const headers = { 'Content-Type': 'application/json', Cookie: cookie };
   let grant: { token: string; email: string; title: string; expires: string };
   try {
     const response = await fetch(encore, {

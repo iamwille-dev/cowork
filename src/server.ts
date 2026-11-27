@@ -52,7 +52,7 @@ async function worker(request: IncomingMessage, response: ServerResponse) {
     else if (url === '/scheduled-task') result = await runScheduledTask(payload);
     else if (payload.ChannelActor?.Channel === 'telegram') {
       result = { Reply: await respondFromChannel(payload.ChannelActor, payload.Messages) || '' };
-    } else result = await respond(payload, typeof session === 'string' && /^[a-f0-9]{48}$/.test(session) ? session : undefined);
+    } else result = await respond(payload, typeof session === 'string' && /^[a-f0-9]{48}(?:\.\d+\.[a-f0-9]{64})?$/.test(session) ? session : undefined);
     response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(result));
   } catch (error) {
     console.error('Cowork worker request failed:', error instanceof Error ? error.name : 'Unknown error');

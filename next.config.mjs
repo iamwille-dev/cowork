@@ -1,6 +1,9 @@
 export default {
   async rewrites() {
     return [
+      { source: '/integrations/agent-connections/:path*', destination: 'http://127.0.0.1:4000/integrations/agent-connections/:path*' },
+      { source: '/mcp', destination: 'http://127.0.0.1:4000/mcp' },
+      { source: '/.well-known/oauth-protected-resource/mcp', destination: 'http://127.0.0.1:4000/.well-known/oauth-protected-resource/mcp' },
       { source: '/api/web-chat', destination: 'http://127.0.0.1:4402/api/web-chat' },
       { source: '/api/slack/:agent(ada|sam)', destination: 'http://127.0.0.1:4402/api/slack/:agent' },
       { source: '/integrations/slack/:agent(ada|sam)/oauth/callback', destination: 'http://127.0.0.1:4402/integrations/slack/:agent/oauth/callback' },

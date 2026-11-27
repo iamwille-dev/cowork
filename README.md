@@ -39,6 +39,25 @@ Open http://localhost:4400. Workspace records live in PostgreSQL. Task artifacts
 
 For local agent and workflow development, run `npm run dev` from the project root and open Mastra Studio at http://localhost:4111. The TypeScript entry point is `src/mastra/index.ts`. Studio can inspect agents, tools, and workflows. Workspace writes require an authenticated Cowork chat session.
 
+## Clerk sign-in and workspace setup
+
+Set `COWORK_AUTH=clerk`, `COWORK_PUBLIC_URL`, `COWORK_CLERK_ISSUER`, `CLERK_PUBLISHABLE_KEY`, and `CLERK_SECRET_KEY` in the runtime environment shared by Next.js and Encore. For local development, use `COWORK_PUBLIC_URL=http://localhost:4400` and open that exact origin. Set up email verification on the Clerk instance. Use the same instance as the standalone Agent Connections deployment to preserve its user IDs and access grants.
+
+New users choose and name one or more agents, optionally connect tools, and choose where to work. Users with a Cowork invite code can join their teammate's workspace after signing in. Existing users link their Clerk sign-in to their Cowork account by confirming their previous password. Imported Clerk users whose server-managed `external_id` is their Cowork account ID can confirm the link after signing in. Both flows retain the existing workspace and account IDs. Guest invitation links continue to work independently. Leaving `COWORK_AUTH` unset retains the legacy sign-in path while preparing the migration.
+
+## Move Agent Connections into Cowork
+
+Set `AGENT_CONNECTIONS_ENABLED=1` on Encore. Use the original `LOCAL_ENCRYPTION_KEY`, Clerk `CLERK_ISSUER`, legacy `TESTER_SUBJECTS` if configured, and the original provider credentials. Set `AGENT_CONNECTIONS_DATABASE_URL` to the gateway PostgreSQL database or a restored copy. The Encore service reuses the standalone Coolify migration ledger. For a database initialized with another migration runner, restore the persisted connection, grant, credential, and activity tables into a database initialized by this service. Preserve row IDs, owner IDs, ciphertext, credential hashes, and the activity sequence. Let the standalone process finish in-flight operations before switching to the new service.
+
+Register these paths on the public Cowork origin and verify new authorizations before switching clients.
+
+- Google redirect URI: `/integrations/agent-connections/google/callback`
+- GitHub App callback URL: `/integrations/agent-connections/github/callback`
+- GitHub App setup URL: `/integrations/agent-connections/github/setup`
+- Clerk MCP resource and external client URL: `/mcp`
+
+Set `MCP_RESOURCE_URL` to the full public MCP URL. Set the worker's `AGENT_CONNECTIONS_MCP_URL` to the new service, for example `http://127.0.0.1:4000/mcp` in the shared container. Existing bearer keys can be used at the new URL. Clerk OAuth clients sign in again for the new resource audience. The Agent Connections service exposes the original encrypted accounts to the Cowork owner with the same verified Clerk identity. A Cowork agent can use the accounts granted to it under **Settings → Agent Connections**. Stored agent keys in Cowork continue to use `AGENT_CONNECTION_ENCRYPTION_KEY`.
+
 ## Upgrade an existing installation
 
 Stop the old backend and back up its `.cowork` directory. Keep that directory mounted at the same path, set `DATABASE_URL` to a fresh Cowork database, set `COWORK_REQUIRE_LEGACY_STATE=1`, and start the updated backend. The first database connection creates the tables and imports `backend/.cowork/state.json` in a single transaction. The backend verifies the imported records before committing and logs aggregate counts after the commit. PostgreSQL records the completed import, so restarts keep using the current database records. Verify that an existing account can sign in and open its conversations before archiving the original file. The import leaves `state.json` on disk, so protect it as a backup. It may contain plaintext Agent Connection credentials.
@@ -63,11 +82,11 @@ In Cowork, the workspace owner opens **Settings → Messaging channels → Slack
 ### Configure the shared Slack app
 
 1. Create the Cowork app once in [Slack app settings](https://api.slack.com/apps) using the [production app manifest](deploy/slack-app-manifest.json). Set its app ID, OAuth client ID and secret, and signing secret on the worker as `SLACK_APP_ID`, `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, and `SLACK_SIGNING_SECRET`. Set `COWORK_PUBLIC_URL` to the public HTTPS origin and `MASTRA_ENCRYPTION_KEY` to a stable random secret of at least 32 characters. Set `OPENROUTER_API_KEY` for replies.
-2. Register `<origin>/integrations/slack/oauth/callback` under **OAuth & Permissions**. Add these bot scopes: `app_mentions:read`, `chat:write`, `channels:history`, `channels:read`, `groups:history`, `groups:read`, `im:history`, `im:read`, `mpim:history`, `mpim:read`, and `users:read`. Keep bot token rotation disabled for this integration.
+2. Register `<origin>/integrations/slack/oauth/callback` under **OAuth & Permissions**. Add the bot scopes from the [Slack manifest](deploy/slack-app-manifest.json). Keep bot token rotation disabled for this integration.
 3. Under **Event Subscriptions**, verify `<origin>/integrations/slack/events` and subscribe to bot events `app_mention`, `message.channels`, `message.groups`, `message.im`, `message.mpim`, and `app_uninstalled`. Enable the Messages tab in **App Home** and allow users to send messages.
 4. Activate distribution in **Manage Distribution**. The integration supports workspace-level installations. See [Slack app distribution](https://docs.slack.dev/app-management/distribution/).
 
-Each Slack workspace is associated with one Cowork workspace. Slack messages use Mastra Channels and keep their own conversation history. The worker stores installation tokens encrypted in `backend/.cowork/slack-oauth.db`. Run one worker per deployment and retain the state volume and encryption key across restarts. If you used the earlier token-based prototype, remove its separately provisioned app from Slack and install the shared app through Cowork.
+Each Slack workspace is associated with one Cowork workspace. When the workspace owner chooses Slack during onboarding, the named agent's internal public Slack threads are mirrored into Cowork under a stable conversation ID. Participants reply in Slack. Direct messages and private Slack channels keep their history in Slack. The worker stores installation tokens encrypted in `backend/.cowork/slack-oauth.db`. Run one worker per deployment and retain the state volume and encryption key across restarts.
 
 ## Telegram group conversations
 
@@ -83,6 +102,8 @@ Mastra Channels uses the [Telegram adapter](https://mastra.ai/blog/introducing-c
 **Ada** handles Developer work and **Sam** handles Sales Lead work. Cowork workspace owners can connect both from **Settings → Messaging channels**. In Slack, invite each bot to the channel and select its real @mention, or DM the bot directly. In Telegram, tag each connected bot’s registered `@username` or reply to its message.
 
 For Slack, register a distinct distributed app for each agent. Generate each manifest with `node deploy/slack-agent-manifest.mjs ada` or `node deploy/slack-agent-manifest.mjs sam`. Pass your public HTTPS origin as a second argument for a different deployment. Import each manifest in Slack app settings, then set the app ID, OAuth client ID and secret, and signing secret using the matching `SLACK_ADA_` or `SLACK_SAM_` variables listed in `.env.example`. Deploy to make the agent-specific Events API URLs available, verify each URL, and enable distribution for both apps. Cowork keeps all Slack agents for a workspace linked to the same Slack team.
+
+Cowork uses the workspace's chosen agent name on replies when Slack grants `chat:write.customize`. Update the Slack app manifest, set the worker variable `COWORK_SLACK_CUSTOM_NAMES=1`, and reauthorize existing installations to grant this scope. The installed app listing and @mention use Slack's configured bot identity.
 
 For Telegram, create a distinct bot for each agent in BotFather. In Cowork, save each bot’s token and Telegram group ID in its agent’s section. Both bots can use the same Telegram group. Cowork displays each verified Telegram handle in Settings. Existing Cowork bot connections can still be managed there.
 

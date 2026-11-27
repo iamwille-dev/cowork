@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { channelAgents, channelAgentIds, type ChannelAgent } from './channel-agents';
 import { api } from './app/components/api';
+import { ManagedConnections, saveConnectionKey, type AgentGrants } from './app/components/managed-connections';
+import type { WorkspaceAgent } from './app/components/onboarding';
 
 const sections = [
   { id: 'appearance', title: 'Appearance' },
@@ -26,6 +28,7 @@ type SettingsProps = {
   changeTheme: (theme: Theme) => void;
   saveChannel: (provider: 'WhatsApp', destination: string, button: HTMLButtonElement) => void;
   agentConnection: { enabled: boolean; hasKey: boolean };
+  managedConnections?: { agents: WorkspaceAgent[]; grants: AgentGrants; busy: boolean; saveGrants: (value: AgentGrants) => void };
   saveAgentConnection: (settings: { Enabled: boolean; Key?: string; RemoveKey?: boolean }) => Promise<boolean>;
   gitTokenStatus: Partial<Record<GitProvider, boolean>>;
   saveGitToken: (settings: { Provider: GitProvider; Token?: string; Remove?: boolean }) => Promise<boolean>;
@@ -130,7 +133,9 @@ type SlackConnection = {
   teamId?: string;
 };
 
-function SlackConnectionForm({ owner, agent }: { owner: boolean; agent?: ChannelAgent }) {
+export function SlackConnectionForm({ owner, agent, workspaceName, onConnected }: {
+  owner: boolean; agent?: ChannelAgent; workspaceName?: string; onConnected?: (value: boolean) => void;
+}) {
   const name = agent ? channelAgents[agent].name : 'Cowork';
   const endpoint = agent ? 'slack/' + agent : 'slack';
   const [connection, setConnection] = useState<SlackConnection>();
@@ -182,13 +187,15 @@ function SlackConnectionForm({ owner, agent }: { owner: boolean; agent?: Channel
   }
 
   const connected = connection?.status === 'active';
+  useEffect(() => { onConnected?.(connected); }, [onConnected, connected]);
   if (!agent && !connected && !feedback && !error) return null;
   const slackLink = connection?.appId && connection.teamId
     ? 'https://slack.com/app_redirect?' + new URLSearchParams({ app: connection.appId, team: connection.teamId })
     : undefined;
   return (
     <div className="stack">
-      <h4 className="font-semibold">{agent ? `${name} · ${channelAgents[agent].role}` : 'Cowork'}</h4>
+      <h4 className="font-semibold">{agent ? `${workspaceName ?? name} · ${channelAgents[agent].role}` : 'Cowork'}</h4>
+      {workspaceName && workspaceName !== name && <p>The Slack app is listed as {name}.</p>}
       <p>{connected
         ? `Connected to ${connection.team}. DM ${name}, or invite the app to a channel and mention @${name}.`
         : connection && !connection.available
@@ -215,8 +222,9 @@ function SlackConnectionForm({ owner, agent }: { owner: boolean; agent?: Channel
   );
 }
 
-function TelegramForm({ owner, agent, destination, telegramBot, saveTelegram }: Pick<SettingsProps, 'owner' | 'telegramBot' | 'saveTelegram'> & {
+export function TelegramForm({ owner, agent, name, destination, telegramBot, saveTelegram }: Pick<SettingsProps, 'owner' | 'telegramBot' | 'saveTelegram'> & {
   agent?: ChannelAgent;
+  name?: string;
   destination?: string;
 }) {
   const [busy, setBusy] = useState(false);
@@ -230,7 +238,7 @@ function TelegramForm({ owner, agent, destination, telegramBot, saveTelegram }: 
     }
   }
   return <div className="grid gap-y-3">
-    <h4 className="font-semibold">{agent ? `${channelAgents[agent].name} · ${channelAgents[agent].role}` : 'Cowork'}</h4>
+    <h4 className="font-semibold">{agent ? `${name ?? channelAgents[agent].name} · ${channelAgents[agent].role}` : 'Cowork'}</h4>
     <p>{telegramBot ? `Saved bot @${telegramBot}` : 'Add the workspace bot to your Telegram group and disable group privacy in BotFather.'}</p>
     {owner && <form className="settings-channel-form grid gap-y-3" onSubmit={(event) => {
       event.preventDefault();
@@ -334,7 +342,8 @@ function GitTokenForm({ provider, configured, owner, saveGitToken }: {
 export function Settings(props: SettingsProps) {
   const [active, setActive] = useState<(typeof sections)[number]['id']>('appearance');
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get('section') === 'channels') setActive('channels');
+    const section = sections.find(({ id }) => id === new URLSearchParams(window.location.search).get('section'));
+    if (section) setActive(section.id);
   }, []);
   return (
     <div className="settings-page">
@@ -369,8 +378,14 @@ export function Settings(props: SettingsProps) {
         </>
       )}
       {active === 'agent-connection' && (
-        <SettingsSection title="Agent Connection" description="Let your Cowork agent search and read a connected work Gmail mailbox. Use a conversation without guest access.">
-          <AgentConnectionForm owner={props.owner} agentConnection={props.agentConnection} saveAgentConnection={props.saveAgentConnection} />
+        <SettingsSection title="Agent Connections" description="Manage connected accounts and grant access to your agents. Use connected apps in conversations without guest access.">
+          <div className="stack">
+            {props.owner && props.managedConnections && <ManagedConnections enabled agents={props.managedConnections.agents}
+              grants={props.managedConnections.grants} onGrants={props.managedConnections.saveGrants}
+              savingGrants={props.managedConnections.busy} keySaved={props.agentConnection.hasKey}
+              saveKey={async (key) => { await saveConnectionKey(key); props.announce('Agent Connections key saved.'); }} />}
+            <AgentConnectionForm owner={props.owner} agentConnection={props.agentConnection} saveAgentConnection={props.saveAgentConnection} />
+          </div>
         </SettingsSection>
       )}
       {active === 'git-tokens' && (

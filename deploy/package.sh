@@ -15,7 +15,7 @@ mkdir -p "$release_dir/encore"
 docker cp "$container:$binary" "$release_dir/encore/backend"
 docker cp "$container:/encore/infra.config.json" "$release_dir/encore/infra.config.json"
 tar -cf - Dockerfile .dockerignore package.json package-lock.json tsconfig.json next.config.mjs \
-  postcss.config.mjs src deploy backend/encore.app backend/go.mod backend/go.sum backend/cowork | tar -xf - -C "$release_dir"
+  postcss.config.mjs src deploy backend/encore.app backend/go.mod backend/go.sum backend/cowork backend/connections | tar -xf - -C "$release_dir"
 
 (
   cd "$release_dir"

@@ -3,7 +3,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:
 import { resolve } from 'node:path';
 import { createClient } from '@libsql/client';
 import type { ChannelHandler } from '@mastra/core/channels';
-import { respondFromChannel } from './channel-tools.ts';
+import { respondFromChannel, saveSlackMessage, type ChannelActor } from './channel-tools.ts';
 import { Agent } from '@mastra/core/agent';
 import { Mastra } from '@mastra/core/mastra';
 import { LibSQLStore } from '@mastra/libsql';
@@ -20,7 +20,11 @@ const settingsPath = '/settings?section=channels';
 const callbackSuffix = '/oauth/callback';
 const cookieName = 'cowork_slack_state';
 const oauthLifetime = 15 * 60;
-const scopes = 'app_mentions:read,chat:write,channels:history,channels:read,groups:history,groups:read,im:history,im:read,mpim:history,mpim:read,users:read';
+const scopes = [
+  'app_mentions:read', 'chat:write', 'channels:history', 'channels:read', 'groups:history', 'groups:read',
+  'im:history', 'im:read', 'mpim:history', 'mpim:read', 'users:read',
+  ...(process.env.COWORK_SLACK_CUSTOM_NAMES === '1' ? ['chat:write.customize'] : []),
+].join(',');
 
 type Role = keyof typeof roleInstructions;
 type OAuthResult = {
@@ -176,9 +180,33 @@ function createIntegration(settings: NonNullable<ReturnType<typeof configuration
       const user = identity?.user;
       if (!identity?.ok || !user || (user.team_id ?? user.team) !== team || user.is_stranger ||
           user.is_external || user.suspended || user.is_bot || user.is_restricted || user.is_ultra_restricted || user.deleted) {
-        await defaultHandler(thread, message);
+        if (!agentId || message.isMention || thread.isDM) await defaultHandler(thread, message);
         return;
       }
+      const actor: ChannelActor = {
+        WorkspaceID: workspace, Channel: 'slack', Agent: agentId, Installation: id, Conversation: thread.id,
+        SenderID: message.author.userId, Author: message.author.fullName || message.author.userName,
+      };
+      const { channel, threadTs } = adapter.decodeThreadId(thread.id);
+      const passive = Boolean(agentId && replyContext.getStore()?.source !== 'mention' && !thread.isDM);
+      let mirrored: Awaited<ReturnType<typeof saveSlackMessage>> | undefined;
+      if (agentId && channel.startsWith('C') && threadTs) {
+        const channelResponse = await fetch('https://slack.com/api/conversations.info?' + new URLSearchParams({ channel }), {
+          headers: { Authorization: 'Bearer ' + token }, signal: AbortSignal.timeout(4000),
+        }).catch(() => undefined);
+        const channelInfo = await channelResponse?.json().catch(() => undefined) as { ok?: boolean; channel?: {
+          name?: string; is_channel?: boolean; is_private?: boolean; is_ext_shared?: boolean; is_org_shared?: boolean; is_shared?: boolean;
+        } } | undefined;
+        const details = channelInfo?.channel;
+        if (channelInfo?.ok && details?.is_channel && details.is_private === false && !details.is_ext_shared && !details.is_org_shared && !details.is_shared && await installationActive()) {
+          mirrored = await saveSlackMessage(actor, {
+            ID: message.id, Title: details.name ? '#' + details.name : undefined,
+            Text: message.text.slice(0, 4000), At: message.metadata.dateSent.toISOString(),
+          });
+        }
+      }
+      if (mirrored?.Duplicate || passive) return;
+
       await thread.refresh().catch(() => undefined);
       const history = thread.recentMessages.filter((item) => item.id !== message.id && item.text.trim())
         .sort((a, b) => a.metadata.dateSent.getTime() - b.metadata.dateSent.getTime()).slice(-23);
@@ -187,13 +215,35 @@ function createIntegration(settings: NonNullable<ReturnType<typeof configuration
         Text: item.text.slice(0, 4000),
         SenderID: item.author.userId,
       }));
-      const reply = await respondFromChannel({
-        WorkspaceID: workspace, Channel: 'slack', Agent: agentId, Installation: id, Conversation: thread.id,
-        SenderID: message.author.userId, Author: message.author.fullName || message.author.userName,
-      }, messages, installationActive);
-      if (reply && await installationActive()) {
-        await thread.post(reply);
-        if (!agentId && !thread.isDM) await thread.subscribe();
+      let name = settings.name;
+      try {
+        const reply = await respondFromChannel(actor, mirrored?.Messages ?? messages, installationActive, async (status, displayName) => {
+          name = displayName;
+          await thread.startTyping(status).catch(() => undefined);
+        });
+        if (reply && await installationActive()) {
+          let replyId: string | undefined;
+          if (name !== settings.name) {
+            const response = await fetch('https://slack.com/api/chat.postMessage', {
+              method: 'POST', headers: { Authorization: 'Bearer ' + token },
+              body: new URLSearchParams({
+                channel, ...(threadTs && { thread_ts: threadTs }), text: reply, username: name,
+                unfurl_links: 'false', unfurl_media: 'false',
+              }),
+              signal: AbortSignal.timeout(10_000),
+            });
+            const posted = await response.json() as { ok?: boolean; ts?: string; error?: string };
+            if (posted.ok && posted.ts) replyId = posted.ts;
+            else if (posted.error !== 'missing_scope') throw new Error('Slack could not post the reply.');
+          }
+          replyId ??= (await thread.post(reply)).id;
+          if (mirrored?.Sync) {
+            await saveSlackMessage(actor, { ID: replyId, Text: reply.slice(0, 12000), At: new Date().toISOString(), Reply: true });
+          }
+          if (!thread.isDM && (!agentId || mirrored?.Sync)) await thread.subscribe();
+        }
+      } finally {
+        await thread.startTyping('').catch(() => undefined);
       }
     };
     const route = (source: 'mention' | 'dm' | 'thread'): ChannelHandler => async (thread, message, fallback, context) => {
@@ -221,7 +271,7 @@ function createIntegration(settings: NonNullable<ReturnType<typeof configuration
         tools: false,
         inlineLinks: [],
         inlineMedia: [],
-        handlers: { onDirectMessage: route('dm'), onMention: route('mention'), onSubscribedMessage: agentId ? false : route('thread'), onMessage: false, onSlashCommand: false, onAction: false },
+        handlers: { onDirectMessage: route('dm'), onMention: route('mention'), onSubscribedMessage: route('thread'), onMessage: false, onSlashCommand: false, onAction: false },
       },
     });
     const instance = agent.getChannels()!;
@@ -378,7 +428,7 @@ function createIntegration(settings: NonNullable<ReturnType<typeof configuration
     if (payload.api_app_id !== settings.appId || !payload.team_id) return ignore('app_or_team_mismatch');
     const uninstall = payload.event?.type === 'app_uninstalled';
     if (agentId && !mention && !uninstall &&
-        (payload.event?.type !== 'message' || payload.event.channel_type !== 'im')) {
+        (payload.event?.type !== 'message' || !['im', 'channel'].includes(payload.event.channel_type ?? ''))) {
       return c.json({ ok: true });
     }
 

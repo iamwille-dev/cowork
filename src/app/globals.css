@@ -604,3 +604,31 @@ main[data-view="chat-list"] #chat { max-width: 1200px; }
 @media (max-width: 480px) {
   .shell-search input[type="search"] { padding-right: 6px; }
 }
+
+.clerk-sign-in { display: grid; justify-items: center; gap: 16px; width: 100%; min-width: 0; }
+.clerk-sign-in .cl-rootBox { width: min(100%, 410px); }
+.clerk-sign-in .cl-cardBox { width: 100%; max-width: 100%; }
+.workspace-setup { display: grid; gap: 22px; max-width: 690px; margin-inline: auto; padding: clamp(20px, 5vw, 46px) clamp(16px, 4vw, 32px); }
+.workspace-setup > header { display: grid; gap: 8px; }
+.workspace-setup h1 { font-size: clamp(1.9rem, 4vw, 2.65rem); letter-spacing: -.035em; line-height: 1.12; }
+.workspace-setup h2 { font-size: 1.125rem; font-weight: 650; }
+.workspace-setup p, .workspace-setup small, .setup-agents span { color: var(--muted); }
+.workspace-setup .segmented { justify-self: start; }
+.setup-agent-choice { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.setup-agent-choice .onboarding-role { border: 0; border-radius: 9px; }
+.setup-agent-choice:has(input:checked) { border-color: var(--accent); }
+.workspace-setup .onboarding-roles input:is([type='checkbox'], [type='radio']) {
+  width: 16px; height: 16px; padding: 0; flex-shrink: 0; accent-color: var(--accent);
+}
+.setup-agent-name { padding: 6px 12px 12px; }
+.setup-agents, .setup-tool { border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.setup-agents > * { padding: 14px 16px; }
+.setup-agents > * + * { border-top: 1px solid var(--line); }
+.setup-tool { display: grid; gap: 8px; justify-items: start; padding: 16px; }
+.setup-tool .quiet { margin-top: 4px; }
+.setup-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.setup-tool h3 { font-size: 1.075rem; font-weight: 650; }
+.grant-options { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; }
+.grant-options legend { margin-bottom: 6px; color: var(--muted); }
+.grant-options label { display: inline-flex; align-items: center; gap: 6px; }
+.grant-options input { width: 16px; height: 16px; accent-color: var(--accent); }

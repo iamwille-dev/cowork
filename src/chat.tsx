@@ -8,13 +8,15 @@ import { SparklesIcon } from '@heroicons/react/24/outline';
 import { useRef, useState } from 'react';
 import { ConversationTaskReview, type Task } from './app/components/tasks';
 
-type WorkspaceMessage = { Author: string; Text: string; At: string; SenderID?: string };
+type WorkspaceMessage = { Author: string; Text: string; At: string; SenderID?: string; Agent?: boolean };
 type ConversationProps = {
   role: string;
+  agentName?: string;
   viewer: string;
   threadId: string;
   guest?: boolean;
   readOnly?: boolean;
+  channel?: 'Slack' | 'Telegram';
   messages: WorkspaceMessage[];
   tasks?: Task[];
   send: (transport: () => Promise<void>) => Promise<void>;
@@ -78,7 +80,7 @@ function ConversationStart({ role }: { role: string }) {
   );
 }
 
-export function Conversation({ role, viewer, threadId, guest, readOnly, messages, tasks = [], send }: ConversationProps) {
+export function Conversation({ role, agentName, viewer, threadId, guest, readOnly, channel, messages, tasks = [], send }: ConversationProps) {
   const [pending, setPending] = useState<{ message: WorkspaceMessage; before: number } | null>(null);
   const error = useRef<Error | undefined>(undefined);
   const chat = useChat({ api: '/api/web-chat', onError: (failure) => { error.current = failure; } });
@@ -86,7 +88,7 @@ export function Conversation({ role, viewer, threadId, guest, readOnly, messages
     messages: pending && messages.length === pending.before ? [...messages, pending.message] : messages,
     convertMessage: (message: WorkspaceMessage, index?: number): ThreadMessageLike => ({
       id: message.At + '-' + (index ?? message.Author),
-      role: !message.SenderID && message.Author === role + ' agent' ? 'assistant' : 'user',
+      role: message.Agent || (!message.SenderID && message.Author === role + ' agent') ? 'assistant' : 'user',
       content: message.Text,
       createdAt: new Date(message.At),
       metadata: { custom: { author: message.Author } },
@@ -128,7 +130,7 @@ export function Conversation({ role, viewer, threadId, guest, readOnly, messages
               <div className="chat-thinking" role="status">
                 <AgentMark />
                 <span className="chat-activity" aria-hidden="true"><i /><i /><i /></span>
-                <span className="sr-only">Waiting for the {role} agent</span>
+                <span className="sr-only">Waiting for {agentName ?? `the ${role} agent`}</span>
               </div>
             </ThreadPrimitive.If>
           </div>
@@ -136,7 +138,7 @@ export function Conversation({ role, viewer, threadId, guest, readOnly, messages
         </ThreadPrimitive.Viewport>
         <div className="chat-dock">
           <ThreadPrimitive.ScrollToBottom className="chat-latest" behavior="smooth">Latest messages</ThreadPrimitive.ScrollToBottom>
-          {readOnly ? <p className="px-4 py-2 text-sm">Reply in the Telegram group.</p> : <ComposerPrimitive.Root className="chat-composer">
+          {readOnly ? <p className="px-4 py-2 text-sm">Reply in {channel ?? 'the linked channel'}.</p> : <ComposerPrimitive.Root className="chat-composer">
             <ComposerPrimitive.Input aria-label="Message" placeholder="Message your agent…" rows={1} maxLength={4000} />
             <div className="chat-composer-actions">
               <ComposerPrimitive.Send className="chat-send" aria-label="Send message">Send</ComposerPrimitive.Send>

@@ -1,4 +1,6 @@
 import type { Metadata } from 'next';
+import { connection } from 'next/server';
+import { CoworkAuth } from './components/clerk-auth';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -12,11 +14,16 @@ const initializeTheme = `try {
   ? saved : (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
 } catch { document.documentElement.dataset.theme = 'light'; }`;
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  await connection();
+  const enabled = process.env.COWORK_AUTH === 'clerk';
+  const publishableKey = process.env.CLERK_SECRET_KEY
+    ? process.env.CLERK_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+    : undefined;
   return (
     <html lang="en" suppressHydrationWarning>
       <head><script dangerouslySetInnerHTML={{ __html: initializeTheme }} /></head>
-      <body>{children}</body>
+      <body><CoworkAuth enabled={enabled} publishableKey={publishableKey}>{children}</CoworkAuth></body>
     </html>
   );
 }

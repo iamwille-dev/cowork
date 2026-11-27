@@ -52,7 +52,7 @@ func scheduleTask(w http.ResponseWriter, r *http.Request, d *database, a Account
 	}
 	task := Task{
 		ID: key(), Title: title, Brief: brief, Author: a.Name, Status: "Scheduled",
-		ThreadID: input.ThreadID, ScheduledFor: &due, ScheduledTimeZone: location.String(),
+		ThreadID: input.ThreadID, AgentID: space.threadAgent(input.ThreadID).ID, ScheduledFor: &due, ScheduledTimeZone: location.String(),
 	}
 	if input.Recurrence != "" {
 		task.Recurrence, task.RecurrenceStart = input.Recurrence, &due
@@ -250,7 +250,13 @@ func claimScheduledTask(now time.Time) (string, workerRequest, error) {
 	if err := save(d); err != nil {
 		return "", workerRequest{}, err
 	}
-	return space.ID, workerRequest{Task: run, Role: space.Role, TimeZone: run.ScheduledTimeZone}, nil
+	role := space.Role
+	if run.AgentID != "" {
+		if agent, ok := space.agent(run.AgentID); ok {
+			role = agent.Role
+		}
+	}
+	return space.ID, workerRequest{Task: run, Role: role, TimeZone: run.ScheduledTimeZone}, nil
 }
 
 func runScheduledTask() error {

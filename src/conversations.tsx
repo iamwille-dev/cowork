@@ -3,7 +3,7 @@ import { WorkspaceOverview } from './app/components/overview';
 import { ChatBubbleLeftIcon, PaperClipIcon, MagnifyingGlassIcon, CheckCircleIcon, ChevronRightIcon } from '@heroicons/react/24/outline';
 
 export type Message = { Author: string; Text: string; At: string; SenderID?: string };
-export type Thread = { ID: string; Title: string; Author: string; CreatedAt?: string; TelegramTopic?: string; Messages?: Message[] };
+export type Thread = { ID: string; Title: string; Author: string; AgentID?: string; CreatedAt?: string; TelegramTopic?: string; Slack?: object; Messages?: Message[] };
 type Artifact = { Name: string; URL: string };
 type Task = { ID: string; Title: string; Status: string; ThreadID?: string; Artifacts?: Artifact[] };
 type ConversationData = { threads: Thread[]; tasks: Task[]; role: string; open: (id: string) => void };
