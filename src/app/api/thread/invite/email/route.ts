@@ -1,6 +1,7 @@
 import { SESv2ServiceException } from '@aws-sdk/client-sesv2';
 import type { NextRequest } from 'next/server';
 import { appLink, emailConfig, sendEmail } from '../../../../lib/email';
+import { invitationEmail } from '../../../../lib/invitation-email';
 
 export const runtime = 'nodejs';
 
@@ -46,10 +47,7 @@ export async function POST(request: NextRequest) {
 
   link.hash = new URLSearchParams({ invite: grant.token }).toString();
   try {
-    await sendEmail(config, grant.email, {
-      subject: 'Invitation to chat in Cowork',
-      text: `You’ve been invited to join “${grant.title}” in Cowork.\n\n${link.href}\n\nThis single-use link grants access to that conversation only and expires in seven days. If you weren’t expecting it, you can ignore this email.`,
-    });
+    await sendEmail(config, grant.email, invitationEmail(grant.title, link));
   } catch (error) {
     const status = error instanceof SESv2ServiceException ? error.$metadata.httpStatusCode ?? 0 : 0;
     if (status >= 400 && status < 500) {
