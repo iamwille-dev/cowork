@@ -174,6 +174,27 @@ Cowork stores workspace records in PostgreSQL and runs immediate Developer work 
 
 The [Developer sandbox pilot](deploy/sandbox/README.md) documents the KubeVirt-backed runner for one workspace.
 
+## Remote Docker sandbox for chat agents
+
+Set these environment variables on the Mastra worker to enable the Docker workspace tools for signed-in web conversations and linked Slack and Telegram conversations.
+
+```sh
+MASTRA_DOCKER_HOST=mastra-sandbox.airplane-achernar.ts.net
+MASTRA_DOCKER_CERT_DIR=/run/secrets/mastra-docker
+```
+
+Mount the client bundle (`ca.pem`, `cert.pem`, and `key.pem`) read-only at that path in the worker container. The worker runs as the `node` user in the production image and needs permission to read the files. Use the Docker hostname without a scheme or port. The worker connects over HTTPS on port 443 and verifies the daemon certificate using the supplied CA. The Docker and model credentials stay on the worker.
+
+The first sandbox tool call starts a `node:22-slim` container. Follow-up turns in the same conversation can reuse files under `/workspace`. Each container has 1 GiB of memory, one CPU of quota, and a 256-process limit. One worker manages up to four containers and removes them after 30 minutes of inactivity. Keep `COWORK_STATE_DIR` on the persistent worker volume so idle cleanup can resume after a restart. Sandbox files are temporary.
+
+Run the connection check from the worker host or container with the same mounted client bundle. It creates two containers, verifies Node.js execution and file isolation, and removes both containers. The check requires no model API key.
+
+```sh
+node --env-file-if-exists=.env deploy/sandbox/docker-smoke.ts
+```
+
+For an end-to-end check, ask a signed-in Cowork agent to write a file in `/workspace` and run it with Node.js. Ask it to read the file in a follow-up, then open a second conversation and verify that the file is absent there.
+
 ## Checks
 
 ```sh

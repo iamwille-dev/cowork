@@ -6,6 +6,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { dataRoot } from './mastra/workflows/developer.ts';
 import { respond, runScheduledTask, runTask } from './mastra/cowork.ts';
+import { startDockerSandboxCleanup } from './mastra/docker-workspace.ts';
 import { mastra } from './mastra/index.ts';
 import { startTelegram } from './mastra/telegram.ts';
 import { handleWebChat } from './chat-web.ts';
@@ -51,7 +52,7 @@ async function worker(request: IncomingMessage, response: ServerResponse) {
     if (url === '/task') result = await runTask({ ...payload.Task, WorkspaceID: payload.WorkspaceID });
     else if (url === '/scheduled-task') result = await runScheduledTask(payload);
     else if (payload.ChannelActor?.Channel === 'telegram') {
-      result = { Reply: await respondFromChannel(payload.ChannelActor, payload.Messages) || '' };
+      result = { Reply: await respondFromChannel(payload.ChannelActor, payload.Messages, { telegramThreadId: payload.ThreadID }) || '' };
     } else result = await respond(payload, typeof session === 'string' && /^[a-f0-9]{48}(?:\.\d+\.[a-f0-9]{64})?$/.test(session) ? session : undefined);
     response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(result));
   } catch (error) {
@@ -81,4 +82,5 @@ createServer(async (request, response) => {
   }
 }).listen(4402, '127.0.0.1');
 
+startDockerSandboxCleanup();
 startTelegram(mastra);
