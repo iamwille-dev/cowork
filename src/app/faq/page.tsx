@@ -55,7 +55,7 @@ function TypedAnswer({ answer }: { answer: string }) {
 
 export default function FaqPage() {
   return <div className={`landing ${styles.page}`}>
-    <LandingHeader isFaq />
+    <LandingHeader currentPage="faq" />
     <main className={`landing-wrap ${styles.main}`}>
       <div className={styles.intro}>
         <h1>Frequently asked<br className={styles.titleBreak} /> questions.</h1>
@@ -83,6 +83,6 @@ export default function FaqPage() {
         </div>
       </div>
     </main>
-    <LandingFooter isFaq />
+    <LandingFooter currentPage="faq" />
   </div>;
 }

@@ -3,12 +3,6 @@
   flex-direction: column;
 }
 
-.page [aria-current='page'] {
-  color: var(--public-ink);
-  text-decoration: underline;
-  text-underline-offset: 5px;
-}
-
 .main {
   flex: 1;
   padding-block: clamp(40px, 5vw, 72px) clamp(48px, 7vw, 96px);

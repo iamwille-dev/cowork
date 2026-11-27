@@ -73,7 +73,7 @@ export default function Home() {
           <p>Give your team an AI coworker that can share a conversation, take on a task, and remember what comes next.</p>
           <div className="landing-actions">
             <Link href="/conversations?signup=1" className="landing-cta">Get started <ArrowRightIcon aria-hidden="true" /></Link>
-            <a href="#workflow" className="landing-text-link">See how it works</a>
+            <Link href="/how-it-works" className="landing-text-link">See how it works</Link>
           </div>
         </div>
       </div>
