@@ -1,5 +1,7 @@
 'use client';
 
+import { Button } from './button';
+import { Input } from './input';
 import { useRef, useState } from 'react';
 import {
   ArrowRightIcon, ChevronLeftIcon, ChevronRightIcon, CodeBracketIcon,
@@ -67,7 +69,7 @@ export function ConnectionCatalog({ apps, busy, serviceError, retry }: {
         <h2>Available apps</h2>
         <div className={styles.search}>
           <MagnifyingGlassIcon aria-hidden="true" />
-          <input ref={search} type="search" aria-label="Search apps" placeholder="Search apps"
+          <Input ref={search} type="search" aria-label="Search apps" placeholder="Search apps"
             value={query} onChange={(event) => searchFor(event.currentTarget.value)} />
           {query && <button className={styles.clearSearch} type="button" aria-label="Clear app search"
             onClick={() => { searchFor(''); search.current?.focus(); }}><XMarkIcon aria-hidden="true" /></button>}
@@ -75,7 +77,7 @@ export function ConnectionCatalog({ apps, busy, serviceError, retry }: {
       </header>
       {serviceError && <div className={styles.notice} role="alert">
         <p>{serviceError}</p>
-        {retry && <button className="quiet" type="button" onClick={retry}>Retry</button>}
+        {retry && <Button variant="quiet" type="button" onClick={retry}>Retry</Button>}
       </div>}
       {matches.length ? (
         <ul role="list">
@@ -90,9 +92,9 @@ export function ConnectionCatalog({ apps, busy, serviceError, retry }: {
               <div className={styles.appAction}>
                 {connected > 0 && <span className={styles.appStatus} data-state="connected">{connected} connected</span>}
                 {availability === 'ready' && connect ? (
-                  <button className="quiet" type="button" aria-label={connected ? `Add account for ${name}` : `Connect ${name}`} disabled={busy} onClick={connect}>
+                  <Button variant="quiet" type="button" aria-label={connected ? `Add account for ${name}` : `Connect ${name}`} disabled={busy} onClick={connect}>
                     {connected ? 'Add account' : 'Connect'} <ArrowRightIcon aria-hidden="true" />
-                  </button>
+                  </Button>
                 ) : <span className={styles.appStatus} data-state={availability}>{availabilityLabel[availability]}</span>}
                 {availability === 'ready' && alternate && <button className={styles.alternate} type="button" disabled={busy} onClick={alternate.run}>
                   {alternate.label}
@@ -108,12 +110,12 @@ export function ConnectionCatalog({ apps, busy, serviceError, retry }: {
           ? `${last === first + 1 ? last : `${first + 1}–${last}`} of ${matches.length} apps`
           : `${matches.length} ${matches.length === 1 ? 'app' : 'apps'}`}</p>
         {pages > 1 && <nav className={styles.pagination} aria-label="App pages">
-          <button className="quiet" type="button" disabled={current === 1} onClick={() => setPage(current - 1)}>
+          <Button variant="quiet" type="button" disabled={current === 1} onClick={() => setPage(current - 1)}>
             <ChevronLeftIcon aria-hidden="true" /> Previous
-          </button>
-          <button className="quiet" type="button" disabled={current === pages} onClick={() => setPage(current + 1)}>
+          </Button>
+          <Button variant="quiet" type="button" disabled={current === pages} onClick={() => setPage(current + 1)}>
             Next <ChevronRightIcon aria-hidden="true" />
-          </button>
+          </Button>
         </nav>}
       </footer>
       {needsSetup && <p className={styles.setupNote}>Apps marked “Needs setup” require credentials on this Cowork deployment.</p>}

@@ -1,5 +1,7 @@
 'use client';
 
+import { Button } from './button';
+import { Input } from './input';
 import { useRef, type Dispatch, type SetStateAction } from 'react';
 import Image from 'next/image';
 import {
@@ -101,7 +103,7 @@ export function AgentPicker({ choices, setChoices, busy, join, continueSetup }: 
                     </button>
                   </div>
                   <label className={styles.name}>{role} name
-                    <input autoComplete="off" disabled={busy} maxLength={48} placeholder={role} value={choices[id]?.name ?? ''}
+                    <Input autoComplete="off" disabled={busy} maxLength={48} placeholder={role} value={choices[id]?.name ?? ''}
                       onChange={(event) => {
                         const name = event.currentTarget.value;
                         setChoices((current) => ({ ...current, [id]: { added: true, name } }));
@@ -117,9 +119,9 @@ export function AgentPicker({ choices, setChoices, busy, join, continueSetup }: 
             </div>
           )}
           <div className={styles.actions}>
-            <button className="primary" type="submit" disabled={busy || team.length === 0}>
+            <Button type="submit" disabled={busy || team.length === 0}>
               {busy ? 'Saving…' : 'Continue to tools'} <ArrowRightIcon className="size-4" aria-hidden="true" />
-            </button>
+            </Button>
             <button className={styles.join} type="button" disabled={busy} onClick={join}>I have an invite code</button>
           </div>
         </section>

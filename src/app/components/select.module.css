@@ -7,17 +7,7 @@
 
 .control select {
   appearance: none;
-  width: 100%;
-  min-width: 0;
-  min-height: 40px;
-  padding-block: 8px;
   padding-inline: 14px 34px;
-  border: 1px solid var(--line-strong);
-  border-radius: 8px;
-  background: var(--surface);
-  color: var(--ink);
-  font-size: .875rem;
-  line-height: 1.25;
   text-overflow: ellipsis;
 }
 
@@ -25,13 +15,6 @@
 
 .control select:not(:disabled) { cursor: pointer; }
 .control select:not(:disabled):hover { background: var(--soft); }
-.control select:disabled { color: var(--muted); background: var(--soft); }
-
-.control select:focus-visible {
-  border-color: transparent;
-  outline: 2px solid var(--focus);
-  outline-offset: -2px;
-}
 
 .chevron {
   position: absolute;

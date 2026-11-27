@@ -1,5 +1,7 @@
 'use client';
 
+import { Button } from './button';
+import { Input, Textarea } from './input';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { api } from './api';
 import { Select } from './select';
@@ -181,14 +183,14 @@ export function ManagedConnections({ enabled, agents, grants, onGrants, savingGr
           await refresh();
         });
       }}>
-        <label>Host<input name="host" required autoFocus /></label>
-        <label>Port<input name="port" type="number" min="1" max="65535" defaultValue="22" required /></label>
-        <label>SSH user<input name="user" required /></label>
-        <label>Host key fingerprint<input name="fingerprint" required placeholder="SHA256:…" /></label>
-        <label>Private key<textarea name="private_key" autoComplete="off" required rows={4} /></label>
+        <label>Host<Input name="host" required autoFocus /></label>
+        <label>Port<Input name="port" type="number" min="1" max="65535" defaultValue="22" required /></label>
+        <label>SSH user<Input name="user" required /></label>
+        <label>Host key fingerprint<Input name="fingerprint" required placeholder="SHA256:…" /></label>
+        <label>Private key<Textarea name="private_key" autoComplete="off" required rows={4} /></label>
         <div className="setup-controls">
-          <button className="quiet" disabled={busy}>Save SSH connection</button>
-          <button className="quiet" type="button" disabled={busy} onClick={() => setSshOpen(false)}>Cancel</button>
+          <Button variant="quiet" type="submit" disabled={busy}>Save SSH connection</Button>
+          <Button variant="quiet" type="button" disabled={busy} onClick={() => setSshOpen(false)}>Cancel</Button>
         </div>
       </form>
     </section>}
@@ -226,10 +228,10 @@ export function ManagedConnections({ enabled, agents, grants, onGrants, savingGr
             {[...(connection.agents ?? []), ...(connection.clients ?? []).map((id) => ({ id, name: id }))].map((client) => (
               <li key={client.id} className="setup-controls">
                 <span className="break-all">{client.name}</span>
-                <button type="button" className="quiet" disabled={busy} onClick={() => void action(async () => {
+                <Button type="button" variant="quiet" disabled={busy} onClick={() => void action(async () => {
                   await gateway('/connections/' + encodeURIComponent(connection.id) + '/grants/' + encodeURIComponent(client.id), 'DELETE');
                   await refresh();
-                })}>Revoke</button>
+                })}>Revoke</Button>
               </li>))}
           </ul>
           <form className="stack pb-3" onSubmit={(event) => {
@@ -241,8 +243,8 @@ export function ManagedConnections({ enabled, agents, grants, onGrants, savingGr
               await refresh();
             });
           }}>
-            <label>OAuth client ID<input name="client" maxLength={500} required /></label>
-            <div><button className="quiet" disabled={busy}>Grant access</button></div>
+            <label>OAuth client ID<Input name="client" maxLength={500} required /></label>
+            <div><Button variant="quiet" type="submit" disabled={busy}>Grant access</Button></div>
           </form>
           <form className="stack pb-3" onSubmit={(event) => {
             const { name } = formData(event);
@@ -255,64 +257,64 @@ export function ManagedConnections({ enabled, agents, grants, onGrants, savingGr
               await refresh();
             });
           }}>
-            <label>Agent key name<input name="name" maxLength={100} required /></label>
-            <div><button className="quiet" disabled={busy}>Create key for this connection</button></div>
+            <label>Agent key name<Input name="name" maxLength={100} required /></label>
+            <div><Button variant="quiet" type="submit" disabled={busy}>Create key for this connection</Button></div>
           </form>
           <div className="setup-controls">
-            <button type="button" className="quiet" disabled={busy} onClick={() => {
+            <Button type="button" variant="quiet" disabled={busy} onClick={() => {
               if (!window.confirm('Disconnect this account and revoke its grants?')) return;
               void action(async () => {
                 const response = await gateway<{ warning?: string } | undefined>('/connections/' + encodeURIComponent(connection.id), 'DELETE');
                 if (response?.warning) setStatus(response.warning);
                 await refresh();
               });
-            }}>Disconnect {labelProvider(connection.kind)}</button>
+            }}>Disconnect {labelProvider(connection.kind)}</Button>
           </div>
         </details>}
       </div>)}
     </section>}
 
     {namedKey && <div className="stack">
-      <label>New connection key<input value={namedKey} readOnly /></label>
+      <label>New connection key<Input value={namedKey} readOnly /></label>
       <div className="setup-controls">
-        <button className="quiet" type="button" onClick={() => void action(async () => {
+        <Button variant="quiet" type="button" onClick={() => void action(async () => {
           await navigator.clipboard.writeText(namedKey);
           setStatus('Connection key copied.');
-        })}>Copy connection key</button>
-        <button className="quiet" type="button" onClick={() => setNamedKey('')}>Hide key</button>
+        })}>Copy connection key</Button>
+        <Button variant="quiet" type="button" onClick={() => setNamedKey('')}>Hide key</Button>
       </div>
     </div>}
     {Boolean(connections?.length) && !keySaved && workspaceKey === null && <div>
-      <button className="quiet" type="button" disabled={busy} onClick={() => void action(() => createWorkspaceKey(true))}>Generate and save a workspace key</button>
+      <Button variant="quiet" type="button" disabled={busy} onClick={() => void action(() => createWorkspaceKey(true))}>Generate and save a workspace key</Button>
     </div>}
     {createdKey && <div className="stack">
-      <label>New workspace key<input value={createdKey} readOnly /></label>
+      <label>New workspace key<Input value={createdKey} readOnly /></label>
       <div className="setup-controls">
-        <button className="quiet" type="button" onClick={() => void action(async () => {
+        <Button variant="quiet" type="button" onClick={() => void action(async () => {
           await navigator.clipboard.writeText(createdKey);
           setStatus('Workspace key copied.');
-        })}>Copy key</button>
-        {!keySaved && <button className="quiet" type="button" disabled={busy} onClick={() => void action(async () => {
+        })}>Copy key</Button>
+        {!keySaved && <Button variant="quiet" type="button" disabled={busy} onClick={() => void action(async () => {
           await saveKey(createdKey);
           setStatus('Workspace key saved in Cowork.');
-        })}>Save key in Cowork</button>}
-        <button className="quiet" type="button" onClick={() => setCreatedKey('')}>Hide key</button>
+        })}>Save key in Cowork</Button>}
+        <Button variant="quiet" type="button" onClick={() => setCreatedKey('')}>Hide key</Button>
       </div>
     </div>}
     {workspaceKey && !keySaved && !createdKey && <p>Paste your existing Agent Connections key to let Cowork use it.</p>}
     {!onboarding && workspaceKey && <div className="setup-controls">
-      <button className="quiet" type="button" disabled={busy} onClick={() => {
+      <Button variant="quiet" type="button" disabled={busy} onClick={() => {
         if (!window.confirm('Revoke this workspace key? Clients using it will lose access.')) return;
         void action(async () => {
           await gateway('/workspace/key?id=' + encodeURIComponent(workspaceKey.id), 'DELETE');
           setCreatedKey('');
           await refresh();
         });
-      }}>Revoke workspace key</button>
-      <button className="quiet" type="button" onClick={() => void action(async () => {
+      }}>Revoke workspace key</Button>
+      <Button variant="quiet" type="button" onClick={() => void action(async () => {
         await navigator.clipboard.writeText(new URL('/mcp', window.location.origin).href);
         setStatus('MCP URL copied.');
-      })}>Copy MCP URL</button>
+      })}>Copy MCP URL</Button>
     </div>}
 
     {!onboarding && <details className="setup-tool" onToggle={(event) => {
@@ -345,7 +347,7 @@ export function ManagedConnections({ enabled, agents, grants, onGrants, savingGr
           <span className={'status ml-2 ' + (event.succeeded ? 'review' : 'attention')}>{event.succeeded ? 'Succeeded' : 'Failed'}</span>
           <p>{[event.agentName, event.connectionLabel, new Date(event.occurredAt).toLocaleString()].filter(Boolean).join(' · ')}</p>
         </li>))}</ul> : activity && <p>No activity recorded.</p>}
-      {next && <button className="quiet" type="button" disabled={busy} onClick={() => void action(() => loadActivity(filter, clientFilter, next))}>Load more</button>}
+      {next && <Button variant="quiet" type="button" disabled={busy} onClick={() => void action(() => loadActivity(filter, clientFilter, next))}>Load more</Button>}
     </details>}
     {status && <p role="status">{status}</p>}
     {error && <p role="alert">{error}</p>}

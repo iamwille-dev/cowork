@@ -167,7 +167,7 @@ Capsules distinguish workspace action buttons, active navigation, search, and st
 
 ### Buttons
 
-Workspace buttons have a minimum height of 38px with a single-line label. The primary variant uses the filled action color and its hover shade. Quiet actions use a panel-colored fill and a fine rule, with a soft neutral hover fill. Public calls to action use a 42px minimum height. Keyboard focus uses a blue outline with a 3px offset on standard controls.
+Use the shared `Button` for primary and quiet actions and for circular icon controls. Labeled workspace buttons have a minimum height of 40px. The primary variant uses the filled action color and its hover shade. Quiet actions use a panel-colored fill and a fine rule, with a soft neutral hover fill. Public calls to action use a 42px minimum height. Keyboard focus uses a blue outline with a 3px offset on standard controls.
 
 ### Status chips
 
@@ -179,7 +179,7 @@ Use the raised surface on a warm canvas. A single rule divides rows in inbox, ta
 
 ### Fields
 
-Use surface-colored inputs with a stronger rule and neutral placeholder text. Search uses a capsule with a leading outline icon. Keep an accessible label on search and icon controls.
+Use the shared `Input` and `Textarea` for single-line and multiline fields. They share a surface, border, and inset focus outline with dropdowns. Search inputs use a capsule with space for a leading icon. Keep an accessible label on search and icon controls.
 
 Use the shared `Select` for single-choice dropdowns. Its default field has 8px corners. Use the `filter` variant for toolbar capsules. Both variants use an inset focus outline and support native options and option groups.
 

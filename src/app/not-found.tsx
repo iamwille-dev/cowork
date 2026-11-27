@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { buttonClassName } from './components/button';
 import { ArrowLeftIcon, DocumentMagnifyingGlassIcon } from '@heroicons/react/24/outline';
 
 export default function NotFound() {
@@ -7,7 +8,7 @@ export default function NotFound() {
       <span className="chat-agent-mark"><DocumentMagnifyingGlassIcon aria-hidden="true" /></span>
       <h1 className="text-2xl">Page not found</h1>
       <p>Check the address or return to Cowork.</p>
-      <Link href="/" className="primary mt-2"><ArrowLeftIcon className="size-4" aria-hidden="true" /> Back to home</Link>
+      <Link href="/" className={buttonClassName('primary', 'mt-2')}><ArrowLeftIcon className="size-4" aria-hidden="true" /> Back to home</Link>
     </section>
   </main>;
 }

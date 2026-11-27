@@ -1,3 +1,5 @@
+import { Button } from './app/components/button';
+import { Input } from './app/components/input';
 import { useState } from 'react';
 import {
   Dialog, DialogBackdrop, DialogPanel, DialogTitle, Menu, MenuButton, MenuItem, MenuItems, TransitionChild,
@@ -108,9 +110,9 @@ export function WorkspaceShell(props: ShellProps) {
       <div className={`shell-content min-w-0 ${account ? "shell-member" : ""}`}>
         <div className="shell-topbar sticky top-0 z-40 flex h-16 shrink-0 items-center px-1 gap-4 px-4 sm:px-6 lg:px-8">
           {account && (
-            <button type="button" onClick={() => setSidebarOpen(true)} className="shell-icon-button shell-mobile-toggle" aria-label="Open sidebar">
+            <Button type="button" onClick={() => setSidebarOpen(true)} variant="icon" className="shell-mobile-toggle" aria-label="Open sidebar">
               <Bars3Icon aria-hidden="true" className="size-6" />
-            </button>
+            </Button>
           )}
           {!account && <div className="mr-auto"><Brand /></div>}
           {account && (
@@ -120,7 +122,7 @@ export function WorkspaceShell(props: ShellProps) {
               if (first) { first.open(); setQuery(''); }
             }}>
               <MagnifyingGlassIcon aria-hidden="true" className="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 size-5" />
-              <input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => {
+              <Input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => {
                 if (event.key === 'Escape') setQuery('');
               }} type="search" placeholder="Search" aria-label="Search conversations and tasks" />
               {query.trim() && (
@@ -133,15 +135,15 @@ export function WorkspaceShell(props: ShellProps) {
             </form>
           )}
           <div className="ml-auto flex items-center gap-2 lg:ml-0">
-            <button type="button" onClick={toggleTheme} className="shell-icon-button" aria-label={theme === 'dark' ? 'Light mode' : 'Dark mode'}>
+            <Button type="button" onClick={toggleTheme} variant="icon" aria-label={theme === 'dark' ? 'Light mode' : 'Dark mode'}>
               <ThemeIcon aria-hidden="true" className="size-5" />
-            </button>
+            </Button>
             {account && (
               <>
-                <button type="button" className="shell-icon-button relative" aria-label={`Conversation invitations (${props.invitationCount})`} onClick={() => navigate('chat')}>
+                <Button type="button" variant="icon" className="relative" aria-label={`Conversation invitations (${props.invitationCount})`} onClick={() => navigate('chat')}>
                   <BellIcon aria-hidden="true" className="size-6" />
                   {props.invitationCount > 0 && <span className="shell-notification-dot" aria-hidden="true" />}
-                </button>
+                </Button>
                 <div className="shell-divider mx-1 hidden h-6 w-px sm:block" aria-hidden="true" />
                 <Menu as="div" className="relative">
                   <MenuButton className="flex items-center gap-3 rounded-md" aria-label="Open user menu">

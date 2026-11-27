@@ -1,3 +1,4 @@
+import { Button } from './app/components/button';
 import { WorkspaceOverview } from './app/components/overview';
 import { Menu, MenuButton, MenuItem, MenuItems } from '@headlessui/react';
 import { CalendarIcon, ChevronLeftIcon, ChevronRightIcon, EllipsisHorizontalIcon } from '@heroicons/react/20/solid';
@@ -115,8 +116,8 @@ export function ReminderCalendar({ selected, reminders, select, add, complete }:
             })}
           </div>
           <div className="mt-5 flex gap-2">
-            <button type="button" className="quiet" onClick={() => select(new Date())}>Today</button>
-            <button type="button" className="primary flex-1" onClick={add}>Add reminder</button>
+            <Button type="button" variant="quiet" onClick={() => select(new Date())}>Today</Button>
+            <Button type="button" className="flex-1" onClick={add}>Add reminder</Button>
           </div>
         </section>
         <section className="panel reminder-agenda" aria-label="Daily agenda">

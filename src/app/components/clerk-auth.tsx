@@ -1,6 +1,8 @@
 'use client';
 
 import { ClerkProvider, SignIn, SignUp } from '@clerk/nextjs';
+import { buttonClassName } from './button';
+import { fieldClassName } from './input';
 import { createContext, useContext, useState, type ReactNode } from 'react';
 
 const ClerkMode = createContext<'legacy' | 'clerk' | 'unavailable'>('legacy');
@@ -15,6 +17,7 @@ export function CoworkAuth({ publishableKey, enabled, children }: {
   if (!publishableKey) return <ClerkMode.Provider value="unavailable">{children}</ClerkMode.Provider>;
   return (
     <ClerkProvider publishableKey={publishableKey} appearance={{
+      elements: { formFieldInput: fieldClassName(), formButtonPrimary: buttonClassName('primary') },
       variables: {
         colorPrimary: 'var(--accent)', colorBackground: 'var(--surface)', colorForeground: 'var(--ink)',
         colorMutedForeground: 'var(--muted)', colorInput: 'var(--surface)',

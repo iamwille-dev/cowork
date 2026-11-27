@@ -1,5 +1,7 @@
 'use client';
 
+import { Button } from './button';
+import { Input } from './input';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import Image from 'next/image';
 import { ArrowLeftIcon, ArrowRightIcon } from '@heroicons/react/24/outline';
@@ -93,7 +95,7 @@ export function WorkspaceOnboarding<T extends Setup>({ setup, busy, save, config
   if (!setup && !entry) return <section className="workspace-setup">
     {lookupError ? <>
       <p role="alert">{lookupError}</p>
-      <button className="quiet" type="button" onClick={() => setAttempt((value) => value + 1)}>Try again</button>
+      <Button variant="quiet" type="button" onClick={() => setAttempt((value) => value + 1)}>Try again</Button>
     </> : <p role="status">Loading workspace setup…</p>}
   </section>;
 
@@ -102,8 +104,8 @@ export function WorkspaceOnboarding<T extends Setup>({ setup, busy, save, config
       <header><h1>Open your existing workspace</h1>
         <p>{entry.Imported ? 'Continue to link your Clerk sign-in to your Cowork account.' : 'Confirm your previous Cowork password to link your existing account.'}</p></header>
       <form className="stack" onSubmit={(event) => submit(event, (data) => { void save({ Password: data.get('Password') }); })}>
-        {!entry.Imported && <label>Previous Cowork password<input autoComplete="off" name="Password" type="password" maxLength={128} required /></label>}
-        <div><button className="primary" disabled={busy}>Open workspace</button></div>
+        {!entry.Imported && <label>Previous Cowork password<Input autoComplete="off" name="Password" type="password" maxLength={128} required /></label>}
+        <div><Button type="submit" disabled={busy}>Open workspace</Button></div>
       </form>
     </section>
   );
@@ -130,18 +132,18 @@ export function WorkspaceOnboarding<T extends Setup>({ setup, busy, save, config
             })}
           </ul>
           <footer className={catalogStyles.teamFooter}>
-            <button className="primary" type="button" disabled={busy || keyBusy || toolBusy}
+            <Button type="button" disabled={busy || keyBusy || toolBusy}
               onClick={() => void save({ Step: 'channels' })}>
               Continue to channels <ArrowRightIcon className="size-4" aria-hidden="true" />
-            </button>
+            </Button>
             {configured || keySaved ? <div><span className="status review" role="status">Agent Connections key saved</span></div>
               : keyOpen ? <form className="stack" onSubmit={(event) => submit(event, (data) => { void saveExistingKey(data); })}>
                 <label>Agent Connections key
-                  <input name="Key" type="password" autoComplete="off" required placeholder="Paste your existing key" />
+                  <Input name="Key" type="password" autoComplete="off" required placeholder="Paste your existing key" />
                 </label>
                 {keyError && <p role="alert">{keyError}</p>}
-                <div><button className="quiet" disabled={keyBusy}>Save key</button></div>
-              </form> : <button className="quiet" type="button" onClick={() => setKeyOpen(true)}>Use an existing key</button>}
+                <div><Button variant="quiet" type="submit" disabled={keyBusy}>Save key</Button></div>
+              </form> : <Button variant="quiet" type="button" onClick={() => setKeyOpen(true)}>Use an existing key</Button>}
           </footer>
         </aside>
       </div>
@@ -177,10 +179,10 @@ export function WorkspaceOnboarding<T extends Setup>({ setup, busy, save, config
             destination={telegram?.[slug]?.Destination} saveTelegram={saveTelegram} />)}
       </div>}
       <footer className="setup-controls">
-        <button className="primary" disabled={busy || !channelReady} onClick={() => void save({ Step: 'complete', Channel: channel })}>
+        <Button disabled={busy || !channelReady} onClick={() => void save({ Step: 'complete', Channel: channel })}>
           {channel === 'cowork' ? 'Open conversations' : 'Finish setup'}
-        </button>
-        {channel !== 'cowork' && <button className="quiet" disabled={busy} onClick={() => void save({ Step: 'complete', Channel: 'cowork' })}>Start in Cowork instead</button>}
+        </Button>
+        {channel !== 'cowork' && <Button variant="quiet" disabled={busy} onClick={() => void save({ Step: 'complete', Channel: 'cowork' })}>Start in Cowork instead</Button>}
       </footer>
     </section>
   );
@@ -189,10 +191,10 @@ export function WorkspaceOnboarding<T extends Setup>({ setup, busy, save, config
     <section className="workspace-setup">
       <header><h1>Join your workspace</h1><p>Enter the invite code your teammate shared.</p></header>
       <form className="stack" onSubmit={(event) => submit(event, (data) => { void save({ Invite: data.get('Invite') }); })}>
-        <label>Workspace invite code<input name="Invite" required autoComplete="off" /></label>
+        <label>Workspace invite code<Input name="Invite" required autoComplete="off" /></label>
         <footer className="setup-controls">
-          <button className="primary" disabled={busy}>Join workspace</button>
-          <button className="quiet" type="button" onClick={() => setJoin(false)}><ArrowLeftIcon className="size-4" aria-hidden="true" /> Back</button>
+          <Button type="submit" disabled={busy}>Join workspace</Button>
+          <Button variant="quiet" type="button" onClick={() => setJoin(false)}><ArrowLeftIcon className="size-4" aria-hidden="true" /> Back</Button>
         </footer>
       </form>
     </section>

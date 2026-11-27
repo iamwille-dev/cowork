@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Image from 'next/image';
 import Link from 'next/link';
+import { buttonClassName } from '../components/button';
 import {
   ArrowRightIcon, ChatBubbleLeftRightIcon, CodeBracketIcon, CommandLineIcon,
   EnvelopeIcon, LinkIcon, UserGroupIcon,
@@ -61,7 +62,7 @@ export default function HowItWorksPage() {
           <div className="landing-hero-intro">
             <p>Pick the AI coworkers your team needs, give them access to the right tools, and start a conversation.</p>
             <div className="landing-actions">
-              <Link href="/conversations?signup=1" className="landing-cta">Get started <ArrowRightIcon aria-hidden="true" /></Link>
+              <Link href="/conversations?signup=1" className={buttonClassName('primary', 'landing-cta')}>Get started <ArrowRightIcon aria-hidden="true" /></Link>
               <a href="#agents" className="landing-text-link">Compare agent roles</a>
             </div>
           </div>

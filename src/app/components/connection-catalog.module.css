@@ -88,10 +88,7 @@
   min-width: 10rem;
 }
 
-.search input {
-  border-radius: 999px;
-  padding-inline: 32px 36px;
-}
+.search input { padding-inline: 32px 36px; }
 
 .search input::-webkit-search-cancel-button { display: none; }
 .search > svg, .clearSearch {

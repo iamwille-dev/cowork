@@ -1,3 +1,5 @@
+import { Button, buttonClassName } from './app/components/button';
+import { Input } from './app/components/input';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { channelAgents, channelAgentIds, type ChannelAgent } from './channel-agents';
 import { api } from './app/components/api';
@@ -117,9 +119,9 @@ function InviteCode({ invite, announce }: Pick<SettingsProps, 'invite' | 'announ
     <div className="flex flex-wrap items-end gap-3">
       <label className="min-w-0 flex-1" htmlFor="invite-code">
         Workspace invite code
-        <input id="invite-code" ref={input} value={invite} readOnly />
+        <Input id="invite-code" ref={input} value={invite} readOnly />
       </label>
-      <button className="quiet" type="button" onClick={copyCode}>Copy code</button>
+      <Button variant="quiet" type="button" onClick={copyCode}>Copy code</Button>
     </div>
   );
 }
@@ -137,9 +139,9 @@ function ChannelForm({ provider, destination, owner, saveChannel }: {
     }}>
       <label className="min-w-0 flex-1">
         Destination
-        <input name="Destination" defaultValue={destination} readOnly={!owner} placeholder="Channel or conversation ID" />
+        <Input name="Destination" defaultValue={destination} readOnly={!owner} placeholder="Channel or conversation ID" />
       </label>
-      {owner && <button className="primary" type="submit" ref={submit}>Save</button>}
+      {owner && <Button type="submit" ref={submit}>Save</Button>}
     </form>
   );
 }
@@ -223,17 +225,17 @@ export function SlackConnectionForm({ owner, agent, workspaceName, onConnected }
       {feedback && <p role="status">{feedback}</p>}
       {error && <p role="alert">{error}</p>}
       <div className="flex flex-wrap items-center gap-3">
-        {slackLink && <a className="primary" href={slackLink}>Open Slack</a>}
+        {slackLink && <a className={buttonClassName('primary')} data-button-variant="primary" href={slackLink}>Open Slack</a>}
         {owner && connection?.available && !connected &&
-          <button className="primary" type="button" disabled={Boolean(busy)} onClick={() => void update('connect')}>
+          <Button type="button" disabled={Boolean(busy)} onClick={() => void update('connect')}>
             {busy === 'connect' ? 'Opening Slack…' : `Add ${name} to Slack`}
-          </button>}
+          </Button>}
         {owner && connected &&
-          <button className="quiet" type="button" disabled={Boolean(busy)} onClick={() => void update('disconnect')}>
+          <Button variant="quiet" type="button" disabled={Boolean(busy)} onClick={() => void update('disconnect')}>
             {busy === 'disconnect' ? 'Disconnecting…' : `Disconnect ${name} from Slack`}
-          </button>}
+          </Button>}
         {!connection && (error
-          ? <button className="quiet" type="button" onClick={() => { setError(''); setLoadAttempt((previous) => previous + 1); }}>Retry</button>
+          ? <Button variant="quiet" type="button" onClick={() => { setError(''); setLoadAttempt((previous) => previous + 1); }}>Retry</Button>
           : <span role="status">Checking Slack connection…</span>)}
       </div>
 
@@ -265,15 +267,15 @@ export function TelegramForm({ owner, agent, name, destination, telegramBot, sav
       void save({ Token: String(data.get('Token')), Destination: String(data.get('Destination')) });
     }}>
       <label>BotFather token
-        <input ref={token} name="Token" type="password" autoComplete="off" required={!telegramBot}
+        <Input ref={token} name="Token" type="password" autoComplete="off" required={!telegramBot}
           placeholder={telegramBot ? 'Enter a token to replace the saved bot' : 'Paste the bot token'} />
       </label>
       <label>Telegram group ID
-        <input name="Destination" defaultValue={destination ?? ''} required placeholder="Negative group ID" />
+        <Input name="Destination" defaultValue={destination ?? ''} required placeholder="Negative group ID" />
       </label>
       <div className="flex flex-wrap gap-3">
-        <button className="primary" type="submit" disabled={busy}>Save Telegram settings</button>
-        {telegramBot && <button className="quiet" type="button" disabled={busy} onClick={() => void save({ Remove: true })}>Disconnect bot</button>}
+        <Button type="submit" disabled={busy}>Save Telegram settings</Button>
+        {telegramBot && <Button variant="quiet" type="button" disabled={busy} onClick={() => void save({ Remove: true })}>Disconnect bot</Button>}
       </div>
     </form>}
   </div>;
@@ -304,11 +306,11 @@ function AgentConnectionForm({ owner, agentConnection, saveAgentConnection, mana
   const keyControls = <div className="stack">
     <label>
       Workspace key
-      <input ref={keyInput} type="password" autoComplete="new-password" spellCheck={false} maxLength={268} disabled={saving}
+      <Input ref={keyInput} type="password" autoComplete="new-password" spellCheck={false} maxLength={268} disabled={saving}
         placeholder={agentConnection.hasKey ? 'Enter a replacement key' : 'Paste an existing Agent Connections key'} />
     </label>
     {!managed && !agentConnection.hasKey && <p className="text-sm">Leave this blank if your deployment supplies a workspace key.</p>}
-    {agentConnection.hasKey && <button className="quiet" type="button" disabled={saving} onClick={() => void save(true)}>Remove key</button>}
+    {agentConnection.hasKey && <Button variant="quiet" type="button" disabled={saving} onClick={() => void save(true)}>Remove key</Button>}
   </div>;
   return (
     <form className="grid gap-4" onSubmit={(event) => { event.preventDefault(); void save(); }}>
@@ -320,7 +322,7 @@ function AgentConnectionForm({ owner, agentConnection, saveAgentConnection, mana
         <summary className="cursor-pointer">Use an existing workspace key</summary>
         {keyControls}
       </details> : keyControls}
-      <div><button className="primary" type="submit" disabled={saving}>Save Agent Connections settings</button></div>
+      <div><Button type="submit" disabled={saving}>Save Agent Connections settings</Button></div>
     </form>
   );
 }
@@ -349,12 +351,12 @@ function GitTokenForm({ provider, configured, owner, saveGitToken }: {
     <form className="grid gap-3" onSubmit={(event) => { event.preventDefault(); void save(); }}>
       <label>
         {name} access token
-        <input ref={input} type="password" autoComplete="new-password" spellCheck={false} maxLength={1024}
+        <Input ref={input} type="password" autoComplete="new-password" spellCheck={false} maxLength={1024}
           required disabled={saving} placeholder={configured ? 'Enter a new token to replace the saved token' : 'Paste an access token'} />
       </label>
       <div className="flex flex-wrap items-center gap-3">
-        <button className="primary" type="submit" disabled={saving}>Save token</button>
-        {configured && <button className="quiet" type="button" disabled={saving} onClick={() => void save(true)}>Remove token</button>}
+        <Button type="submit" disabled={saving}>Save token</Button>
+        {configured && <Button variant="quiet" type="button" disabled={saving} onClick={() => void save(true)}>Remove token</Button>}
         <span className="text-sm">{configured ? 'Token saved' : 'No token saved'}</span>
       </div>
     </form>

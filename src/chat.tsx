@@ -6,6 +6,8 @@ import { useChat } from '@chat-adapter/web/react';
 import { MarkdownTextPrimitive } from '@assistant-ui/react-markdown';
 import { SparklesIcon } from '@heroicons/react/24/outline';
 import { useRef, useState } from 'react';
+import { buttonClassName } from './app/components/button';
+import { fieldClassName } from './app/components/input';
 import { ConversationTaskReview, type Task } from './app/components/tasks';
 
 type WorkspaceMessage = { Author: string; Text: string; At: string; SenderID?: string; Agent?: boolean };
@@ -139,9 +141,9 @@ export function Conversation({ role, agentName, viewer, threadId, guest, readOnl
         <div className="chat-dock">
           <ThreadPrimitive.ScrollToBottom className="chat-latest" behavior="smooth">Latest messages</ThreadPrimitive.ScrollToBottom>
           {readOnly ? <p className="px-4 py-2 text-sm">Reply in {channel ?? 'the linked channel'}.</p> : <ComposerPrimitive.Root className="chat-composer">
-            <ComposerPrimitive.Input aria-label="Message" placeholder="Message your agent…" rows={1} maxLength={4000} />
+            <ComposerPrimitive.Input className={fieldClassName()} aria-label="Message" placeholder="Message your agent…" rows={1} maxLength={4000} />
             <div className="chat-composer-actions">
-              <ComposerPrimitive.Send className="chat-send" aria-label="Send message">Send</ComposerPrimitive.Send>
+              <ComposerPrimitive.Send className={buttonClassName('primary', 'chat-send')} aria-label="Send message">Send</ComposerPrimitive.Send>
             </div>
           </ComposerPrimitive.Root>}
         </div>

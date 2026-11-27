@@ -1,5 +1,7 @@
 'use client';
 
+import { Button } from './button';
+import { Input, Textarea } from './input';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth, useClerk } from '@clerk/nextjs';
@@ -85,8 +87,8 @@ function NewTaskForm({ assignees, busy, notice, submit }: {
     }
     submit('task', { Title, Brief, Assignee: assignee, Repository, UI: UI === 'on', PlanOnly: timing === 'planned' });
   }}>
-    <label>Task title<input name="Title" required maxLength={120} /></label>
-    <label>Task brief<textarea name="Brief" required maxLength={6000} rows={4} /></label>
+    <label>Task title<Input name="Title" required maxLength={120} /></label>
+    <label>Task brief<Textarea name="Brief" required maxLength={6000} rows={4} /></label>
     <label>Assignee<Select required value={assignee} onChange={(event) => {
       const next = assignees.find(({ value }) => value === event.target.value);
       setAssignee(event.target.value);
@@ -98,16 +100,16 @@ function NewTaskForm({ assignees, busy, notice, submit }: {
       <option value="scheduled">Schedule for later</option>
     </Select></label>}
     {timing === 'scheduled' && <>
-      <label>First run ({timeZone})<input name="Due" type="datetime-local" required /></label>
+      <label>First run ({timeZone})<Input name="Due" type="datetime-local" required /></label>
       <label>Frequency<Select name="Recurrence" defaultValue="">
         <option value="">Once</option><option value="daily">Daily</option><option value="weekly">Weekly</option>
       </Select></label>
     </>}
     {timing === 'now' && <>
-      <label>Repository URL (optional)<input name="Repository" type="url" maxLength={500} /></label>
+      <label>Repository URL (optional)<Input name="Repository" type="url" maxLength={500} /></label>
       <label className="checkbox"><input name="UI" type="checkbox" defaultChecked /> Include a UI screenshot</label>
     </>}
-    <button className="primary justify-self-start" disabled={busy}>{busy ? 'Saving…' : timing === 'now' ? 'Run task' : timing === 'scheduled' ? 'Schedule task' : 'Create task'}</button>
+    <Button type="submit" className="justify-self-start" disabled={busy}>{busy ? 'Saving…' : timing === 'now' ? 'Run task' : timing === 'scheduled' ? 'Schedule task' : 'Create task'}</Button>
     {notice && <p role="status">{notice}</p>}
   </form>;
 }
@@ -237,7 +239,7 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
   if (clerkSignOut && (needsSetup || (state?.admin && workspace?.OnboardingStep))) return (
     <main>
       <header className="setup-session">
-        <button className="quiet" type="button" disabled={busy} onClick={() => void run(clerkSignOut)}>Sign out</button>
+        <Button variant="quiet" type="button" disabled={busy} onClick={() => void run(clerkSignOut)}>Sign out</Button>
       </header>
       {notice && <div id="notice" role="alert">{notice}</div>}
       <WorkspaceOnboarding setup={state ?? undefined} busy={busy} configured={Boolean(state?.agentConnectionHasKey)}
@@ -273,18 +275,18 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
       {state === null && (clerkSignOut ? <div className="workspace-setup">
         {!notice && <p role="alert">Cowork couldn’t verify your sign-in.</p>}
         <div className="setup-controls">
-          <button className="quiet" type="button" onClick={() => void refresh()}>Try again</button>
-          <button className="quiet" type="button" onClick={() => void run(clerkSignOut)}>Sign out</button>
+          <Button variant="quiet" type="button" onClick={() => void refresh()}>Try again</Button>
+          <Button variant="quiet" type="button" onClick={() => void run(clerkSignOut)}>Sign out</Button>
         </div>
       </div> : <AuthForm initialMode={initialMode} busy={busy} submit={(mode, data) => void run(async () => { await write(mode, data); })} />)}
       {state && workspace && <section id="workspace">
         <header className="workspace-header">
           <div><h1>{current?.Title || titles[view]}</h1>{threadId === undefined && <p className="workspace-page-description">{descriptions[view]}</p>}{current && state.members.length > 1 && <span id="chat-members-count">{state.members.length} workspace members</span>}</div>
           <div className="flex flex-wrap justify-end gap-2">
-            {view === 'conversations' && threadId === undefined && <button className="primary" onClick={() => setModal('thread')}><PlusIcon className="size-4" aria-hidden="true" /> New conversation</button>}
-            {view === 'conversations' && threadId !== undefined && <button className="quiet" onClick={() => router.push('/conversations')}>All conversations</button>}
-            {current && !current.TelegramTopic && !current.Slack && <button className="primary" onClick={() => { setInviteMode('email'); setModal('invite'); }}><UserPlusIcon className="size-4" aria-hidden="true" /> Invite people</button>}
-            {view === 'tasks' && <button className="primary" onClick={() => { setNotice(''); setModal('task'); }}><PlusIcon className="size-4" aria-hidden="true" /> New task</button>}
+            {view === 'conversations' && threadId === undefined && <Button onClick={() => setModal('thread')}><PlusIcon className="size-4" aria-hidden="true" /> New conversation</Button>}
+            {view === 'conversations' && threadId !== undefined && <Button variant="quiet" onClick={() => router.push('/conversations')}>All conversations</Button>}
+            {current && !current.TelegramTopic && !current.Slack && <Button onClick={() => { setInviteMode('email'); setModal('invite'); }}><UserPlusIcon className="size-4" aria-hidden="true" /> Invite people</Button>}
+            {view === 'tasks' && <Button onClick={() => { setNotice(''); setModal('task'); }}><PlusIcon className="size-4" aria-hidden="true" /> New task</Button>}
           </div>
         </header>
         {view === 'conversations' && <section id="chat" className="page">
@@ -303,9 +305,9 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
               <h2>Conversation invitations</h2>
               <ul role="list">{invitations.map((invitation) => <li key={invitation.ID}>
                 <div><strong>{threads.find(({ ID }) => ID === invitation.ThreadID)?.Title || 'Conversation'}</strong><p>Invited by {invitation.From}</p></div>
-                <button className="quiet" disabled={busy} onClick={() => void run(async () => {
+                <Button variant="quiet" disabled={busy} onClick={() => void run(async () => {
                   await write('thread/invite/accept', { ID: invitation.ID }); route(invitation.ThreadID);
-                })}>Join conversation</button>
+                })}>Join conversation</Button>
               </li>)}</ul>
             </section>}
             <ConversationIndex threads={threads} tasks={tasks} role={workspace.Role} open={route} />
@@ -354,11 +356,11 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
       {modal === 'thread' && <Modal title="New conversation" close={close}><form className="stack" onSubmit={(event) => {
         const data = dataOf(event);
         void run(async () => { const result = await write('thread', data); close(); route(result.workspace.Threads!.at(-1)!.ID); });
-      }}><label>Conversation title<input name="Text" required maxLength={200} /></label>
+      }}><label>Conversation title<Input name="Text" required maxLength={200} /></label>
         {agents.length > 1 && <label>Agent<Select name="AgentID">
           {agents.map(({ ID, Name, Role }) => <option key={ID} value={ID}>{Name === Role ? Name : `${Name} · ${Role}`}</option>)}
         </Select></label>}
-        <button className="primary" disabled={busy}>Create conversation</button></form>
+        <Button type="submit" disabled={busy}>Create conversation</Button></form>
       {notice && <p role="status">{notice}</p>}</Modal>}
 
       {modal === 'invite' && <Modal title="Invite people" close={close}>
@@ -375,8 +377,8 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
           });
         }}>
           <p>Email a single-use invitation. Your guest can join this conversation without creating an account.</p>
-          <label>Email address<input name="Email" type="email" required maxLength={254} /></label>
-          <button className="primary" disabled={busy}>{busy ? 'Sending…' : 'Send invitation email'}</button>
+          <label>Email address<Input name="Email" type="email" required maxLength={254} /></label>
+          <Button type="submit" disabled={busy}>{busy ? 'Sending…' : 'Send invitation email'}</Button>
         </form>}
         {inviteMode === 'teammate' && (teammates.length ? <form className="stack" onSubmit={(event) => {
           const data = dataOf(event);
@@ -385,7 +387,7 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
           <label>Workspace teammate<Select name="MemberID">
             {teammates.map((person) => <option key={person.ID} value={person.ID}>{person.Name} ({person.Email})</option>)}
           </Select></label>
-          <button className="primary" disabled={busy}>Send invitation</button>
+          <Button type="submit" disabled={busy}>Send invitation</Button>
         </form> : <p>There are no other members in this workspace.</p>)}
         {notice && <p className="mt-3" role="status">{notice}</p>}
       </Modal>}
@@ -401,14 +403,14 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
           const data = dataOf(event);
           void changeSchedule('edit', schedule, { ...data, LocalDue: data.LocalDue === scheduleDue ? undefined : data.LocalDue });
         }}>
-          <label>Task title<input name="Title" required maxLength={120} defaultValue={schedule.Title} /></label>
-          <label>Task brief<textarea name="Brief" required maxLength={6000} rows={5} defaultValue={schedule.Brief} /></label>
+          <label>Task title<Input name="Title" required maxLength={120} defaultValue={schedule.Title} /></label>
+          <label>Task brief<Textarea name="Brief" required maxLength={6000} rows={5} defaultValue={schedule.Brief} /></label>
           <label>Frequency<Select name="Recurrence" defaultValue={schedule.Recurrence ?? ''}>
             {!schedule.Recurrence && <option value="">Once</option>}
             <option value="daily">Daily</option><option value="weekly">Weekly</option>
           </Select></label>
-          <label>Next run ({schedule.ScheduledTimeZone || 'UTC'})<input name="LocalDue" type="datetime-local" required defaultValue={scheduleDue} /></label>
-          <button className="primary" disabled={busy}>Save schedule</button>
+          <label>Next run ({schedule.ScheduledTimeZone || 'UTC'})<Input name="LocalDue" type="datetime-local" required defaultValue={scheduleDue} /></label>
+          <Button type="submit" disabled={busy}>Save schedule</Button>
         </form>
         {notice && <p className="mt-3" role="status">{notice}</p>}
       </Modal>}
@@ -417,8 +419,8 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
         <div className="stack">
           <p>Cancel {schedule.Recurrence ? 'future runs' : 'the scheduled run'} of <strong>{schedule.Title}</strong>?</p>
           <div className="flex flex-wrap gap-2">
-            <button type="button" className="quiet" onClick={close} disabled={busy}>Keep schedule</button>
-            <button type="button" className="primary" onClick={() => void changeSchedule('cancel', schedule)} disabled={busy}>Cancel schedule</button>
+            <Button type="button" variant="quiet" onClick={close} disabled={busy}>Keep schedule</Button>
+            <Button type="button" onClick={() => void changeSchedule('cancel', schedule)} disabled={busy}>Cancel schedule</Button>
           </div>
           {notice && <p role="status">{notice}</p>}
         </div>
@@ -429,9 +431,9 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
         const due = new Date(String(data.Due));
         void run(async () => { await write('reminder', { Text: data.Text, Due: due.toISOString() }); setSelectedDay(due); close(); });
       }}>
-        <label>Reminder<input name="Text" required maxLength={4000} /></label>
-        <label>Due<input name="Due" type="datetime-local" defaultValue={localDay(selectedDay) + 'T09:00'} required /></label>
-        <button className="primary" disabled={busy}>Add reminder</button>
+        <label>Reminder<Input name="Text" required maxLength={4000} /></label>
+        <label>Due<Input name="Due" type="datetime-local" defaultValue={localDay(selectedDay) + 'T09:00'} required /></label>
+        <Button type="submit" disabled={busy}>Add reminder</Button>
       </form>{notice && <p role="status">{notice}</p>}</Modal>}
     </main>
   </WorkspaceShell>;

@@ -1,3 +1,5 @@
+import { Button } from './app/components/button';
+import { Input } from './app/components/input';
 import { useState } from 'react';
 import { WorkspaceOverview } from './app/components/overview';
 import { Select } from './app/components/select';
@@ -84,7 +86,7 @@ export function ConversationIndex({ threads, tasks, role, open }: ConversationDa
           <label className="conversation-search">
             <span className="sr-only">Search this inbox</span>
             <MagnifyingGlassIcon aria-hidden="true" className="size-5" />
-            <input type="search" placeholder="Search this inbox" value={query} onChange={(event) => setQuery(event.target.value)} />
+            <Input type="search" placeholder="Search this inbox" value={query} onChange={(event) => setQuery(event.target.value)} />
           </label>
           <label className="conversation-filter">Status
             <Select variant="filter" value={filter} onChange={(event) => setFilter(event.target.value as Status)}>
@@ -148,7 +150,7 @@ export function ConversationIndex({ threads, tasks, role, open }: ConversationDa
       {fresh && <section className="conversation-starter">
         <span className="conversation-starter-mark" aria-hidden="true"><ChatBubbleLeftIcon className="size-6" /></span>
         <div><h2>Say hello to your {role} agent.</h2><p>Ask a question, assign your first task, or set a reminder.</p></div>
-        <button type="button" className="quiet" onClick={() => open('')}>Open workspace conversation</button>
+        <Button type="button" variant="quiet" onClick={() => open('')}>Open workspace conversation</Button>
       </section>}
     </div>
   </>;

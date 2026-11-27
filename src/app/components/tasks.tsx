@@ -1,5 +1,7 @@
 'use client';
 
+import { Button } from './button';
+import { Input, Textarea } from './input';
 import { useState, type DragEvent } from 'react';
 import {
   ArrowPathRoundedSquareIcon, CalendarDaysIcon, CheckCircleIcon, ClockIcon, EllipsisVerticalIcon,
@@ -210,8 +212,8 @@ function TaskDetail({ task, person, assignees, busy, notice, close, update, mana
       if (Object.keys(changes).length) void update(task, changes).then((saved) => { if (saved) close(); });
     }}>
       {!scheduled && <>
-        <label>Task title<input required maxLength={120} value={title} onChange={(event) => setTitle(event.target.value)} /></label>
-        <label>Task brief<textarea required maxLength={6000} rows={4} value={brief} onChange={(event) => setBrief(event.target.value)} /></label>
+        <label>Task title<Input required maxLength={120} value={title} onChange={(event) => setTitle(event.target.value)} /></label>
+        <label>Task brief<Textarea required maxLength={6000} rows={4} value={brief} onChange={(event) => setBrief(event.target.value)} /></label>
       </>}
       <div className={styles.detailFields}>
         <label>Assignee<Select value={assignee} required onChange={(event) => setAssignee(event.target.value)}>
@@ -222,15 +224,15 @@ function TaskDetail({ task, person, assignees, busy, notice, close, update, mana
           {taskStatuses.map((value) => <option key={value} value={value}>{laneDetails[value].label}</option>)}
         </Select></label>}
       </div>
-      <button className="primary justify-self-start" disabled={busy || !Object.keys(changes).length}>{busy ? 'Saving…' : 'Save changes'}</button>
+      <Button type="submit" className="justify-self-start" disabled={busy || !Object.keys(changes).length}>{busy ? 'Saving…' : 'Save changes'}</Button>
     </form>}
     {notice && <p className={styles.detailNote} role="status">{notice}</p>}
     {scheduled && <div className={styles.scheduleActions} role="group" aria-label="Schedule controls">
-      {task.Recurrence && <button type="button" className="quiet" disabled={busy} onClick={() => manageSchedule(task.Status === 'Paused' ? 'resume' : 'pause', task)}>
+      {task.Recurrence && <Button type="button" variant="quiet" disabled={busy} onClick={() => manageSchedule(task.Status === 'Paused' ? 'resume' : 'pause', task)}>
         {task.Status === 'Paused' ? 'Resume' : 'Pause'}
-      </button>}
-      <button type="button" className="quiet" disabled={busy} onClick={() => manageSchedule('edit', task)}>Edit schedule</button>
-      <button type="button" className="quiet" disabled={busy} onClick={() => manageSchedule('cancel', task)}>Cancel schedule</button>
+      </Button>}
+      <Button type="button" variant="quiet" disabled={busy} onClick={() => manageSchedule('edit', task)}>Edit schedule</Button>
+      <Button type="button" variant="quiet" disabled={busy} onClick={() => manageSchedule('cancel', task)}>Cancel schedule</Button>
     </div>}
     {task.Error && <p className={`task-error ${styles.detailNote}`}>{task.Error}</p>}
     {task.Result && <div className={styles.detailResult}><h3>Agent result</h3><p>{task.Result}</p></div>}

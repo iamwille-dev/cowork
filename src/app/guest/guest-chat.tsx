@@ -1,5 +1,7 @@
 'use client';
 
+import { Button } from '../components/button';
+import { Input } from '../components/input';
 import { SparklesIcon } from '@heroicons/react/24/outline';
 import { useEffect, useRef, useState } from 'react';
 import { Conversation } from '../../chat';
@@ -59,8 +61,8 @@ export function GuestChat() {
         } catch (error) { setNotice((error as Error).message); }
         finally { setJoining(false); }
       }}>
-        <label>Your name<input name="Name" autoComplete="name" maxLength={80} required /></label>
-        <button className="primary" disabled={joining}>Join conversation</button>
+        <label>Your name<Input name="Name" autoComplete="name" maxLength={80} required /></label>
+        <Button type="submit" disabled={joining}>Join conversation</Button>
       </form>
     </section>}
     {token === null && conversation && <section id="workspace">

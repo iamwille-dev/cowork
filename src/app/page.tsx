@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { buttonClassName } from './components/button';
 import { AgentBadges } from './components/agent-badges';
 import { LandingFooter, LandingHeader } from './components/landing-navigation';
 import {
@@ -72,7 +73,7 @@ export default function Home() {
         <div className="landing-hero-intro">
           <p>Give your team an AI coworker that can share a conversation, take on a task, and remember what comes next.</p>
           <div className="landing-actions">
-            <Link href="/conversations?signup=1" className="landing-cta">Get started <ArrowRightIcon aria-hidden="true" /></Link>
+            <Link href="/conversations?signup=1" className={buttonClassName('primary', 'landing-cta')}>Get started <ArrowRightIcon aria-hidden="true" /></Link>
             <Link href="/how-it-works" className="landing-text-link">See how it works</Link>
           </div>
         </div>
@@ -85,7 +86,7 @@ export default function Home() {
         <div>
           <h2 id="workflow-heading">From “could you?” to ready for review.</h2>
           <p>Ask for work in a shared conversation. Cowork asks for missing details, saves what you assign, and gives teammates a place to follow along.</p>
-          <Link href="/conversations" className="landing-cta">Open workspace <ArrowRightIcon aria-hidden="true" /></Link>
+          <Link href="/conversations" className={buttonClassName('primary', 'landing-cta')}>Open workspace <ArrowRightIcon aria-hidden="true" /></Link>
         </div>
         <ol className="landing-steps">
           <li><ChatBubbleLeftRightIcon aria-hidden="true" /><div><strong>Start a conversation</strong><p>Bring your teammates and agent into the same thread.</p></div></li>
