@@ -14,6 +14,7 @@ export type AgentConnectionContext = {
   AgentConnectionWorkspace?: string;
   AgentConnectionKey?: string;
   AgentConnectionIDs?: string[];
+  AgentConnectionPaused?: boolean;
 };
 export type ConnectionClient = Pick<Client, 'callTool'>;
 export type AgentConnection = {
@@ -36,7 +37,7 @@ async function discover(client: Client, signal: AbortSignal) {
 }
 
 export async function agentConnection({
-  AgentConnectionWorkspace: workspaceId, AgentConnectionKey: savedKey, AgentConnectionIDs: allowedIDs,
+  AgentConnectionWorkspace: workspaceId, AgentConnectionKey: savedKey, AgentConnectionIDs: allowedIDs, AgentConnectionPaused: paused,
 }: AgentConnectionContext, scope: 'workspace' | 'channel' = 'workspace') {
   const allowed = allowedIDs && new Set(allowedIDs);
   const key = workspaceId && (savedKey || (workspaceId === process.env.AGENT_CONNECTION_WORKSPACE_ID
@@ -58,11 +59,12 @@ export async function agentConnection({
     }
   }
 
-  let detail = allowed?.size === 0 ? 'No connected accounts are enabled for this agent.'
-    : !workspaceId ? 'Agent Connections is unavailable in this conversation.'
-      : 'The workspace needs an Agent Connections key.';
+  let detail = paused ? 'Agent Connections tools are paused for this workspace. The workspace owner can enable connected tools in Settings.'
+    : allowed?.size === 0 ? 'No connected accounts are enabled for this agent.'
+      : !workspaceId ? 'Agent Connections is unavailable in this conversation.'
+        : 'The workspace needs an Agent Connections key.';
   let catalog: Awaited<ReturnType<typeof discover>> | undefined;
-  if (key && allowed?.size !== 0) {
+  if (!paused && key && allowed?.size !== 0) {
     try {
       const signal = AbortSignal.timeout(5_000);
       catalog = await open((client) => discover(client, signal), signal);

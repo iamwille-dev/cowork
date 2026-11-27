@@ -84,7 +84,7 @@ func ChannelToolBridge(w http.ResponseWriter, r *http.Request) {
 	case "/internal/channel-tools/slack-message":
 		recordSlackTurn(w, d, space, input.channelActor, input.Data)
 	case "/internal/channel-tools/context":
-		context := workerRequest{Role: role, WorkspaceID: space.ID}
+		context := workerRequest{Role: role, WorkspaceID: space.ID, AgentConnectionPaused: !space.AgentConnectionEnabled && d.AgentConnectionKeys[space.ID] != ""}
 		for _, agent := range space.Agents {
 			if agent.Role == role {
 				context.AgentName = agent.Name

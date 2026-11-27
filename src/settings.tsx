@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { channelAgents, channelAgentIds, type ChannelAgent } from './channel-agents';
 import { api } from './app/components/api';
-import { ManagedConnections, saveConnectionKey, type AgentGrants } from './app/components/managed-connections';
+import { ManagedConnections, type AgentGrants } from './app/components/managed-connections';
 import type { WorkspaceAgent } from './app/components/onboarding';
 
 const sections = [
@@ -260,8 +260,9 @@ export function TelegramForm({ owner, agent, name, destination, telegramBot, sav
   </div>;
 }
 
-function AgentConnectionForm({ owner, agentConnection, saveAgentConnection }: Pick<SettingsProps, 'owner' | 'agentConnection' | 'saveAgentConnection'>) {
-  const [enabled, setEnabled] = useState(agentConnection.enabled);
+function AgentConnectionForm({ owner, agentConnection, saveAgentConnection, managed }: Pick<SettingsProps, 'owner' | 'agentConnection' | 'saveAgentConnection'> & { managed: boolean }) {
+  const [enabledDraft, setEnabledDraft] = useState<boolean>();
+  const enabled = enabledDraft ?? agentConnection.enabled;
   const [saving, setSaving] = useState(false);
   const keyInput = useRef<HTMLInputElement>(null);
 
@@ -272,7 +273,7 @@ function AgentConnectionForm({ owner, agentConnection, saveAgentConnection }: Pi
         ? { Enabled: false, RemoveKey: true }
         : { Enabled: enabled, Key: keyInput.current?.value });
       if (!saved) return;
-      if (removeKey) setEnabled(false);
+      setEnabledDraft(undefined);
       if (keyInput.current) keyInput.current.value = '';
     } finally {
       setSaving(false);
@@ -281,24 +282,26 @@ function AgentConnectionForm({ owner, agentConnection, saveAgentConnection }: Pi
 
   if (!owner) return <p>{agentConnection.enabled ? 'Enabled' : 'Disabled'}. The workspace owner manages this connection.</p>;
 
+  const keyControls = <div className="stack">
+    <label>
+      Workspace key
+      <input ref={keyInput} type="password" autoComplete="new-password" spellCheck={false} maxLength={268} disabled={saving}
+        placeholder={agentConnection.hasKey ? 'Enter a replacement key' : 'Paste an existing Agent Connections key'} />
+    </label>
+    {!managed && !agentConnection.hasKey && <p className="text-sm">Leave this blank if your deployment supplies a workspace key.</p>}
+    {agentConnection.hasKey && <button className="quiet" type="button" disabled={saving} onClick={() => void save(true)}>Remove key</button>}
+  </div>;
   return (
     <form className="grid gap-4" onSubmit={(event) => { event.preventDefault(); void save(); }}>
       <label className="flex items-center gap-2">
-        <input className="!w-auto" type="checkbox" checked={enabled} disabled={saving} onChange={(event) => setEnabled(event.target.checked)} />
-        Enable Agent Connection
+        <input className="!w-auto" type="checkbox" checked={enabled} disabled={saving} onChange={(event) => setEnabledDraft(event.target.checked)} />
+        Enable connected tools in Cowork
       </label>
-      <label>
-        Agent key
-        <input ref={keyInput} type="password" autoComplete="new-password" spellCheck={false} maxLength={268} disabled={saving}
-          placeholder={agentConnection.hasKey ? 'Enter a new key to replace the saved key' : 'Paste a named agent key'} />
-      </label>
-      <p className="text-sm">{agentConnection.hasKey
-        ? 'A workspace key is saved.'
-        : 'Add a key from Agent Connections, or leave this blank if your deployment has assigned a key to this workspace.'}</p>
-      <div className="flex flex-wrap gap-3">
-        <button className="primary" type="submit" disabled={saving}>Save</button>
-        {agentConnection.hasKey && <button className="quiet" type="button" disabled={saving} onClick={() => void save(true)}>Remove key</button>}
-      </div>
+      {managed ? <details>
+        <summary className="cursor-pointer">Use an existing workspace key</summary>
+        {keyControls}
+      </details> : keyControls}
+      <div><button className="primary" type="submit" disabled={saving}>Save Agent Connections settings</button></div>
     </form>
   );
 }
@@ -380,11 +383,16 @@ export function Settings(props: SettingsProps) {
       {active === 'agent-connection' && (
         <SettingsSection title="Agent Connections" description="Manage connected accounts and grant access to your agents. Use connected apps in conversations without guest access.">
           <div className="stack">
+            <AgentConnectionForm owner={props.owner} agentConnection={props.agentConnection}
+              saveAgentConnection={props.saveAgentConnection} managed={Boolean(props.managedConnections)} />
             {props.owner && props.managedConnections && <ManagedConnections enabled agents={props.managedConnections.agents}
               grants={props.managedConnections.grants} onGrants={props.managedConnections.saveGrants}
               savingGrants={props.managedConnections.busy} keySaved={props.agentConnection.hasKey}
-              saveKey={async (key) => { await saveConnectionKey(key); props.announce('Agent Connections key saved.'); }} />}
-            <AgentConnectionForm owner={props.owner} agentConnection={props.agentConnection} saveAgentConnection={props.saveAgentConnection} />
+              saveKey={async (key) => {
+                if (!await props.saveAgentConnection({ Enabled: true, Key: key })) {
+                  throw new Error('Cowork could not save the workspace key.');
+                }
+              }} />}
           </div>
         </SettingsSection>
       )}

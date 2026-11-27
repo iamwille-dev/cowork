@@ -220,7 +220,7 @@ export function ManagedConnections({ enabled, agents, grants, onGrants, savingGr
           </label>)}
         </fieldset>}
         {!onboarding && <details>
-          <summary className="cursor-pointer">Connection access</summary>
+          <summary className="cursor-pointer">External MCP clients</summary>
           <ul className="stack py-3">
             {[...(connection.agents ?? []), ...(connection.clients ?? []).map((id) => ({ id, name: id }))].map((client) => (
               <li key={client.id} className="setup-controls">

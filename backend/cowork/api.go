@@ -200,6 +200,7 @@ type workerRequest struct {
 	AgentConnectionWorkspace string            `json:",omitempty"`
 	AgentConnectionKey       string            `json:",omitempty"`
 	AgentConnectionIDs       *[]string         `json:",omitempty"`
+	AgentConnectionPaused    bool              `json:",omitempty"`
 	UseWorkspaceMemory       bool              `json:",omitempty"`
 	WorkspaceID              string            `json:",omitempty"`
 	ThreadID                 string            `json:",omitempty"`
@@ -560,6 +561,7 @@ func runAgent(w http.ResponseWriter, r *http.Request, d *database, a Account, sp
 		ids := append([]string{}, agent.ConnectionIDs...)
 		request.AgentConnectionIDs = &ids
 	}
+	request.AgentConnectionPaused = route == "chat" && !space.AgentConnectionEnabled && d.AgentConnectionKeys[space.ID] != ""
 	if route == "chat" && space.AgentConnectionEnabled && (agent.ID == "" || len(agent.ConnectionIDs) > 0) && protectCredentialThread(d, space.ID, input.ThreadID) {
 		request.AgentConnectionWorkspace = space.ID
 		if stored := d.AgentConnectionKeys[space.ID]; stored != "" {

@@ -98,5 +98,11 @@ test('discovers MCP tools and permits calls only for the selected agent’s gran
   assert.equal(calls.length, 3);
   const unconfigured = await agentConnection({});
   assert.deepEqual(Object.keys(unconfigured.tools.agentConnection), ['list_connections']);
+  const paused = await agentConnection({ ...context, AgentConnectionPaused: true });
+  assert.deepEqual(Object.keys(paused.tools.agentConnection), ['list_connections']);
+  assert.deepEqual(await paused.tools.agentConnection.list_connections.execute?.({}), {
+    connections: [],
+    detail: 'Agent Connections tools are paused for this workspace. The workspace owner can enable connected tools in Settings.',
+  });
   assert.equal(calls.length, 3);
 });
