@@ -375,17 +375,131 @@ main[data-view="chat-list"] #chat { max-width: 1200px; }
 .landing-brand { display: inline-flex; gap: 9px; align-items: center; font-size: 1.25rem; font-weight: 700; letter-spacing: -.03em; }
 .landing-small-link, .landing-cta { display: inline-flex; align-items: center; gap: 9px; white-space: nowrap; font-size: .875rem; font-weight: 650; }
 .landing-small-link svg, .landing-cta svg { width: 16px; height: 16px; }
-.landing-hero { padding-top: 64px; }
-.landing-hero-copy { display: flex; justify-content: space-between; align-items: end; gap: 28px; }
+.landing-hero {
+  display: grid;
+  grid-template-columns: minmax(0, .95fr) minmax(0, 1fr);
+  align-items: center;
+  gap: clamp(28px, 5vw, 72px);
+  padding-block: clamp(44px, 5.5vw, 80px);
+}
 .landing h1 { font-size: clamp(2.65rem, 5.5vw, 5rem); line-height: 1; letter-spacing: -.04em; font-weight: 550; text-wrap: balance; }
 .landing h1 em { font-style: normal; }
 .landing p { color: #62615b; }
-.landing-hero-intro { max-width: 38ch; }
+.landing-hero-intro { max-width: 38ch; margin-top: 20px; }
 .landing-hero-intro > p { font-size: 1rem; text-wrap: pretty; }
 .landing-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; margin-top: 17px; }
 .landing-cta { min-height: 42px; padding: 0 17px; border-radius: 999px; color: #fff; background: #252522; }
 .landing-cta:hover { background: #403f39; }
 .landing-text-link { color: #28577a; font-size: .875rem; font-weight: 600; }
+
+.landing-team { scroll-margin-top: 24px; }
+.landing-team h2 { margin-bottom: 12px; color: #62615b; font-size: .875rem; font-weight: 650; }
+.agent-badge-touch-hint { display: none; margin: -6px 0 12px; font-size: .875rem; }
+.landing-roles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px 14px;
+  padding-top: 14px;
+}
+.agent-badge {
+  --badge-tint: var(--public-tint);
+  --badge-ink: var(--public-accent-text);
+  display: grid;
+  position: relative;
+}
+.agent-badge[data-tone="stone"] { --badge-tint: #ebe9e3; --badge-ink: #403f39; }
+.agent-badge[data-tone="green"] { --badge-tint: #e2f5ed; --badge-ink: #14634d; }
+.agent-badge[data-tone="amber"] { --badge-tint: #fff0db; --badge-ink: #925014; }
+.agent-badge-face {
+  --badge-inset: 12px;
+  position: relative;
+  padding: calc(var(--badge-inset) + 14px) var(--badge-inset) var(--badge-inset);
+  min-width: 0;
+  border: 1px solid #d9d5c9;
+  border-radius: 12px;
+  background: var(--public-surface);
+  box-shadow: 0 3px 8px #25252212;
+  transform: var(--badge-pose, none);
+}
+.agent-badge-face::before {
+  position: absolute;
+  inset: -14px 0 auto;
+  width: 20px;
+  height: calc(17px + var(--badge-inset));
+  margin-inline: auto;
+  border-radius: 3px 3px 0 0;
+  background: color-mix(in srgb, var(--badge-tint) 72%, var(--badge-ink));
+  content: '';
+}
+.agent-badge-face::after {
+  position: absolute;
+  inset: var(--badge-inset) 0 auto;
+  width: 32px;
+  height: 5px;
+  margin-inline: auto;
+  border-radius: 999px;
+  background: #e4e1d8;
+  box-shadow: inset 0 1px 1px #25252226;
+  content: '';
+}
+.agent-badge-identity {
+  display: grid;
+  grid-template-columns: minmax(0, 64px) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 6px;
+  border-radius: 8px;
+  background: var(--badge-tint);
+}
+.agent-badge-portrait { width: 100%; height: auto; border-radius: 5px; }
+.agent-badge h3 {
+  font-size: clamp(1.125rem, 1.6vw, 1.375rem);
+  font-weight: 650;
+  line-height: 1.15;
+  letter-spacing: -.025em;
+}
+.agent-badge :is(.agent-badge-role, .agent-badge-personality) { color: var(--badge-ink); }
+.agent-badge-role { margin-top: 2px; font-size: .8125rem; font-weight: 650; line-height: 1.2; }
+.agent-badge-personality { margin-top: 3px; font-size: .75rem; }
+.agent-badge-example { margin-top: 9px; font-size: .875rem; text-wrap: pretty; }
+.agent-badge-lift {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  border-radius: inherit;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+@media (min-width: 900px) {
+  .landing-team { padding-inline: 8px; }
+  .landing-roles { isolation: isolate; gap: 26px 0; padding-block: 20px 12px; }
+  .agent-badge {
+    --badge-angle: 4deg;
+    --badge-x: 4px;
+    --badge-y: -5px;
+  }
+  .agent-badge:nth-child(even) {
+    --badge-angle: -5deg;
+    --badge-x: -4px;
+    --badge-y: 8px;
+    z-index: 1;
+  }
+  .agent-badge-face {
+    padding-inline: clamp(16px, 1.5vw, 22px);
+    transform: var(--badge-pose, translate(var(--badge-x), var(--badge-y)) rotate(var(--badge-angle)));
+  }
+}
+.agent-badge[data-lifted], .agent-badge:focus-within { z-index: 2; }
+.agent-badge[data-lifted] .agent-badge-face { box-shadow: 0 6px 16px #25252224; }
+@media (prefers-reduced-motion: no-preference) {
+  .agent-badge-face { transition: transform 260ms cubic-bezier(.16, 1, .3, 1); }
+  .agent-badge:is([data-lifted], :has(:focus-visible)) { --badge-pose: translateY(-8px); }
+}
+@media (min-width: 900px) and (prefers-reduced-motion: no-preference) and (hover: hover) and (pointer: fine) {
+  .agent-badge:hover { --badge-pose: translateY(-8px); z-index: 3; }
+}
+@media (hover: none) { .agent-badge-touch-hint { display: block; } }
 
 .landing-stage {
   margin-top: 32px; padding: clamp(12px, 2.25vw, 28px);
@@ -405,12 +519,12 @@ main[data-view="chat-list"] #chat { max-width: 1200px; }
 .preview-sidebar li svg, .preview-artifacts svg { width: 15px; height: 15px; flex-shrink: 0; }
 .preview-workspace { min-width: 0; padding: clamp(12px, 2vw, 22px); }
 .preview-heading { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 4px 16px; margin-bottom: 15px; }
-.preview-heading h2 { font-size: 1.5rem; font-weight: 550; line-height: 1.15; }
+.preview-heading h3 { font-size: 1.5rem; font-weight: 550; line-height: 1.15; }
 .preview-heading p { font-size: .8rem; margin-top: 4px; }
 .preview-panels { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); gap: 12px; align-items: start; }
 .preview-panel { background: #fff; border: 1px solid #e4e2db; border-radius: 12px; min-width: 0; }
-.preview-panel h3 { display: flex; align-items: center; gap: 8px; padding: 11px 13px; border-bottom: 1px solid #e4e2db; font-size: .875rem; font-weight: 600; letter-spacing: normal; }
-.preview-panel h3 svg { width: 16px; height: 16px; flex-shrink: 0; }
+.preview-panel h4 { display: flex; align-items: center; gap: 8px; padding: 11px 13px; border-bottom: 1px solid #e4e2db; font-size: .875rem; font-weight: 600; letter-spacing: normal; }
+.preview-panel h4 svg { width: 16px; height: 16px; flex-shrink: 0; }
 .preview-messages { padding: 15px 13px; font-size: .8125rem; }
 .preview-messages .preview-request { width: fit-content; margin: 0 0 18px auto; padding: 8px 11px; border-radius: 11px; background: #eeede8; color: #252522; }
 .preview-reply { display: flex; gap: 9px; align-items: flex-start; }
@@ -423,26 +537,18 @@ main[data-view="chat-list"] #chat { max-width: 1200px; }
 .preview-ready { display: inline-flex; align-items: center; gap: 5px; background: #e2f5ed; color: #14634d; border-radius: 999px; padding: 2px 7px; font-size: .72rem; font-weight: 550; }
 
 .landing-section { padding-block: clamp(46px, 7vw, 88px); }
-.landing-section + .landing-section, .landing-footer { border-top: 1px solid #e4e2db; }
+.landing-section, .landing-footer { border-top: 1px solid var(--public-line); }
 .landing-section h2 { font-size: clamp(2rem, 4.6vw, 3.6rem); line-height: 1.08; letter-spacing: -.04em; text-wrap: balance; }
-.landing-roles { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 12px; margin-top: 24px; }
-.landing-roles article { padding: 16px; background: white; border: 1px solid #e4e2db; border-radius: 12px; }
-.landing-role-icon { display: inline-grid; place-items: center; width: 38px; height: 38px; border-radius: 9px; background: #e6eff5; color: #28577a; }
-.landing-role-icon svg, .landing-steps svg { width: 21px; height: 21px; }
-.landing-roles h3 { margin-top: 12px; font-size: 1.12rem; }
-.landing-roles p { margin-top: 5px; font-size: .9rem; }
 .landing-workflow { display: grid; grid-template-columns: 1fr 1fr; align-items: center; gap: clamp(24px, 7vw, 112px); }
 .landing-workflow > div > p { max-width: 47ch; margin: 18px 0 24px; }
 .landing-steps li { display: flex; gap: 14px; padding: 15px 0; border-bottom: 1px solid #e4e2db; }
 .landing-steps li:first-child { border-top: 1px solid #e4e2db; }
-.landing-steps svg { flex-shrink: 0; margin-top: 2px; color: #28577a; }
+.landing-steps svg { width: 21px; height: 21px; flex-shrink: 0; margin-top: 2px; color: #28577a; }
 .landing-steps p { font-size: .9rem; }
 @media (max-width: 740px) {
-  .landing-hero { padding-top: 38px; }
-  .landing-hero-copy { display: grid; gap: 15px; }
+  .landing-hero { grid-template-columns: minmax(0, 1fr); gap: 32px; padding-top: 38px; }
   .preview-panels { grid-template-columns: minmax(0, 1fr); }
   .landing-workflow { grid-template-columns: minmax(0, 1fr); }
-  .landing-roles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 580px) {
   .landing-wrap { width: calc(100% - 32px); }
@@ -453,6 +559,11 @@ main[data-view="chat-list"] #chat { max-width: 1200px; }
   .landing-preview { grid-template-columns: minmax(0, 1fr); }
   .preview-sidebar { display: none; }
   .landing-preview { min-height: auto; }
+  .landing-roles { column-gap: 10px; }
+  .agent-badge-face { --badge-inset: 10px; }
+  .agent-badge-identity { grid-template-columns: 44px minmax(0, 1fr); gap: 6px; }
+}
+@media (max-width: 359px) {
   .landing-roles { grid-template-columns: minmax(0, 1fr); }
 }
 
