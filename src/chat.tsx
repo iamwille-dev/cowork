@@ -3,11 +3,11 @@ import {
   useAuiState, useExternalStoreRuntime, type ThreadMessageLike,
 } from '@assistant-ui/react';
 import { useChat } from '@chat-adapter/web/react';
-import { MarkdownTextPrimitive } from '@assistant-ui/react-markdown';
 import { SparklesIcon } from '@heroicons/react/24/outline';
 import { useRef, useState } from 'react';
 import { buttonClassName } from './app/components/button';
 import { fieldClassName } from './app/components/input';
+import { ReplyMarkdown } from './app/components/reply-markdown';
 import { ConversationTaskReview, type Task } from './app/components/tasks';
 
 type WorkspaceMessage = { Author: string; Text: string; At: string; SenderID?: string; Agent?: boolean };
@@ -28,10 +28,6 @@ function AgentMark({ className = '' }: { className?: string }) {
   return <span className={`chat-agent-mark ${className}`} aria-hidden="true"><SparklesIcon /></span>;
 }
 
-function AgentText() {
-  return <MarkdownTextPrimitive disallowedElements={['img']} />;
-}
-
 function ConversationMessage() {
   const message = useAuiState((state) => state.message);
   const date = message.createdAt?.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
@@ -47,7 +43,7 @@ function ConversationMessage() {
             {date && <time dateTime={message.createdAt?.toISOString()}>{date}</time>}
           </div>
           <div className="message-body">
-            <MessagePrimitive.Parts components={agent ? { Text: AgentText } : undefined} />
+            <MessagePrimitive.Parts components={agent ? { Text: ReplyMarkdown } : undefined} />
           </div>
         </div>
       </article>
