@@ -11,7 +11,7 @@ import { WorkspaceGuestTopbar, WorkspaceShell } from '../../sidebar';
 import { Conversation } from '../../chat';
 import { ConversationIndex, threadRoute, type Message, type Thread } from '../../conversations';
 import { ReminderCalendar } from '../../reminders';
-import type { ChannelAgent } from '../../channel-agents';
+import type { ChannelAgent } from '../../mastra/channels/agents';
 import { Settings, type GitProvider } from '../../settings';
 import { api, initials, localDay } from './api';
 import { AuthForm, Modal } from './forms';

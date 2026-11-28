@@ -11,6 +11,7 @@ import (
 
 func TestManageWorkspaceAgents(t *testing.T) {
 	useTestPostgres(t)
+	allowTaskAssignments(t)
 	t.Setenv("COWORK_AUTH", "local")
 	t.Setenv("MASTRA_ENCRYPTION_KEY", strings.Repeat("a", 48))
 	d, err := load()

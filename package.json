@@ -18,6 +18,7 @@
   "type": "module",
   "dependencies": {
     "@ai-sdk/react": "^4.0.186",
+    "@ai-sdk/typesafe-ai": "^3.0.44",
     "@assistant-ui/react": "^0.15.38",
     "@assistant-ui/react-markdown": "^0.14.26",
     "@aws-sdk/client-sesv2": "^3.1176.0",

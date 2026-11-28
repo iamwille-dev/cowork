@@ -187,7 +187,7 @@ func guestChat(w http.ResponseWriter, r *http.Request, d *database, grant guestG
 	}
 	space = latest.Workspaces[grant.WorkspaceID]
 	messages = threadMessages(space, grant.ThreadID)
-	*messages = append(*messages, Message{Author: space.Role + " agent", Text: result.Reply, At: time.Now()})
+	*messages = append(*messages, Message{Author: request.Role + " agent", Text: result.Reply, At: time.Now(), Agent: true})
 	if save(latest) != nil {
 		fail(w, 500, "Could not save the reply.")
 		return

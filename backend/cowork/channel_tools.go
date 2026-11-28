@@ -203,7 +203,7 @@ func ChannelToolBridge(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		data.Assignee = nil
-		saveBoardTaskUpdate(w, d, input.channelActor.account(), space, data)
+		saveBoardTaskUpdate(r.Context(), w, d, input.channelActor.account(), space, data)
 	case "/internal/channel-tools/task/schedule":
 		var data taskSchedule
 		if json.Unmarshal(input.Data, &data) != nil {
@@ -213,7 +213,7 @@ func ChannelToolBridge(w http.ResponseWriter, r *http.Request) {
 		data.ThreadID = input.channelActor.boundThreadID(space)
 		data.Assignee = ""
 		activeAgent.Role = role
-		saveTaskSchedule(w, d, input.channelActor.account(), space, data, activeAgent)
+		saveTaskSchedule(r.Context(), w, d, input.channelActor.account(), space, data, activeAgent)
 	case "/internal/channel-tools/task":
 		var data struct {
 			Title, Brief, Repository string

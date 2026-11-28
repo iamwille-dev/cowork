@@ -2,7 +2,7 @@ import { Button, buttonClassName } from './app/components/button';
 import { Input } from './app/components/input';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { channelAgents, channelAgentIds, type ChannelAgent } from './channel-agents';
+import { channelAgents, channelAgentIds, type ChannelAgent } from './mastra/channels/agents';
 import { api } from './app/components/api';
 import { ManagedConnections, type AgentGrants } from './app/components/managed-connections';
 import { SettingsAgents } from './app/components/settings-agents';

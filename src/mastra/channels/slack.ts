@@ -1,20 +1,24 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { resolve } from 'node:path';
-import { coworkStateDir } from '../state.ts';
+import { coworkStateDir } from '../../state.ts';
 import { createSlackAdapter, SlackFormatConverter, type SlackAdapter } from '@chat-adapter/slack';
 import { verifySlackRequest } from '@chat-adapter/slack/webhook';
 import { MemoryStateAdapter } from '@chat-adapter/state-memory';
 import { createClient } from '@libsql/client';
 import type { Mastra } from '@mastra/core';
 import type { ChannelConfig, ChannelHandler } from '@mastra/core/channels';
-import { channelAgentInstance, respondFromChannel, saveSlackMessage, type ChannelActor, type SlackAgentKey } from './channel-tools.ts';
+import { channelAgentInstance, respondFromChannel, saveSlackMessage, type ChannelActor, type ChannelMessage, type SlackAgentKey } from './tools.ts';
 import { Hono, type Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
-import { channelAgents, channelAgentIds, roleAgentId, type ChannelAgent } from '../channel-agents.ts';
-import type { Role } from './agents/index.ts';
-import { channelReplyGuidance, normalizeChannelReply } from './channels/format.ts';
+import { channelAgents, channelAgentIds, roleAgentId, type ChannelAgent } from './agents.ts';
+import { workspaceAgentRole, type Role } from '../agents/roles.ts';
+import { checkChatScope } from '../classifiers/agent-request.ts';
+import { guardrailReply } from '../guardrails/feedback.ts';
+import { conversationContext } from '../guardrails/input.ts';
+import { inChannelThread, participantMessage, sharedChannelMemory } from '../memory/multi-user-thread.ts';
+import { channelReplyGuidance, normalizeChannelReply } from './format.ts';
 
 const settingsPath = '/settings?section=channels';
 const callbackSuffix = '/oauth/callback';
@@ -190,7 +194,8 @@ class SlackState extends MemoryStateAdapter {
 }
 
 export function slackChannelConfig(role: Role): ChannelConfig | undefined {
-  const settings = [...configuredApps.values()].find(({ agent }) => !agent || channelAgents[agent].role === role);
+  const workspaceRole = workspaceAgentRole(role);
+  const settings = [...configuredApps.values()].find(({ agent }) => !agent || workspaceAgentRole(channelAgents[agent].role) === workspaceRole);
   if (!settings && !workerSettings) return;
 
   const adapter = createSlackAdapter({
@@ -209,11 +214,16 @@ export function slackChannelConfig(role: Role): ChannelConfig | undefined {
     },
   });
   const handle: ChannelHandler = async (thread, message, _defaultHandler, { mastra }) => {
-    if (mastra) await handleSlackMessage(mastra, role, adapter, thread, message);
+    const event = delivery.getStore();
+    if (!event || !mastra) return;
+    const memory = sharedChannelMemory({ Channel: 'slack', WorkspaceID: event.workspace,
+      Installation: event.installationId, Agent: event.settings.agent, Conversation: thread.id });
+    await inChannelThread(memory.thread, () => handleSlackMessage(mastra, workspaceRole, adapter, thread, message));
   };
   return {
     adapters: { slack: adapter },
     state: new SlackState(),
+    chatOptions: { concurrency: 'concurrent' },
     tools: false,
     handlers: {
       onDirectMessage: handle, onMention: handle, onSubscribedMessage: handle,
@@ -495,7 +505,7 @@ function registerManagedSlack(app: Hono, mastra: Mastra, liveModel: boolean, ori
     const workspace = await slackWorkspace(mastra, c.req.header('cookie'));
     if (workspace instanceof Response) return workspace;
     const agent = workspace.agents?.find(({ ID }) => ID && ID === c.req.param('agent'));
-    if (!agent || !Object.hasOwn(mastra.listAgents(), agent.Role)) return c.json({ error: 'Agent not found in this workspace.' }, 404);
+    if (!agent || !Object.hasOwn(mastra.listAgents(), workspaceAgentRole(agent.Role))) return c.json({ error: 'Agent not found in this workspace.' }, 404);
     if (!origin) return c.req.method === 'GET' ? c.json(unavailable) : c.json({ error: 'Slack setup is unavailable on this deployment.' }, 503);
     const key: SlackAgentKey = `agent:${agent.ID}`;
     await initialize();
@@ -664,7 +674,7 @@ async function receiveSlackEvent(c: Context, settings: SlackApp, mastra: Mastra,
   await markVerified();
   const uninstall = payload.event?.type === 'app_uninstalled';
   if (agentId && !mention && !uninstall &&
-      (payload.event?.type !== 'message' || !['im', 'channel'].includes(payload.event.channel_type ?? ''))) {
+      (payload.event?.type !== 'message' || !['im', 'channel', 'group', 'mpim'].includes(payload.event.channel_type ?? ''))) {
     return c.json({ ok: true });
   }
 
@@ -683,7 +693,7 @@ async function receiveSlackEvent(c: Context, settings: SlackApp, mastra: Mastra,
   }
   if (!liveModel) return ignore('model_unavailable');
   if (payload.is_ext_shared_channel) return ignore('slack_connect_channel');
-  const role = String(row.role) as Role;
+  const role = workspaceAgentRole(String(row.role));
   if (!Object.hasOwn(mastra.listAgents(), role)) return ignore('agent_unavailable');
   const channels = mastra.getAgent(role).getChannels();
   if (!channels) return ignore('agent_unavailable');
@@ -703,7 +713,7 @@ async function receiveSlackEvent(c: Context, settings: SlackApp, mastra: Mastra,
 
 async function handleSlackMessage(
   mastra: Mastra,
-  role: Role,
+  role: string,
   adapter: SlackAdapter,
   thread: Parameters<ChannelHandler>[0],
   message: Parameters<ChannelHandler>[1],
@@ -747,18 +757,27 @@ async function handleSlackMessage(
     if ((!agentId || message.isMention || mention || thread.isDM) && await installationActive() &&
         (!agentId || await channelAgentInstance(actor) === actor.AgentInstance)) {
       const messages = await slackMessages(thread, message);
-      const reply = await mastra.getAgent(role).generate(
-        `Respond to the last Slack message only. Conversation in chronological order:\n${JSON.stringify(messages)}`,
-        { activeTools: [], system: channelReplyGuidance },
-      );
-      const markdown = normalizeChannelReply(reply.text);
+      const scope = await checkChatScope(role, messages);
+      let reply: string;
+      if (scope.allowed) {
+        const result = await mastra.getAgent(role).generate(participantMessage(messages.at(-1)!.Text, {
+          id: actor.SenderID, name: actor.Author, channel: 'slack',
+        }), {
+          activeTools: [], context: conversationContext(messages.slice(0, -1)),
+          system: 'Respond to the latest Slack message. Treat earlier messages as context. ' + channelReplyGuidance,
+        });
+        reply = result.tripwire ? guardrailReply(result.tripwire) : result.text;
+      } else reply = scope.message;
+      const markdown = normalizeChannelReply(reply);
       if (markdown && await installationActive() &&
           (!agentId || await channelAgentInstance(actor) === actor.AgentInstance)) await thread.post(slackReply(markdown));
     }
     return;
   }
   const { channel, threadTs } = adapter.decodeThreadId(thread.id);
-  const passive = Boolean(agentId && !mention && !message.isMention && !thread.isDM);
+  const raw = message.raw as { thread_ts?: string };
+  const followUp = Boolean(threadTs && raw?.thread_ts === threadTs && await thread.isSubscribed());
+  const passive = Boolean(agentId && !mention && !message.isMention && !thread.isDM && !followUp);
   let mirrored: Awaited<ReturnType<typeof saveSlackMessage>> | undefined;
   if (agentId && channel.startsWith('C') && threadTs) {
     const channelResponse = await fetch('https://slack.com/api/conversations.info?' + new URLSearchParams({ channel }), {
@@ -776,10 +795,11 @@ async function handleSlackMessage(
     }
   }
   if (mirrored?.Duplicate || passive) return;
+  if (!thread.isDM) await thread.subscribe();
 
   let name = settings.name;
   try {
-    const reply = await respondFromChannel(mastra, actor, mirrored?.Messages ?? await slackMessages(thread, message), {
+    const reply = await respondFromChannel(mastra, actor, await slackMessages(thread, message, mirrored?.Messages), {
       installationActive,
       timeZone: slackTimeZone(user.tz),
       progress: async (status, displayName) => {
@@ -808,7 +828,6 @@ async function handleSlackMessage(
       if (mirrored?.Sync) {
         await saveSlackMessage(actor, { ID: replyId, Text: reply.slice(0, 12000), At: new Date().toISOString(), Reply: true });
       }
-      if (!thread.isDM && (!agentId || mirrored?.Sync)) await thread.subscribe();
     }
   } finally {
     await thread.startTyping('').catch(() => undefined);
@@ -829,15 +848,26 @@ function slackTimeZone(timeZone: unknown): string | undefined {
   }
 }
 
-async function slackMessages(thread: Parameters<ChannelHandler>[0], message: Parameters<ChannelHandler>[1]) {
+async function slackMessages(thread: Parameters<ChannelHandler>[0], message: Parameters<ChannelHandler>[1], mirrored: ChannelMessage[] = []) {
   await thread.refresh().catch(() => undefined);
-  const history = thread.recentMessages.filter((item) => item.id !== message.id && item.text.trim())
-    .sort((a, b) => a.metadata.dateSent.getTime() - b.metadata.dateSent.getTime()).slice(-23);
-  return [...history, message].map((item) => ({
+  const format = (item: Parameters<ChannelHandler>[1]): ChannelMessage => ({
     Author: item.author.fullName || item.author.userName,
     Text: item.text.slice(0, 4000),
     SenderID: item.author.userId,
-  }));
+    Agent: item.author.isMe || item.author.isBot === true,
+    At: item.metadata.dateSent.toISOString(),
+    SlackMessage: item.id,
+  });
+  const history = new Map<string, ChannelMessage>();
+  for (const item of mirrored) if (item.SlackMessage) history.set(item.SlackMessage, item);
+  for (const item of thread.recentMessages) if (item.text.trim()) history.set(item.id, format(item));
+  const sentAt = Number(message.id);
+  const recent = [...history.entries()]
+    .filter(([id]) => Number(id) < sentAt)
+    .sort(([a], [b]) => Number(a) - Number(b))
+    .slice(-23)
+    .map(([, item]) => item);
+  return [...recent, format(message)];
 }
 
 async function slackWorkspace(mastra: Mastra, cookie?: string) {
@@ -846,7 +876,7 @@ async function slackWorkspace(mastra: Mastra, cookie?: string) {
     signal: AbortSignal.timeout(5000),
   });
   if (!response.ok) return new Response(response.body, { status: response.status, headers: { 'Content-Type': 'application/json' } });
-  const workspace = await response.json() as { id: string; role: Role; owner: boolean; agents?: { ID: string; Name: string; Role: Role }[] };
-  if (!/^[a-f0-9]{48}$/.test(workspace.id) || !Object.hasOwn(mastra.listAgents(), workspace.role)) throw new Error('Invalid workspace.');
+  const workspace = await response.json() as { id: string; role: string; owner: boolean; agents?: { ID: string; Name: string; Role: string }[] };
+  if (!/^[a-f0-9]{48}$/.test(workspace.id) || !Object.hasOwn(mastra.listAgents(), workspaceAgentRole(workspace.role))) throw new Error('Invalid workspace.');
   return workspace;
 }

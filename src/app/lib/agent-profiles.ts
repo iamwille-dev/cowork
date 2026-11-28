@@ -1,4 +1,4 @@
-import { channelAgents } from '../../channel-agents';
+import { channelAgents } from '../../mastra/channels/agents';
 import developer from '../assets/agents/developer.webp';
 import productManager from '../assets/agents/product-manager.webp';
 import salesLead from '../assets/agents/sales-lead.webp';

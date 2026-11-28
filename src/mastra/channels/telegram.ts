@@ -2,8 +2,9 @@ import { createMemoryState } from '@chat-adapter/state-memory';
 import type { ChannelHandler } from '@mastra/core/channels';
 import { Agent } from '@mastra/core/agent';
 import { createTelegramAdapter } from '@mastra/telegram';
-import { channelAgents, type ChannelAgent } from '../channel-agents.ts';
+import { channelAgents, type ChannelAgent } from './agents.ts';
 import type { Mastra } from '@mastra/core';
+import { inChannelThread, sharedChannelMemory } from '../memory/multi-user-thread.ts';
 
 const sharedSecret = process.env.COWORK_TELEGRAM_BRIDGE_SECRET?.trim();
 
@@ -11,28 +12,31 @@ type Installation = { WorkspaceID: string; Agent?: ChannelAgent | ''; Version: s
 
 const recordMessage = ({ WorkspaceID, Agent, Version }: Installation): ChannelHandler => async (thread, message) => {
   if (thread.isDM || message.author.isBot === true || message.author.isMe || !message.text.trim()) return;
-  const chat = message.raw as { chat?: { id: number; type: string; title?: string } };
-  if (chat.chat?.type !== 'group' && chat.chat?.type !== 'supergroup') return;
-  const response = await fetch('http://127.0.0.1:4000/internal/telegram/message', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sharedSecret}` },
-    body: JSON.stringify({
-      WorkspaceID, Agent, Version,
-      ChatID: String(chat.chat.id),
-      Topic: thread.id,
-      Title: chat.chat.title,
-      MessageID: message.id,
-      SenderID: message.author.userId,
-      Author: message.author.fullName || message.author.userName,
-      Text: message.text,
-      At: message.metadata.dateSent,
-      Reply: Boolean(message.isMention || message.replyTo?.author.isMe),
-    }),
-    signal: AbortSignal.timeout(185_000),
+  const { chat } = message.raw as { chat?: { id: number; type: string; title?: string } };
+  if (chat?.type !== 'group' && chat?.type !== 'supergroup') return;
+  const memory = sharedChannelMemory({ Channel: 'telegram', WorkspaceID, Installation: Version, Agent, Conversation: thread.id });
+  await inChannelThread(memory.thread, async () => {
+    const response = await fetch('http://127.0.0.1:4000/internal/telegram/message', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sharedSecret}` },
+      body: JSON.stringify({
+        WorkspaceID, Agent, Version,
+        ChatID: String(chat.id),
+        Topic: thread.id,
+        Title: chat.title,
+        MessageID: message.id,
+        SenderID: message.author.userId,
+        Author: message.author.fullName || message.author.userName,
+        Text: message.text,
+        At: message.metadata.dateSent,
+        Reply: Boolean(message.isMention || message.replyTo?.author.isMe),
+      }),
+      signal: AbortSignal.timeout(185_000),
+    });
+    if (!response.ok) throw new Error(`Cowork could not process Telegram message (HTTP ${response.status}).`);
+    const { reply } = await response.json() as { reply?: string };
+    if (reply) await thread.post({ markdown: reply });
   });
-  if (!response.ok) throw new Error(`Cowork could not process Telegram message (HTTP ${response.status}).`);
-  const { reply } = await response.json() as { reply?: string };
-  if (reply) await thread.post({ markdown: reply });
 };
 
 async function connect(mastra: Mastra, installation: Installation) {
@@ -52,6 +56,7 @@ async function connect(mastra: Mastra, installation: Installation) {
     channels: {
       adapters: { telegram: adapter },
       state: createMemoryState(),
+      chatOptions: { concurrency: 'concurrent' },
       tools: false,
       handlers: {
         onMessage: handle, onMention: handle, onSubscribedMessage: handle,

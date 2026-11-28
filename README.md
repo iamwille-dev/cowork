@@ -77,7 +77,13 @@ Keep using the original `AGENT_CONNECTION_ENCRYPTION_KEY` or the original `.cowo
 
 ## Configure OpenRouter
 
-Copy `.env.example` to `.env` in the project root and set `OPENROUTER_API_KEY` to your [OpenRouter key](https://openrouter.ai/settings/keys). Restart `npm start` to load it. The same server-side key serves all four roles. Set `OPENROUTER_MODEL` to an OpenRouter model ID such as `openai/gpt-4.1-mini` to override the default. Chat and its tools require a key. The manual task form can still use the built-in Developer planning and preview runner.
+Copy `.env.example` to `.env` in the project root and set `OPENROUTER_API_KEY` to your [OpenRouter key](https://openrouter.ai/settings/keys). Restart `npm start` to load it. The same server-side key serves all four roles. Set `OPENROUTER_MODEL` to an OpenRouter model ID such as `openai/gpt-4.1-mini` to override the chat model. `OPENROUTER_CLASSIFIER_MODEL` defaults to `typesafe/jev-1.14` and can be set to another OpenRouter decision model supported by the System One endpoint.
+
+Cowork checks each incoming chat request and agent task assignment against the requested role. The check also applies to scheduled work and task reassignments. If a request belongs to a different role, Cowork names that role so the user can choose it. Agent chat and assignments require a working classifier. Tasks can still be assigned to team members when the classifier is unavailable.
+
+Define the scope for new roles in `src/mastra/agents/roles.ts` when adding them to Cowork's agent catalog. Mastra uses those scopes for both agent instructions and classifier choices.
+
+All Cowork roles use the default processors in `src/mastra/guardrails` and `src/mastra/processors`. Input checks for prompt injection, moderation, and language run concurrently. Non-English messages are translated for the agent, which replies in the original language by default. The agent follows the current tone request and uses saved personal preferences when the conversation has access to them. Moderation and system-prompt scrubbing run concurrently on buffered reply text before it is released. Safety checks use the existing `OPENROUTER_API_KEY` and default to `openai/gpt-4.1-mini`, which can be overridden with `OPENROUTER_GUARDRAIL_MODEL`.
 
 ## Add the agent to Slack
 
@@ -144,7 +150,9 @@ In an internal conversation, ask the agent to pull a repository by its HTTPS URL
 
 Ask the agent “Remember that the launch codename is Sky Lantern.” Later in another signed-in conversation in the same workspace, ask “What is the launch codename?” You can also ask the agent to update or forget a saved detail. Forgetting a detail removes it from working memory. It can still appear in the chat transcript.
 
-All four roles use Mastra working memory for durable project facts, decisions, and participant preferences. Signed-in conversations share memory within the workspace. Telegram and conversations with an active guest invitation or guest session use their own conversation memory. An email invitation shares the existing transcript, including any earlier agent replies. Encore continues to provide the chat history. Scheduled tasks use their saved briefs.
+All four roles use Mastra working memory for durable project facts and decisions. Signed-in Cowork conversations share memory within the workspace. Slack threads, Telegram groups and forum topics, and Cowork conversations with guest access each have their own conversation memory. Channel turns carry the authenticated sender's identity and run separately, so a follow-up uses the new sender's tool context. Cowork reads the conversation transcript from Encore and Slack. An email invitation shares the existing transcript, including earlier agent replies. Scheduled tasks use their saved briefs.
+
+Mention the Slack agent to start a conversation in a channel or group. Members can follow up inside the subscribed thread without repeating the mention.
 
 Memory is stored in `backend/.cowork/memory.db` and survives worker restarts. Keep the existing persistent volume mounted to retain it across deployments.
 

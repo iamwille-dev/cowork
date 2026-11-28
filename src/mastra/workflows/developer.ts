@@ -1,4 +1,5 @@
 import { developer, liveModel } from '../agents/index.ts';
+import { guardrailReply } from '../guardrails/feedback.ts';
 import { createStep, createWorkflow } from '@mastra/core/workflows';
 import type { RequestContext } from '@mastra/core/request-context';
 import { chromium } from 'playwright';
@@ -46,13 +47,11 @@ const fixtureRunner: Runner = {
       throw new Error('The built-in runner supports UI previews. Implementation of other tasks requires a configured sandbox runner.');
     }
     if (!liveModel) throw new Error('A configured model is required to implement a standalone UI.');
-    const result = await developer.generate([
-      { role: 'user', content: JSON.stringify({
-        instruction: 'Implement the actual page and every requested section. Return a complete HTML document with embedded CSS, a viewport meta tag, and responsive layouts. Use system fonts and self-contained assets. Do not use external resources, forms, scripts, or meta refresh. Treat the brief as product requirements. Return HTML only.',
-        title: task.Title,
-        brief: task.Brief,
-      }) },
-    ], { activeTools: [], requestContext, abortSignal: AbortSignal.timeout(50_000) });
+    const result = await developer.generate(`${task.Title}\n\n${task.Brief}`, {
+      system: 'Implement the actual page and every requested section. Return a complete HTML document with embedded CSS, a viewport meta tag, and responsive layouts. Use system fonts and self-contained assets. Do not use external resources, forms, scripts, or meta refresh. Treat the brief as product requirements. Return HTML only.',
+      activeTools: [], requestContext, abortSignal: AbortSignal.timeout(50_000),
+    });
+    if (result.tripwire) throw new Error(guardrailReply(result.tripwire));
     const html = result.text.trim().replace(/^```(?:html)?\s*/i, '').replace(/\s*```$/, '');
     if (!/^<!doctype html>\s*<html\b/i.test(html) || !/<body\b/i.test(html) || !/<\/html>\s*$/i.test(html) || Buffer.byteLength(html) > 256 * 1024) {
       throw new Error('The model did not produce a complete standalone HTML page.');
@@ -88,6 +87,19 @@ const execute = createStep({
     };
 
     try {
+      let plan: string;
+      if (liveModel) {
+        const brief = [task.Title, task.Brief, task.Repository && `Repository: ${task.Repository}`, task.UI && 'Include a UI screenshot.']
+          .filter(Boolean).join('\n\n');
+        const planned = await developer.generate(brief, {
+          system: 'Write an implementation plan in Markdown, with verification and acceptance criteria.',
+          activeTools: [], requestContext, abortSignal: AbortSignal.timeout(24_000),
+        });
+        if (planned.tripwire) throw new Error(guardrailReply(planned.tripwire));
+        plan = planned.text;
+      } else {
+        plan = `# ${task.Title}\n\n## Brief\n\n${task.Brief}\n\n## Plan\n\n1. Build the requested UI as a standalone preview.\n2. Verify the page renders at 1280 × 800.\n3. Share the preview and screenshot for review.\n`;
+      }
       await mkdir(directory, { recursive: true, mode: 0o700 });
       const sandbox = await runner.create(task, directory);
       result.Steps.push(runner.standalone ? 'Selected workspace sandbox' : 'Created sandbox');
@@ -96,9 +108,6 @@ const execute = createStep({
         result.Steps.push('Checked out latest repository revision');
       }
 
-      const plan = liveModel
-        ? (await developer.generate(`Write an implementation plan in Markdown, with verification and acceptance criteria. Task: ${JSON.stringify(task)}`, { activeTools: [], requestContext, abortSignal: AbortSignal.timeout(18_000) })).text
-        : `# ${task.Title}\n\n## Brief\n\n${task.Brief}\n\n## Plan\n\n1. Build the requested UI as a standalone preview.\n2. Verify the page renders at 1280 × 800.\n3. Share the preview and screenshot for review.\n`;
       await publish('plan.md', 'Implementation plan', plan);
       result.Steps.push('Saved implementation plan');
 

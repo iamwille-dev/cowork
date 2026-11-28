@@ -1,6 +1,7 @@
 package cowork
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -102,25 +103,28 @@ func updateBoardTask(w http.ResponseWriter, r *http.Request, d *database, a Acco
 	if !decode(w, r, &input) {
 		return
 	}
-	saveBoardTaskUpdate(w, d, a, space, input)
+	saveBoardTaskUpdate(r.Context(), w, d, a, space, input)
 }
 
-func saveBoardTaskUpdate(w http.ResponseWriter, d *database, a Account, space *Workspace, input taskUpdate) {
+func saveBoardTaskUpdate(ctx context.Context, w http.ResponseWriter, d *database, a Account, space *Workspace, input taskUpdate) {
 	for i := range space.Tasks {
 		task := &space.Tasks[i]
 		if task.ID != input.ID {
 			continue
 		}
-		if code, message := applyTaskUpdate(d, space, task, input, time.Now()); code != 200 {
+		updated := *task
+		if code, message := applyTaskUpdate(d, space, &updated, input, time.Now()); code != 200 {
 			fail(w, code, message)
 			return
 		}
-		if err := save(d); err != nil {
-			if errors.Is(err, errStaleWorkspace) {
-				fail(w, 409, "The workspace changed. Try again.")
-			} else {
-				fail(w, 500, "Could not save task changes.")
+		if updated.AssigneeMemberID == "" && (input.Assignee != nil || task.Title != updated.Title || task.Brief != updated.Brief) {
+			role := assignedTaskRole(space, updated)
+			if role != "" && !validateTaskAssignment(ctx, w, role, updated) {
+				return
 			}
+		}
+		*task = updated
+		if !saveTaskChange(w, d, "Could not save task changes.") {
 			return
 		}
 		w.Header().Set("X-Cowork-Record-Id", task.ID)
@@ -128,6 +132,16 @@ func saveBoardTaskUpdate(w http.ResponseWriter, d *database, a Account, space *W
 		return
 	}
 	fail(w, 404, "Task not found in this workspace.")
+}
+
+func saveTaskChange(w http.ResponseWriter, d *database, message string) bool {
+	err := save(d)
+	if errors.Is(err, errStaleWorkspace) {
+		fail(w, http.StatusConflict, "The workspace changed. Try again.")
+	} else if err != nil {
+		fail(w, http.StatusInternalServerError, message)
+	}
+	return err == nil
 }
 
 func findBoardTasks(w http.ResponseWriter, r *http.Request, space *Workspace) {

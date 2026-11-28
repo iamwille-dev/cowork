@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { channelAgents, roleAgentId } from '../src/channel-agents.ts';
+import { channelAgents, roleAgentId } from '../src/mastra/channels/agents.ts';
 
 const agent = process.argv[2];
 const origin = URL.parse(process.argv[3] ?? 'https://cowork.iamwille.xyz');

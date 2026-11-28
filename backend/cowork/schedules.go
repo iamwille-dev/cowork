@@ -23,10 +23,10 @@ func scheduleTask(w http.ResponseWriter, r *http.Request, d *database, a Account
 	if !decode(w, r, &input) {
 		return
 	}
-	saveTaskSchedule(w, d, a, space, input, space.threadAgent(input.ThreadID))
+	saveTaskSchedule(r.Context(), w, d, a, space, input, space.threadAgent(input.ThreadID))
 }
 
-func saveTaskSchedule(w http.ResponseWriter, d *database, a Account, space *Workspace, input taskSchedule, fallback workspaceAgent) {
+func saveTaskSchedule(ctx context.Context, w http.ResponseWriter, d *database, a Account, space *Workspace, input taskSchedule, fallback workspaceAgent) {
 	if threadMessages(space, input.ThreadID) == nil {
 		fail(w, 404, "Conversation not found.")
 		return
@@ -73,9 +73,11 @@ func saveTaskSchedule(w http.ResponseWriter, d *database, a Account, space *Work
 	if input.Recurrence != "" {
 		task.Recurrence, task.RecurrenceStart = input.Recurrence, &due
 	}
+	if !validateTaskAssignment(ctx, w, agent.Role, task) {
+		return
+	}
 	space.Tasks = append(space.Tasks, task)
-	if err := save(d); err != nil {
-		fail(w, 500, "Could not save scheduled task.")
+	if !saveTaskChange(w, d, "Could not save scheduled task.") {
 		return
 	}
 	w.Header().Set("X-Cowork-Record-Id", task.ID)
@@ -139,6 +141,7 @@ func updateSchedule(w http.ResponseWriter, r *http.Request, d *database, a Accou
 				fail(w, 400, "Enter a title, a task brief, and a valid frequency.")
 				return
 			}
+			updated := *task
 			if input.LocalDue != "" {
 				const localFormat = "2006-01-02T15:04"
 				location, err := time.LoadLocation(task.ScheduledTimeZone)
@@ -152,25 +155,24 @@ func updateSchedule(w http.ResponseWriter, r *http.Request, d *database, a Accou
 					return
 				}
 				due = due.UTC()
-				task.ScheduledFor = &due
+				updated.ScheduledFor = &due
 			}
 			if input.Recurrence == "" {
-				task.RecurrenceStart = nil
+				updated.RecurrenceStart = nil
 			} else if input.LocalDue != "" || task.Recurrence != input.Recurrence {
-				task.RecurrenceStart = task.ScheduledFor
+				updated.RecurrenceStart = updated.ScheduledFor
 			}
-			task.Title, task.Brief, task.Recurrence = title, brief, input.Recurrence
-			task.MemoryMemberID = a.ID
+			updated.Title, updated.Brief, updated.Recurrence = title, brief, input.Recurrence
+			if (title != task.Title || brief != task.Brief) && !validateTaskAssignment(r.Context(), w, assignedTaskRole(space, updated), updated) {
+				return
+			}
+			updated.MemoryMemberID = a.ID
+			*task = updated
 		default:
 			fail(w, 400, "Choose a schedule action.")
 			return
 		}
-		if err := save(d); err != nil {
-			if errors.Is(err, errStaleWorkspace) {
-				fail(w, 409, "The workspace changed. Try again.")
-			} else {
-				fail(w, 500, "Could not save schedule changes.")
-			}
+		if !saveTaskChange(w, d, "Could not save schedule changes.") {
 			return
 		}
 		view(w, d, a)
@@ -285,15 +287,7 @@ func claimScheduledTask(now time.Time) (string, workerRequest, error) {
 	if err := save(d); err != nil {
 		return "", workerRequest{}, err
 	}
-	role := space.Role
-	if roles[run.AgentRole] {
-		role = run.AgentRole
-	}
-	if run.AgentID != "" {
-		if agent, ok := space.agent(run.AgentID); ok {
-			role = agent.Role
-		}
-	}
+	role := assignedTaskRole(space, run)
 	request := workerRequest{Task: run, Role: role, TimeZone: run.ScheduledTimeZone}
 	if run.MemoryMemberID != "" && agent.Role == role && !hasActiveGuestGrant(d, space.ID, run.ThreadID) {
 		request.AgentMemory = space.memoryFor(run.MemoryMemberID, agent.ID).Items

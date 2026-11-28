@@ -6,7 +6,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import Image from 'next/image';
 import { ArrowLeftIcon, ArrowRightIcon } from '@heroicons/react/24/outline';
 import { SlackConnectionForm, TelegramForm } from '../../settings';
-import type { ChannelAgent } from '../../channel-agents';
+import type { ChannelAgent } from '../../mastra/channels/agents';
 import type { AgentChannel, WorkspaceAgent } from '../lib/workspace-agents';
 import { api } from './api';
 import { ManagedConnections, saveConnectionKey, type AgentGrants } from './managed-connections';

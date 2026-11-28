@@ -48,6 +48,9 @@ func TestChannelToolsAreWorkspaceScoped(t *testing.T) {
 	previous := workerClient
 	t.Cleanup(func() { workerClient = previous })
 	workerClient = &http.Client{Transport: scheduledWorkerTransport(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Path == "/task-scope" {
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"ScopeAllowed":true}`))}, nil
+		}
 		calls++
 		var payload workerRequest
 		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {

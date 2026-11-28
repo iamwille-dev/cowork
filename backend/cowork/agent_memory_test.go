@@ -13,6 +13,7 @@ import (
 
 func TestPersonalAgentMemory(t *testing.T) {
 	useTestPostgres(t)
+	allowTaskAssignments(t)
 	t.Setenv("COWORK_AUTH", "local")
 	d, err := load()
 	if err != nil {

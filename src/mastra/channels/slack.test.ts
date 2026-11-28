@@ -6,6 +6,7 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import type { CreatedAgentSignal } from '@mastra/core/agent';
 import type { RequestContext } from '@mastra/core/request-context';
 
 test('Slack provisions named apps and routes managed and legacy installs to registered agents', { timeout: 15_000 }, async (t) => {
@@ -39,7 +40,10 @@ test('Slack provisions named apps and routes managed and legacy installs to regi
     const replies: Record<string, object> = {
       '/users.info': { user },
       '/conversations.history': { messages: [] },
-      '/conversations.replies': { messages: [] },
+      '/conversations.replies': { messages: [
+        { type: 'message', ts: '1700000000.000001', user: 'UMEMBER', text: 'I proposed the teal banner.' },
+        { type: 'message', ts: '1700000000.000004', user: 'UTHIRD', text: 'I sent a later message.' },
+      ] },
       '/conversations.info': { channel: { name: 'general' } },
       '/chat.postMessage': { ts: '1700000001.000001' },
       '/assistant.threads.setStatus': {},
@@ -199,8 +203,12 @@ test('Slack provisions named apps and routes managed and legacy installs to regi
     }
   });
 
-  const { mastra } = await import('./index.ts');
-  const { developer } = await import('./agents/index.ts');
+  const { mastra } = await import('../index.ts');
+  const { agentRequestClassifier } = await import('../classifiers/agent-request.ts');
+  const { developer } = await import('../agents/index.ts');
+  t.mock.method(agentRequestClassifier, 'decide', async ({ state }: { state: unknown }) => ({
+    answers: { role: { type: 'choice', choice: JSON.stringify(state).includes('Draft a sales email') ? 'Sales Lead' : 'shared' } },
+  }));
   const { createSlackHandler } = await import('./slack.ts');
   const handler = createSlackHandler(mastra, true);
   const canonical = '/api/agents/developer/channels/slack/webhook';
@@ -213,9 +221,11 @@ test('Slack provisions named apps and routes managed and legacy installs to regi
 
   const turns: Promise<unknown>[] = [];
   const modelCalls: string[] = [];
-  t.mock.method(developer, 'stream', async (prompt: string, { requestContext }: { requestContext: RequestContext }) => {
+  t.mock.method(developer, 'stream', async (message: CreatedAgentSignal, { requestContext }: { requestContext: RequestContext }) => {
     const tools = await developer.listTools({ requestContext });
     assert.deepEqual(Object.keys(tools), Object.keys(workspaceTools));
+    assert.equal(message.attributes?.user_id, 'UMEMBER');
+    const prompt = String(message.contents);
     modelCalls.push(prompt);
     return { text: Promise.resolve(prompt.includes('long formatted reply') ? longReply : 'Cowork reply'), fullStream: [] };
   });
@@ -282,10 +292,19 @@ test('Slack provisions named apps and routes managed and legacy installs to regi
   assert.equal(sdkPosts.get('Bearer shared-token')?.markdown_text, undefined);
   assert.equal(sdkPosts.get('Bearer ada-token')?.markdown_text, 'Cowork reply');
 
+  const outOfScope = event(installs.ada);
+  outOfScope.event_id += '-sales';
+  outOfScope.event.ts = '1700000000.000002';
+  outOfScope.event.text = `<@${installs.ada.bot}> Draft a sales email`;
+  assert.equal((await send(canonical, outOfScope, installs.ada.secret)).status, 200);
+  await Promise.all(turns);
+  assert.equal(modelCalls.length, 2);
+  assert.equal(posted.length, 3);
+
   for (const [index, agent] of workspaceAgents.entries()) {
     const endpoint = '/api/slack/agents/' + agent.ID;
     const initial = await (await handler(request(endpoint))).json();
-    assert.equal(initial.needsToken, index === 0);
+    assert.equal(initial.needsToken, index === 0, JSON.stringify(initial));
     const start = async (refreshToken?: string) => {
       const started = await handler(request(endpoint, {
         method: 'POST', body: JSON.stringify({ action: 'connect', refreshToken }), headers: { 'Content-Type': 'application/json' },
@@ -323,12 +342,28 @@ test('Slack provisions named apps and routes managed and legacy installs to regi
     const webhook = registeredChannels.handleWebhookEvent.bind(registeredChannels);
     t.mock.method(registeredChannels, 'handleWebhookEvent', (platform: string, req: Request) =>
       webhook(platform, req, { waitUntil: (task) => { turns.push(task); } }));
-    t.mock.method(registered, 'stream', async (prompt: string, { requestContext, system, toolsets }: {
+    let groupMemory: { thread: string; resource: string } | undefined;
+    t.mock.method(registered, 'stream', async (message: CreatedAgentSignal, { requestContext, system, toolsets, memory, context }: {
       requestContext: RequestContext;
       system: string;
       toolsets: { agentConnection: Record<string, { execute?: (input: { connection_id: string }) => unknown }> };
+      memory: { thread: string; resource: string };
+      context?: unknown;
     }) => {
+      const prompt = String(message.contents);
       modelCalls.push(agent.ID + ': ' + prompt);
+      assert.equal(memory.thread, memory.resource);
+      if (prompt.includes('Who proposed')) {
+        assert.equal(message.attributes?.user_id, 'USECOND');
+        assert.match(system, /USECOND/);
+        assert.deepEqual(memory, groupMemory);
+        assert.match(JSON.stringify(context), /teal banner/);
+        assert.match(JSON.stringify(context), /UMEMBER/);
+        assert.doesNotMatch(JSON.stringify(context), /later message/);
+        return { text: Promise.resolve('The first participant proposed it.'), fullStream: [] };
+      }
+      assert.equal(message.attributes?.user_id, 'UMEMBER');
+      groupMemory = memory;
       if (index === 0) {
         assert.match(system, /America\/Regina/);
         const mail = toolsets.agentConnection.gmail_search;
@@ -355,7 +390,9 @@ test('Slack provisions named apps and routes managed and legacy installs to regi
       }
       return { text: Promise.resolve(fencedTaskList), fullStream: [] };
     });
-    assert.equal((await send(pending.app.webhook, event(pending.app, 'CPRIVATE'), pending.app.secret)).status, 200);
+    const privateChannel = 'GPRIVATE';
+    const initialMessage = event(pending.app, privateChannel);
+    assert.equal((await send(pending.app.webhook, initialMessage, pending.app.secret)).status, 200);
     await Promise.all(turns);
     assert.equal(posted.at(-1), 'Bearer ' + pending.app.token);
     const post = customPosts.get('Bearer ' + pending.app.token);
@@ -366,6 +403,18 @@ test('Slack provisions named apps and routes managed and legacy installs to regi
     assert.ok(post?.get('markdown_text')?.startsWith(expected));
     if (index !== 0) assert.equal(sdkPosts.get('Bearer ' + pending.app.token)?.markdown_text, taskList);
     assert.match(modelCalls.at(-1) ?? '', new RegExp('^' + agent.ID));
+    if (index === 0) {
+      const followUp = { ...initialMessage, event_id: initialMessage.event_id + '_followup', event: {
+        type: 'message', channel_type: 'group', user: 'USECOND', channel: privateChannel,
+        text: 'Who proposed the banner?', thread_ts: initialMessage.event.ts, ts: '1700000000.000003',
+      } };
+      assert.equal((await send(pending.app.webhook, followUp, pending.app.secret)).status, 200);
+      await Promise.all(turns);
+      assert.match(modelCalls.at(-1) ?? '', /Who proposed the banner/);
+      const response = customPosts.get('Bearer ' + pending.app.token);
+      assert.equal(response?.get('thread_ts'), initialMessage.event.ts);
+      assert.equal(response?.get('markdown_text'), 'The first participant proposed it.');
+    }
   }
   assert.equal(rotations, 1);
   assert.equal(created.size, 2);

@@ -222,11 +222,13 @@ type workerRequest struct {
 	Messages                 []Message
 }
 type workerResponse struct {
-	Reply       string
-	AgentMemory *[]string
-	Steps       []string
-	Artifacts   []Artifact
-	Error       string
+	Reply            string
+	AgentMemory      *[]string
+	Steps            []string
+	Artifacts        []Artifact
+	Error            string
+	ScopeAllowed     bool
+	ScopeUnavailable bool
 }
 
 var workerClient = &http.Client{Timeout: 90 * time.Second}
@@ -611,18 +613,20 @@ func runAgent(w http.ResponseWriter, r *http.Request, d *database, a Account, sp
 		agent = assignee
 		request.Role, request.AgentName = agent.Role, agent.Name
 		request.Task = Task{ID: key(), Title: input.Title, Brief: input.Brief, Repository: strings.TrimSpace(input.Repository), Author: a.Name, Status: "Assigned", UI: input.UI, ThreadID: input.ThreadID, AgentID: agent.ID, AgentRole: agent.Role, AssigneeMemberID: member}
+		if member == "" && !validateTaskAssignment(r.Context(), w, agent.Role, request.Task) {
+			return
+		}
 		start := agent.Role == "Developer" && !input.PlanOnly
 		if start {
 			now := time.Now().UTC()
 			request.Task.Status, request.Task.WorkflowStarted = "Running", &now
 		}
 		space.Tasks = append(space.Tasks, request.Task)
-		w.Header().Set("X-Cowork-Record-Id", request.Task.ID)
 		if !start {
-			if save(d) != nil {
-				fail(w, 500, "Could not save task.")
+			if !saveTaskChange(w, d, "Could not save task.") {
 				return
 			}
+			w.Header().Set("X-Cowork-Record-Id", request.Task.ID)
 			view(w, d, a)
 			return
 		}
@@ -660,9 +664,11 @@ func runAgent(w http.ResponseWriter, r *http.Request, d *database, a Account, sp
 		request.GitTokens = tokens
 	}
 
-	if save(d) != nil {
-		fail(w, 500, "Could not save request.")
+	if !saveTaskChange(w, d, "Could not save request.") {
 		return
+	}
+	if route == "task" {
+		w.Header().Set("X-Cowork-Record-Id", request.Task.ID)
 	}
 	mutex.Unlock()
 	session := tokenFor(r)
