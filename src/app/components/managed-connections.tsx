@@ -136,6 +136,7 @@ export function ManagedConnections({ enabled, agents, grants, onGrants, savingGr
   }
 
   if (!enabled && !onboarding) return null;
+
   return <div className="stack">
     <ConnectionCatalog busy={busy} serviceError={enabled ? loadError : 'Tool connections are unavailable on this deployment.'}
       retry={enabled && loadError ? () => void refresh() : undefined}

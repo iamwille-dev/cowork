@@ -72,6 +72,7 @@ func TestNextOccurrence(t *testing.T) {
 
 func TestRecurringScheduleCreatesSeparateRuns(t *testing.T) {
 	useTestPostgres(t)
+	allowTaskAssignments(t)
 	d, err := load()
 	if err != nil {
 		t.Fatal(err)
@@ -91,7 +92,9 @@ func TestRecurringScheduleCreatesSeparateRuns(t *testing.T) {
 		t.Fatal(err)
 	}
 	reply := httptest.NewRecorder()
+	mutex.Lock()
 	scheduleTask(reply, httptest.NewRequest("POST", "/api/task/schedule", strings.NewReader(string(payload))), d, a, space)
+	mutex.Unlock()
 	id := reply.Header().Get("X-Cowork-Record-Id")
 	if reply.Code != http.StatusOK || id == "" {
 		t.Fatalf("schedule response = %d %s", reply.Code, reply.Body.String())
@@ -127,6 +130,7 @@ func (transport scheduledWorkerTransport) RoundTrip(request *http.Request) (*htt
 
 func TestManageRecurringSchedule(t *testing.T) {
 	useTestPostgres(t)
+	allowTaskAssignments(t)
 	d, err := load()
 	if err != nil {
 		t.Fatal(err)
@@ -213,6 +217,7 @@ func TestManageRecurringSchedule(t *testing.T) {
 
 func TestScheduledTaskPersistsAndRunsWithoutSession(t *testing.T) {
 	useTestPostgres(t)
+	allowTaskAssignments(t)
 	d, err := load()
 	if err != nil {
 		t.Fatal(err)

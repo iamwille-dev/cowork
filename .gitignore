@@ -7,3 +7,6 @@ dist/
 .next/
 next-env.d.ts
 *.tsbuildinfo
+
+# Mastra local runtime state
+/src/mastra/public/backend/.cowork/

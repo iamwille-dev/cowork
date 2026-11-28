@@ -9,11 +9,32 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 )
 
 type channelActor struct {
-	WorkspaceID, Channel, Agent, Installation, Conversation, SenderID, Author string
-	AgentInstance                                                             *string `json:",omitempty"`
+	WorkspaceID, Channel, Agent, Installation, Conversation, ThreadID, SenderID, Author string
+	AgentInstance                                                                       *string `json:",omitempty"`
+}
+
+func (actor channelActor) account() Account {
+	displayName := strings.TrimSpace(actor.Author)
+	if displayName == "" || len(displayName) > 160 {
+		displayName = actor.SenderID
+	}
+	return Account{ID: actor.Channel + ":" + actor.SenderID, Name: displayName + " (" + actor.Channel + ")", Workspace: actor.WorkspaceID}
+}
+
+func (actor channelActor) boundThreadID(space *Workspace) string {
+	if actor.Channel == "slack" {
+		if thread := boundSlackThread(space, actor); thread != nil {
+			return thread.ID
+		}
+	}
+	if actor.Channel == "telegram" && actor.ThreadID != "" && telegramThread(space, actor.ThreadID) && !space.threadHasRemovedAgent(actor.ThreadID) {
+		return actor.ThreadID
+	}
+	return ""
 }
 
 var namedChannelAgents = map[string]struct{ Name, Role string }{
@@ -89,16 +110,26 @@ func ChannelToolBridge(w http.ResponseWriter, r *http.Request) {
 	}
 
 	role := channelAgentRole(space, input.Agent)
+	var activeAgent workspaceAgent
+	if id, managed := strings.CutPrefix(input.Agent, "agent:"); input.Channel == "slack" && managed {
+		var active bool
+		activeAgent, active = space.agent(id)
+		if id == "" || !active || input.AgentInstance == nil || *input.AgentInstance != id {
+			fail(w, 403, "Channel agent unavailable.")
+			return
+		}
+		role = activeAgent.Role
+	} else {
+		for _, agent := range space.Agents {
+			if agent.Role == role {
+				activeAgent = agent
+				break
+			}
+		}
+	}
 	if !roles[role] || space.channelAgentRemoved(input.Agent) {
 		fail(w, 403, "Channel agent unavailable.")
 		return
-	}
-	var activeAgent workspaceAgent
-	for _, agent := range space.Agents {
-		if agent.Role == role {
-			activeAgent = agent
-			break
-		}
 	}
 	if input.AgentInstance != nil && *input.AgentInstance != activeAgent.ID {
 		fail(w, 403, "Channel agent changed in this workspace.")
@@ -141,6 +172,48 @@ func ChannelToolBridge(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		jsonReply(w, 200, context)
+	case "/internal/channel-tools/reminder":
+		var data struct {
+			Text string
+			Due  time.Time
+		}
+		if json.Unmarshal(input.Data, &data) != nil || strings.TrimSpace(data.Text) == "" ||
+			len([]rune(data.Text)) > 4000 || !data.Due.After(time.Now()) {
+			fail(w, 400, "Enter a reminder of up to 4,000 characters and a future due time.")
+			return
+		}
+		reminder := appendReminder(space, data.Text, input.channelActor.account().Name, data.Due)
+		if save(d) != nil {
+			fail(w, 500, "Could not save reminder.")
+			return
+		}
+		w.Header().Set("X-Cowork-Record-Id", reminder.ID)
+		jsonReply(w, http.StatusOK, reminder)
+	case "/internal/channel-tools/task/find":
+		var data struct{ Query string }
+		if json.Unmarshal(input.Data, &data) != nil {
+			fail(w, 400, "Invalid task search.")
+			return
+		}
+		replyBoardTaskMatches(w, space, data.Query)
+	case "/internal/channel-tools/task/update":
+		var data taskUpdate
+		if json.Unmarshal(input.Data, &data) != nil {
+			fail(w, 400, "Invalid task update.")
+			return
+		}
+		data.Assignee = nil
+		saveBoardTaskUpdate(r.Context(), w, d, input.channelActor.account(), space, data)
+	case "/internal/channel-tools/task/schedule":
+		var data taskSchedule
+		if json.Unmarshal(input.Data, &data) != nil {
+			fail(w, 400, "Invalid task schedule.")
+			return
+		}
+		data.ThreadID = input.channelActor.boundThreadID(space)
+		data.Assignee = ""
+		activeAgent.Role = role
+		saveTaskSchedule(r.Context(), w, d, input.channelActor.account(), space, data, activeAgent)
 	case "/internal/channel-tools/task":
 		var data struct {
 			Title, Brief, Repository string
@@ -151,12 +224,7 @@ func ChannelToolBridge(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400, "Invalid task.")
 			return
 		}
-		data.ThreadID = ""
-		if input.Channel == "slack" {
-			if thread := boundSlackThread(space, input.channelActor); thread != nil {
-				data.ThreadID = thread.ID
-			}
-		}
+		data.ThreadID = input.channelActor.boundThreadID(space)
 		// Construct the task request from allowlisted fields. Its workspace and author
 		// come from the channel binding, outside the model's tool inputs.
 		body, _ := json.Marshal(data)
@@ -165,12 +233,7 @@ func ChannelToolBridge(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400, "Invalid task request.")
 			return
 		}
-		displayName := strings.TrimSpace(input.Author)
-		if displayName == "" || len(displayName) > 160 {
-			displayName = input.SenderID
-		}
-		actor := Account{ID: input.Channel + ":" + input.SenderID, Name: displayName + " (" + input.Channel + ")", Workspace: space.ID}
-		runAgent(w, taskRequest, d, actor, space, "task", role)
+		runAgent(w, taskRequest, d, input.channelActor.account(), space, "task", role)
 	default:
 		fail(w, 404, "Unknown channel tool.")
 	}

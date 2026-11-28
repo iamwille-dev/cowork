@@ -8,9 +8,21 @@ import { MockLanguageModelV4 } from 'ai/test';
 import { agentConnection } from './agent-connection.ts';
 
 const connectionSchema = { type: 'object', properties: { connection_id: { type: 'string' } }, required: ['connection_id'] };
+const commitsSchema = {
+  ...connectionSchema,
+  properties: {
+    ...connectionSchema.properties,
+    owner: { type: 'string' },
+    repo: { type: 'string' },
+    ref: { type: 'string' },
+    limit: { type: 'integer' },
+  },
+  required: ['connection_id', 'owner', 'repo'],
+};
 
 test('discovers MCP tools and permits calls only for the selected agent’s granted accounts', async (t) => {
-  const calls: { name: string; arguments: { connection_id?: string } }[] = [];
+  const calls: { name: string; arguments: Record<string, unknown> }[] = [];
+  const commitArgs = { connection_id: 'granted', owner: 'example', repo: 'demo', ref: 'main', limit: 1 };
   const server = createServer(async (req, res) => {
     if (req.headers.authorization !== 'Bearer test-key') {
       res.writeHead(401).end();
@@ -23,7 +35,7 @@ test('discovers MCP tools and permits calls only for the selected agent’s gran
     const body = await json(req) as {
       id?: number;
       method: string;
-      params: { name: string; arguments: { connection_id?: string }; cursor?: string; protocolVersion: string };
+      params: { name: string; arguments: Record<string, unknown>; cursor?: string; protocolVersion: string };
     };
     if (body.id === undefined) {
       res.writeHead(202).end();
@@ -34,14 +46,14 @@ test('discovers MCP tools and permits calls only for the selected agent’s gran
       result = { protocolVersion: body.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: 'test', version: '1' } };
     } else if (body.method === 'tools/list') {
       result = body.params?.cursor ? { tools: [
-        { name: 'github_inspect_releases', inputSchema: connectionSchema, annotations: { readOnlyHint: true } },
+        { name: 'github_list_commits', inputSchema: commitsSchema, annotations: { readOnlyHint: true } },
         { name: 'github_publish_release', inputSchema: connectionSchema, annotations: { readOnlyHint: false } },
       ] } : { tools: [{ name: 'gmail_search', inputSchema: connectionSchema }], nextCursor: 'next' };
     } else if (body.method === 'tools/call') {
       calls.push(body.params);
       const structuredContent = body.params.name === 'list_connections'
         ? { connections: [{ id: 'granted', kind: 'github' }, { id: 'other', kind: 'github' }, { id: 'mail', kind: 'gmail' }] }
-        : { ok: true };
+        : { data: [{ sha: 'abc123', commit: { message: 'Fix latest deployment' } }] };
       result = { content: [], structuredContent };
     }
     res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ jsonrpc: '2.0', id: body.id, result }));
@@ -59,13 +71,13 @@ test('discovers MCP tools and permits calls only for the selected agent’s gran
   });
   const context = { AgentConnectionWorkspace: 'test', AgentConnectionKey: 'test-key', AgentConnectionIDs: ['granted'] };
   const { connection, tools } = await agentConnection(context);
-  assert.deepEqual(Object.keys(tools.agentConnection).sort(), ['github_inspect_releases', 'github_publish_release', 'list_connections']);
+  assert.deepEqual(Object.keys(tools.agentConnection).sort(), ['github_list_commits', 'github_publish_release', 'list_connections']);
   assert.deepEqual(await tools.agentConnection.list_connections.execute?.({}), {
-    connections: [{ id: 'granted', kind: 'github', tools: ['github_inspect_releases', 'github_publish_release'] }],
+    connections: [{ id: 'granted', kind: 'github', tools: ['github_list_commits', 'github_publish_release'] }],
   });
   assert.ok(connection);
   await connection.connect(async (client) => {
-    for (const [name, id] of [['github_inspect_releases', 'other'], ['gmail_search', 'granted']]) {
+    for (const [name, id] of [['github_list_commits', 'other'], ['gmail_search', 'granted']]) {
       await assert.rejects(client.callTool({ name, arguments: { connection_id: id } }), /not enabled/);
     }
   });
@@ -74,25 +86,27 @@ test('discovers MCP tools and permits calls only for the selected agent’s gran
     outputTokens: { total: 1, text: 1, reasoning: undefined },
   };
   const model = new MockLanguageModelV4({ doGenerate: async ({ tools: modelTools, prompt }) => {
-    const tool = modelTools?.find((candidate) => candidate.name === 'github_inspect_releases');
+    const tool = modelTools?.find((candidate) => candidate.name === 'github_list_commits');
     assert.ok(tool?.type === 'function');
-    assert.deepEqual(tool.inputSchema.properties, connectionSchema.properties);
+    assert.deepEqual(tool.inputSchema.properties, commitsSchema.properties);
     if (prompt.some(({ role }) => role === 'tool')) {
-      return { content: [{ type: 'text', text: 'Fetched releases.' }], finishReason: { unified: 'stop', raw: undefined }, usage, warnings: [] };
+      assert.match(JSON.stringify(prompt), /Fix latest deployment/);
+      return { content: [{ type: 'text', text: 'Latest commit is abc123.' }], finishReason: { unified: 'stop', raw: undefined }, usage, warnings: [] };
     }
     return {
-      content: [{ type: 'tool-call', toolCallId: 'release-check', toolName: tool.name, input: '{"connection_id":"granted"}' }],
+      content: [{ type: 'tool-call', toolCallId: 'commit-check', toolName: tool.name, input: JSON.stringify(commitArgs) }],
       finishReason: { unified: 'tool-calls', raw: undefined },
       usage, warnings: [],
     };
   } });
-  const agent = new Agent({ id: 'test', name: 'Test', model, instructions: 'Help with releases.' });
-  const reply = await agent.generate('Fetch releases.', { toolsets: tools, maxSteps: 2 });
-  assert.equal(reply.text, 'Fetched releases.');
-  assert.deepEqual(calls.map(({ name }) => name), ['list_connections', 'github_inspect_releases']);
+  const agent = new Agent({ id: 'test', name: 'Test', model, instructions: 'Help with commit history.' });
+  const reply = await agent.generate('Fetch the latest commit on main.', { toolsets: tools, maxSteps: 2 });
+  assert.equal(reply.text, 'Latest commit is abc123.');
+  assert.deepEqual(calls.map(({ name }) => name), ['list_connections', 'github_list_commits']);
+  assert.deepEqual(calls[1]?.arguments, commitArgs);
 
-  const channel = await agentConnection(context, 'channel');
-  assert.deepEqual(Object.keys(channel.tools.agentConnection).sort(), ['github_inspect_releases', 'list_connections']);
+  const withMail = await agentConnection({ ...context, AgentConnectionIDs: ['granted', 'mail'] });
+  assert.deepEqual(Object.keys(withMail.tools.agentConnection).sort(), ['github_list_commits', 'github_publish_release', 'gmail_search', 'list_connections']);
   const denied = await agentConnection({ ...context, AgentConnectionIDs: [] });
   assert.deepEqual(Object.keys(denied.tools.agentConnection), ['list_connections']);
   assert.equal(calls.length, 3);

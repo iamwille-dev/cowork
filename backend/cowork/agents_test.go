@@ -11,6 +11,7 @@ import (
 
 func TestManageWorkspaceAgents(t *testing.T) {
 	useTestPostgres(t)
+	allowTaskAssignments(t)
 	t.Setenv("COWORK_AUTH", "local")
 	t.Setenv("MASTRA_ENCRYPTION_KEY", strings.Repeat("a", 48))
 	d, err := load()
@@ -45,11 +46,12 @@ func TestManageWorkspaceAgents(t *testing.T) {
 	post("owner", "agent/add", `{"ID":"developer"}`, http.StatusConflict)
 	post("owner", "agent/add", `{"ID":"unknown"}`, http.StatusBadRequest)
 	post("owner", "agent/add", `{"ID":"sales-lead","Name":"Invalid\nName"}`, http.StatusBadRequest)
-	post("owner", "agent/add", `{"ID":"social-media","Channel":"slack"}`, http.StatusBadRequest)
+	post("owner", "agent/add", `{"ID":"social-media","Channel":"telegram"}`, http.StatusBadRequest)
 	post("owner", "agent/add", sales, http.StatusOK)
 	post("owner", "agent/add", sales, http.StatusOK)
 	post("owner", "agent/add", `{"ID":"sales-lead","Name":"Different"}`, http.StatusConflict)
 	post("member", "thread", `{"Text":"Sales follow-up","AgentID":"sales-lead"}`, http.StatusOK)
+	post("member", "thread", `{"AgentID":"sales-lead"}`, http.StatusOK)
 	post("member", "task", `{"Title":"Check pipeline","Brief":"Write a summary","Assignee":"agent:sales-lead"}`, http.StatusOK)
 	d, err = load()
 	if err != nil {
@@ -61,6 +63,9 @@ func TestManageWorkspaceAgents(t *testing.T) {
 	}
 	if added := space.threadAgent(space.Threads[1].ID); added.ID != "sales-lead" || added.Name != "Taylor" || added.Role != "Sales Lead" || len(added.ConnectionIDs) != 0 {
 		t.Fatalf("unexpected new thread agent: %#v", added)
+	}
+	if space.Threads[1].Title != "Sales follow-up" || space.Threads[2].Title != "Chat with Taylor" || space.Threads[2].AgentID != "sales-lead" {
+		t.Fatalf("conversation titles or assignment did not persist: %#v", space.Threads)
 	}
 	if added, ok := slackAgent(space, "sam"); !ok || added.ID != "sales-lead" {
 		t.Fatalf("Slack agent has not been enabled for sync: %#v", added)

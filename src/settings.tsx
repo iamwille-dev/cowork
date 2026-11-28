@@ -2,11 +2,11 @@ import { Button, buttonClassName } from './app/components/button';
 import { Input } from './app/components/input';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { channelAgents, channelAgentIds, type ChannelAgent } from './channel-agents';
+import { channelAgents, channelAgentIds, type ChannelAgent } from './mastra/channels/agents';
 import { api } from './app/components/api';
 import { ManagedConnections, type AgentGrants } from './app/components/managed-connections';
 import { SettingsAgents } from './app/components/settings-agents';
-import type { AgentSetup, AgentUpdate, WorkspaceAgent } from './app/lib/workspace-agents';
+import type { AgentMemory, AgentMemoryUpdate, AgentSetup, AgentUpdate, WorkspaceAgent } from './app/lib/workspace-agents';
 
 const sections = [
   { id: 'appearance', title: 'Appearance' },
@@ -26,6 +26,8 @@ type SettingsProps = {
   members: { ID: string; Name: string; Email: string; Role: string }[];
   owner: boolean;
   agents: WorkspaceAgent[];
+  agentMemories: Record<string, AgentMemory>;
+  saveAgentMemory: (input: AgentMemoryUpdate, onError: (message: string) => void) => Promise<boolean>;
   busy: boolean;
   addAgent: (input: AgentSetup, onError: (message: string) => void) => Promise<boolean>;
   updateAgent: (input: AgentUpdate, onError: (message: string) => void) => Promise<boolean>;
@@ -160,18 +162,23 @@ type SlackConnection = {
   team?: string;
   appId?: string;
   teamId?: string;
+  name?: string;
+  needsToken?: boolean;
+  needsVerification?: boolean;
 };
 
-export function SlackConnectionForm({ owner, agent, workspaceName, onConnected }: {
-  owner: boolean; agent?: ChannelAgent; workspaceName?: string; onConnected?: (value: boolean) => void;
+export function SlackConnectionForm({ owner, agent, workspaceAgent, existingOnly, onConnected }: {
+  owner: boolean; agent?: ChannelAgent; workspaceAgent?: WorkspaceAgent; existingOnly?: boolean; onConnected?: (value: boolean) => void;
 }) {
-  const name = agent ? channelAgents[agent].name : 'Cowork';
-  const endpoint = agent ? 'slack/' + agent : 'slack';
+  const name = workspaceAgent?.Name ?? (agent ? channelAgents[agent].name : 'Cowork');
+  const selection = workspaceAgent?.ID ?? agent;
+  const endpoint = workspaceAgent ? 'slack/agents/' + encodeURIComponent(workspaceAgent.ID) : agent ? 'slack/' + agent : 'slack';
   const [connection, setConnection] = useState<SlackConnection>();
   const [busy, setBusy] = useState<'connect' | 'disconnect'>();
   const [error, setError] = useState('');
   const [feedback, setFeedback] = useState('');
   const [loadAttempt, setLoadAttempt] = useState(0);
+  const refreshToken = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let active = true;
@@ -185,7 +192,7 @@ export function SlackConnectionForm({ owner, agent, workspaceName, onConnected }
   useEffect(() => {
     const url = new URL(window.location.href);
     const outcome = url.searchParams.get('slack');
-    if (!outcome || (url.searchParams.get('agent') ?? undefined) !== agent) return;
+    if (!outcome || (url.searchParams.get('agent') ?? undefined) !== selection) return;
     if (outcome === 'connected') setFeedback(`${name} is connected to Slack.`);
     if (outcome === 'canceled') setFeedback('Slack authorization was canceled. You can continue setup below.');
     if (outcome === 'conflict') setError('Choose the Slack workspace already linked to this Cowork workspace, or disconnect the conflicting installation.');
@@ -193,7 +200,7 @@ export function SlackConnectionForm({ owner, agent, workspaceName, onConnected }
     url.searchParams.delete('slack');
     url.searchParams.delete('agent');
     window.history.replaceState(window.history.state, '', url);
-  }, [agent, name]);
+  }, [selection, name]);
 
   async function update(action: 'connect' | 'disconnect') {
     setBusy(action);
@@ -201,12 +208,16 @@ export function SlackConnectionForm({ owner, agent, workspaceName, onConnected }
     setFeedback('');
     try {
       if (action === 'connect') {
-        const { authorizationUrl } = await api<{ authorizationUrl: string }>(endpoint, { action });
+        const { authorizationUrl } = await api<{ authorizationUrl: string }>(endpoint, {
+          action, refreshToken: refreshToken.current?.value.trim() || undefined,
+        });
+        if (refreshToken.current) refreshToken.current.value = '';
         window.location.assign(authorizationUrl);
         return;
       }
       setConnection(await api<SlackConnection>(endpoint, { action }));
       setFeedback('Slack disconnected.');
+      setLoadAttempt((previous) => previous + 1);
     } catch (failure) {
       setError((failure as Error).message);
       setLoadAttempt((previous) => previous + 1);
@@ -217,24 +228,34 @@ export function SlackConnectionForm({ owner, agent, workspaceName, onConnected }
 
   const connected = connection?.status === 'active';
   useEffect(() => { onConnected?.(connected); }, [onConnected, connected]);
-  if (!agent && !connected && !feedback && !error) return null;
+  if (existingOnly && !connected && !feedback) return null;
+  const appName = connection?.name ?? name;
+  const role = workspaceAgent?.Role ?? (agent ? channelAgents[agent].role : undefined);
   const slackLink = connection?.appId && connection.teamId
     ? 'https://slack.com/app_redirect?' + new URLSearchParams({ app: connection.appId, team: connection.teamId })
     : undefined;
   return (
     <div className="stack">
-      <h4 className="font-semibold">{agent ? `${workspaceName ?? name} · ${channelAgents[agent].role}` : 'Cowork'}</h4>
-      {workspaceName && workspaceName !== name && <p>The Slack app is listed as {name}.</p>}
+      <h4 className="font-semibold">{role ? `${name} · ${role}` : name}</h4>
       <p>{connected
-        ? `Connected to ${connection.team}. DM ${name}, or invite the app to a channel and mention @${name}.`
+        ? `Connected to ${connection.team}. DM ${appName}, or invite the app to a channel and mention it by name.`
         : connection && !connection.available
           ? 'Slack setup is unavailable on this deployment.'
           : owner ? `Add ${name} to Slack to chat in a DM or channel.` : 'Your workspace owner can connect Slack.'}</p>
       {feedback && <p role="status">{feedback}</p>}
       {error && <p role="alert">{error}</p>}
+      {owner && connection?.needsVerification && connection.appId && (
+        <p>Verify the Events API request URL under App Manifest in <a href={`https://api.slack.com/apps/${encodeURIComponent(connection.appId)}`} target="_blank" rel="noreferrer">Slack app settings</a>.</p>
+      )}
+      {owner && workspaceAgent && connection?.available && !connected && connection.needsToken && (
+        <label>Slack app configuration refresh token
+          <Input ref={refreshToken} type="password" autoComplete="off" placeholder="xoxe-…" disabled={Boolean(busy)} />
+          <small>Generate a token for your workspace under Your App Configuration Tokens. Cowork can reuse it for your other agents. <a href="https://api.slack.com/apps" target="_blank" rel="noreferrer">Open Slack app settings</a></small>
+        </label>
+      )}
       <div className="flex flex-wrap items-center gap-3">
         {slackLink && <a className={buttonClassName('primary')} data-button-variant="primary" href={slackLink}>Open Slack</a>}
-        {owner && connection?.available && !connected &&
+        {owner && connection?.available && !connected && !existingOnly &&
           <Button type="button" disabled={Boolean(busy)} onClick={() => void update('connect')}>
             {busy === 'connect' ? 'Opening Slack…' : `Add ${name} to Slack`}
           </Button>}
@@ -281,6 +302,27 @@ export function TelegramForm({ owner, agent, name, destination, telegramBot, sav
       <label>Telegram group ID
         <Input name="Destination" defaultValue={destination ?? ''} required placeholder="Negative group ID" />
       </label>
+      <details className="text-sm">
+        <summary className="cursor-pointer font-medium">Setup info</summary>
+        <p className="mt-2">Find the group ID before connecting your bot in Cowork.</p>
+        <ol className="mt-2 list-decimal space-y-2 pl-5">
+          <li>Add your bot to the Telegram group and send a message in that group.</li>
+          <li>
+            Open <code className="break-all">https://api.telegram.org/bot&lt;yourtoken&gt;/getUpdates</code> in your browser,
+            replacing <code>&lt;yourtoken&gt;</code> with your BotFather token. Keep the resulting URL private.
+          </li>
+          <li>
+            In the JSON response, find the <code>chat</code> object for your group.
+            Copy its <code>id</code>, including the minus sign, into the Telegram group ID field.
+          </li>
+        </ol>
+        <p className="mt-2">
+          If Telegram returns <code>409</code> because a webhook is active, use a dedicated bot for Cowork if
+          another service still uses that webhook. If you’re moving this bot to Cowork, open{' '}
+          <code className="break-all">https://api.telegram.org/bot&lt;yourtoken&gt;/deleteWebhook</code>{' '}
+          to stop webhook delivery. Then send a fresh message in the group and retry <code>getUpdates</code>.
+        </p>
+      </details>
       <div className="flex flex-wrap gap-3">
         <Button type="submit" disabled={busy}>Save Telegram settings</Button>
         {telegramBot && <Button variant="quiet" type="button" disabled={busy} onClick={() => void save({ Remove: true })}>Disconnect bot</Button>}
@@ -408,6 +450,7 @@ export function Settings(props: SettingsProps) {
         {active === 'agents' && (
           <SettingsSection title="Workspace agents" description="These agents are available for conversations and task assignments.">
             <SettingsAgents agents={props.agents} owner={props.owner} busy={props.busy} addAgent={props.addAgent} updateAgent={props.updateAgent}
+              memories={props.agentMemories} saveMemory={props.saveAgentMemory}
               removeAgent={props.removeAgent}
               openTools={props.managedConnections ? () => openSection('agent-connection') : undefined}
               openChannels={() => openSection('channels')} />
@@ -441,8 +484,7 @@ export function Settings(props: SettingsProps) {
               </SettingsGroup>
             )}
             <SettingsGroup id="agent-connection-settings" title="Connection settings">
-              <AgentConnectionForm owner={props.owner} agentConnection={props.agentConnection}
-                saveAgentConnection={props.saveAgentConnection} managed={Boolean(props.managedConnections)} />
+              <AgentConnectionForm owner={props.owner} agentConnection={props.agentConnection} saveAgentConnection={props.saveAgentConnection} managed={Boolean(props.managedConnections)} />
             </SettingsGroup>
           </>
         )}
@@ -462,9 +504,9 @@ export function Settings(props: SettingsProps) {
             <SettingsIntro title="Messaging channels" description="Connect your Cowork agent to the places your team chats." />
             <SettingsGroup id="slack-settings" title="Slack" logo="slack">
               <div className="settings-provider-entries">
-                {channelAgentIds.map((agent) => <SlackConnectionForm key={agent} owner={props.owner} agent={agent}
-                  workspaceName={props.agents.find(({ ID, Role }) => ID && Role === channelAgents[agent].role)?.Name} />)}
-                <SlackConnectionForm owner={props.owner} />
+                {props.agents.filter(({ ID }) => ID).map((agent) => <SlackConnectionForm key={agent.ID} owner={props.owner} workspaceAgent={agent} />)}
+                {channelAgentIds.map((agent) => <SlackConnectionForm key={agent} owner={props.owner} agent={agent} existingOnly />)}
+                <SlackConnectionForm owner={props.owner} existingOnly />
               </div>
             </SettingsGroup>
             <SettingsGroup id="telegram-settings" title="Telegram" logo="telegram">

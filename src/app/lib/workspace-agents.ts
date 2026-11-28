@@ -11,3 +11,5 @@ export type AgentChannel = 'cowork' | 'slack' | 'telegram';
 export type WorkspaceAgent = { ID: string; Role: string; Name: string; Channel?: AgentChannel; ConnectionIDs?: string[] };
 export type AgentSetup = { ID: (typeof agentCatalog)[number]['id']; Name: string; Channel: AgentChannel };
 export type AgentUpdate = { ID: string; Name?: string; Channel?: AgentChannel };
+export type AgentMemory = { Revision: string; Items: string[] };
+export type AgentMemoryUpdate = AgentMemory & { ID: string };

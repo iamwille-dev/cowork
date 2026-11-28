@@ -92,6 +92,7 @@ export const scheduleTask = createTool({
   inputSchema: z.object({
     title: z.string().trim().min(1).max(120),
     brief: z.string().trim().min(1).max(6000).describe('The full task and any user-provided material needed to perform it later'),
+    timeZone: z.string().trim().min(1).max(100).optional().describe('IANA time zone specified by the participant for a schedule, such as America/Regina. It determines the local hour of recurring runs.'),
     when: z.union([
       z.object({
         due: z.iso.datetime({ offset: true }).describe('First future run as an RFC 3339 timestamp with the requested local UTC offset'),
@@ -106,7 +107,31 @@ export const scheduleTask = createTool({
     if (typeof write !== 'function') return unavailable;
     return (write as WorkspaceWrite)('task/schedule', {
       Title: input.title, Brief: input.brief,
+      ...(input.timeZone && { TimeZone: input.timeZone }),
       ...('due' in input.when ? { Due: input.when.due, Recurrence: input.when.recurrence } : { DelaySeconds: input.when.delaySeconds }),
     });
+  },
+});
+
+export const getCurrentDate = createTool({
+  id: 'getCurrentDate',
+  description:
+    'Wake the workspace agent once or on a daily or weekly schedule to complete a self-contained task and save each written result. Use this for delayed work such as drafting or summarizing supplied material. Scheduled runs have no connected apps or workspace tools.',
+  outputSchema: z.object({
+    currentDate: z.string().optional(),
+    longDate: z.string().optional(),
+  }),
+  execute: async () => {
+    const now = new Date();
+
+    return {
+      currentDate: now.toISOString(),
+      longDate: new Intl.DateTimeFormat('en-US', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      }).format(now),
+    };
   },
 });

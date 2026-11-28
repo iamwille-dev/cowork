@@ -15,7 +15,7 @@ APP = os.environ.get("COWORK_COOLIFY_APP_UUID", "")
 IMAGE = "ghcr.io/iamwille-dev/cowork"
 RUNS = (
     "https://api.github.com/repos/iamwille-dev/cowork/actions/workflows/coolify.yml/runs"
-    "?branch=main&event=push&status=success&per_page=1"
+    "?branch=main&event=push&per_page=10"
 )
 ACTIVE = {"queued", "in_progress"}
 TERMINAL = {"finished", "failed", "cancelled", "canceled", "unhealthy"}
@@ -115,9 +115,10 @@ def main():
     request = Request(RUNS, headers={"Accept": "application/vnd.github+json"})
     with urlopen(request, timeout=10) as response:
         runs = json.load(response)["workflow_runs"]
-    if not runs:
+    successful = next((run for run in runs if run.get("conclusion") == "success"), None)
+    if successful is None:
         return
-    sha = runs[0]["head_sha"]
+    sha = successful["head_sha"]
     if not re.fullmatch(r"[0-9a-f]{40}", sha):
         raise ValueError("GitHub returned an invalid release SHA.")
     if state.get("sha") == sha:

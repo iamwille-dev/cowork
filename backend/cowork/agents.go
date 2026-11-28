@@ -34,7 +34,9 @@ func workspaceAgentChannel(role, channel string) (string, error) {
 	switch channel {
 	case "", "cowork":
 		return "cowork", nil
-	case "slack", "telegram":
+	case "slack":
+		return channel, nil
+	case "telegram":
 		if role != "Developer" && role != "Sales Lead" {
 			return "", errors.New("This agent is available in Cowork.")
 		}
@@ -158,6 +160,9 @@ func removeWorkspaceAgent(w http.ResponseWriter, r *http.Request, d *database, a
 			return
 		}
 		space.Agents = append(space.Agents[:index], space.Agents[index+1:]...)
+		for _, memories := range space.AgentMemories {
+			delete(memories, agent.ID)
+		}
 		space.Role = space.Agents[0].Role
 		if space.RemovedAgentRoles == nil {
 			space.RemovedAgentRoles = make(map[string]bool)
