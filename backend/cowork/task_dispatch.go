@@ -178,9 +178,10 @@ func claimNextTask(now time.Time) (workerRequest, error) {
 		return workerRequest{}, nil
 	}
 	agent, available := taskAgent(space, *task)
-	if task.Status == "Running" && task.ScheduledFor == nil && (!available || agent.Role == "Developer" || task.AgentRole == "Developer") {
+	if task.Status == "Running" && (usesDeveloperWorkflow(*task, agent.Role) || usesDeveloperWorkflow(*task, task.AgentRole) ||
+		(!available && task.ScheduledFor == nil)) {
 		// A developer runner can change external state. An expired claim has an unknown outcome.
-		task.Status, task.WorkflowStarted = "Failed", nil
+		task.Status, task.WorkflowStarted, task.ScheduledStarted = "Failed", nil, nil
 		task.Error = "The agent run was interrupted. Check for partial work before running this task again."
 		appendTaskNote(task, "Cowork dispatcher", task.Error, now)
 		return workerRequest{}, save(d)
@@ -238,6 +239,11 @@ func startTaskRun(d *database, space *Workspace, task *Task, agent workspaceAgen
 	return request
 }
 
+func usesDeveloperWorkflow(task Task, role string) bool {
+	return role == "Developer" && task.GmailConnectionID == "" &&
+		(task.ScheduledFor == nil || task.UI || task.Repository != "")
+}
+
 func executeTaskRun(request workerRequest, scopeChecked bool) error {
 	path := "scheduled-task"
 	timeout := 90 * time.Second
@@ -246,8 +252,9 @@ func executeTaskRun(request workerRequest, scopeChecked bool) error {
 			return finishTaskRun(request, workerResponse{Error: "Gmail access changed. Check the selected account and agent grant in Settings."}, nil)
 		}
 		path = "gmail-digest"
-	} else if request.Task.ScheduledFor == nil && request.Role == "Developer" {
+	} else if usesDeveloperWorkflow(request.Task, request.Role) {
 		path = "task"
+		timeout = 165 * time.Second
 		if !scopeChecked {
 			scope, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 			result, err := worker(scope, "task-scope", workerRequest{Role: request.Role, Task: request.Task}, "")
@@ -258,7 +265,6 @@ func executeTaskRun(request workerRequest, scopeChecked bool) error {
 				}
 				return finishTaskRun(request, result, err)
 			}
-			timeout = 150 * time.Second
 		}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)

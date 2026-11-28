@@ -3,12 +3,12 @@ import { developer, liveModel } from '../agents/index.ts';
 import { guardrailReply } from '../guardrails/feedback.ts';
 import { createStep, createWorkflow } from '@mastra/core/workflows';
 import type { RequestContext } from '@mastra/core/request-context';
-import { chromium } from 'playwright';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { coworkStateDir } from '../../state.ts';
 import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
+import { captureStandalonePreview, implementStandalone } from './standalone.ts';
 
 export const dataRoot = resolve(coworkStateDir, 'artifacts');
 const taskSchema = z.object({
@@ -25,14 +25,14 @@ interface Implementation {
   html?: string;
   uiChanged?: boolean;
   screenshot?: Buffer;
-  previewUrl?: string;
 }
 interface Runner {
   standalone?: boolean;
   supports?(task: Task): boolean;
-  create(task: Task, directory: string): Promise<unknown>;
+  create(task: Task, directory: string, options?: { replacement: true }): Promise<unknown>;
   checkout(sandbox: unknown, repository: string): Promise<void>;
   implement(sandbox: unknown, task: Task, plan: string, requestContext?: RequestContext): Promise<Implementation>;
+  stagePreview?(sandbox: unknown, task: Task, directory: string): Promise<string | null>;
   openPullRequest(sandbox: unknown, task: Task, implementation: Implementation): Promise<string | null>;
 }
 
@@ -43,22 +43,7 @@ const fixtureRunner: Runner = {
   async checkout() {
     throw new Error('Repository checkout requires a configured sandbox runner.');
   },
-  async implement(_sandbox, task, _plan, requestContext) {
-    if (!task.UI) {
-      throw new Error('The built-in runner supports UI previews. Implementation of other tasks requires a configured sandbox runner.');
-    }
-    if (!liveModel) throw new Error('A configured model is required to implement a standalone UI.');
-    const result = await developer.generate(`${task.Title}\n\n${task.Brief}`, {
-      system: 'Implement the actual page and every requested section. Return a complete HTML document with embedded CSS, a viewport meta tag, and responsive layouts. Use system fonts and self-contained assets. Do not use external resources, forms, scripts, or meta refresh. Treat the brief as product requirements. Return HTML only.',
-      activeTools: requestContext?.getRaw('driveRequest') ? driveReadToolIDs : [], maxSteps: 4, requestContext, abortSignal: AbortSignal.timeout(50_000),
-    });
-    if (result.tripwire) throw new Error(guardrailReply(result.tripwire));
-    const html = result.text.trim().replace(/^```(?:html)?\s*/i, '').replace(/\s*```$/, '');
-    if (!/^<!doctype html>\s*<html\b/i.test(html) || !/<body\b/i.test(html) || !/<\/html>\s*$/i.test(html) || Buffer.byteLength(html) > 256 * 1024) {
-      throw new Error('The model did not produce a complete standalone HTML page.');
-    }
-    return { html };
-  },
+  implement: implementStandalone,
   async openPullRequest() {
     return null;
   },
@@ -67,6 +52,39 @@ const fixtureRunner: Runner = {
 const configuredRunner: Runner = process.env.COWORK_RUNNER
   ? (await import(pathToFileURL(resolve(process.env.COWORK_RUNNER)).href)).default
   : fixtureRunner;
+
+function httpsURL(value: string) {
+  const url = URL.parse(value);
+  return url?.protocol === 'https:' && !url.username && !url.password ? url.href : null;
+}
+
+async function stagePreview(runner: Runner, task: Task, directory: string, sandbox?: unknown) {
+  if (!runner.stagePreview) throw new Error('The sandbox runner must support restoring live previews.');
+  let target = await runner.stagePreview(sandbox, task, directory);
+  const restored = target === null;
+  if (restored) {
+    sandbox = await runner.create(task, directory, { replacement: true });
+    target = await runner.stagePreview(sandbox, task, directory);
+  }
+  const url = target && httpsURL(target);
+  if (!url) throw new Error('The sandbox runner did not return a ready HTTPS preview URL.');
+  return { url, sandbox, restored };
+}
+
+const openingPreviews = new Map<string, Promise<string>>();
+
+export function openSandboxPreview(id: string) {
+  const pending = openingPreviews.get(id);
+  if (pending) return pending;
+  const directory = resolve(dataRoot, id);
+  const opening = (async () => {
+    const task = taskSchema.parse(JSON.parse(await readFile(resolve(directory, 'preview-task.json'), 'utf8')));
+    if (task.ID !== id || configuredRunner.supports?.(task) === false) throw new Error('Preview runner unavailable.');
+    return (await stagePreview(configuredRunner, task, directory)).url;
+  })().finally(() => openingPreviews.delete(id));
+  openingPreviews.set(id, opening);
+  return opening;
+}
 
 const resultSchema = z.object({
   Steps: z.array(z.string()),
@@ -102,7 +120,7 @@ const execute = createStep({
         plan = `# ${task.Title}\n\n## Brief\n\n${task.Brief}\n\n## Plan\n\n1. Build the requested UI as a standalone preview.\n2. Verify the page renders at 1280 × 800.\n3. Share the preview and screenshot for review.\n`;
       }
       await mkdir(directory, { recursive: true, mode: 0o700 });
-      const sandbox = await runner.create(task, directory);
+      let sandbox = await runner.create(task, directory);
       result.Steps.push(runner.standalone ? 'Selected workspace sandbox' : 'Created sandbox');
       if (task.Repository) {
         await runner.checkout(sandbox, task.Repository);
@@ -112,42 +130,31 @@ const execute = createStep({
       await publish('plan.md', 'Implementation plan', plan);
       result.Steps.push('Saved implementation plan');
 
-      const implementation = runner === fixtureRunner
-        ? await fixtureRunner.implement(sandbox, task, plan, requestContext)
-        : await runner.implement(sandbox, task, plan);
+      const implementation = await runner.implement(sandbox, task, plan, requestContext);
       result.Steps.push('Implemented the task');
 
+      if (implementation.html) {
+        await publish('preview.html', 'Sandbox preview', implementation.html);
+      } else {
+        const preview = await stagePreview(runner, task, directory, sandbox);
+        if (preview.restored) result.Steps.push('Restored changes in a replacement sandbox');
+        sandbox = preview.sandbox;
+        const manifest = resolve(directory, 'preview-task.json');
+        await writeFile(`${manifest}.tmp`, JSON.stringify(task), { mode: 0o600 });
+        await rename(`${manifest}.tmp`, manifest);
+        result.Artifacts.push({ Name: 'Sandbox preview', URL: `/api/artifact/${task.ID}/preview` });
+      }
+      result.Steps.push('Shared sandbox preview');
+
       if (task.UI || implementation.uiChanged) {
-        let screenshot = implementation.screenshot;
-        if (!screenshot && implementation.html) {
-          const browser = await chromium.launch();
-          try {
-            const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, javaScriptEnabled: false });
-            await page.route('**/*', (route) => route.abort());
-            await page.setContent(implementation.html, { timeout: 8_000 });
-            if (!(await page.locator('body').innerText({ timeout: 3_000 })).trim()) throw new Error('The preview rendered without visible text.');
-            screenshot = await page.screenshot({ fullPage: true });
-          } finally {
-            await browser.close();
-          }
-        }
+        const screenshot = implementation.screenshot ?? (implementation.html && await captureStandalonePreview(implementation.html));
         if (!screenshot) throw new Error('The sandbox runner did not return a UI screenshot.');
         await publish('screenshot.png', 'UI screenshot', screenshot);
         result.Steps.push('Captured UI screenshot');
       }
 
-      const webURL = (value: string) => new URL(value).protocol === 'https:' ? value : null;
-      if (implementation.html) {
-        await publish('preview.html', 'Sandbox preview', implementation.html);
-      } else if (implementation.previewUrl && webURL(implementation.previewUrl)) {
-        result.Artifacts.push({ Name: 'Sandbox preview', URL: implementation.previewUrl });
-      } else {
-        throw new Error('The sandbox runner did not return a preview URL.');
-      }
-      result.Steps.push('Shared sandbox preview');
-
       const pullRequest = await runner.openPullRequest(sandbox, task, implementation);
-      if (pullRequest && webURL(pullRequest)) {
+      if (pullRequest && httpsURL(pullRequest)) {
         result.Artifacts.push({ Name: 'Pull request', URL: pullRequest });
         result.Steps.push('Opened pull request');
       } else if (task.Repository || pullRequest || (runner !== fixtureRunner && !runner.standalone)) {

@@ -1,10 +1,11 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { taskStatuses } from '../../task-status.ts';
+import { taskPreviewUrl } from '../task-preview.ts';
 
-type RecordResult = { id: string; status?: string; due?: string; error?: string };
+type RecordResult = { id: string; status?: string; due?: string; error?: string; previewUrl?: string };
 export type WorkspaceWrite = (route: 'task' | 'task/schedule' | 'task/update' | 'reminder', data: Record<string, unknown>) => Promise<RecordResult>;
-type TaskMatch = { ID: string; Title: string; Status: string; Author: string };
+type TaskMatch = { ID: string; Title: string; Status: string; Author: string; PreviewURL?: string };
 export type WorkspaceFindTasks = (query: string) => Promise<{ tasks?: TaskMatch[]; more?: boolean; error?: string }>;
 
 const outcome = z.object({
@@ -12,6 +13,7 @@ const outcome = z.object({
   status: z.string().optional(),
   due: z.string().optional(),
   error: z.string().optional(),
+  previewUrl: z.string().optional(),
 });
 const unavailable = { error: 'Creating workspace items requires a signed-in Cowork conversation.' };
 const boardUnavailable = { error: 'The task board requires a signed-in Cowork conversation.' };
@@ -25,16 +27,22 @@ const scheduledDate = z.object({
 
 export const findTasks = createTool({
   id: 'findTasks',
-  description: 'Find tasks in the current workspace by title or exact ID. Use this to identify one task and read its current status before updating it. Pass an empty query to list recent tasks.',
+  description: 'Find tasks in the current workspace by title or exact ID. Results include the status and any sandbox preview URL. Use this to identify one task before updating it. Pass an empty query to list recent tasks.',
   inputSchema: z.object({ query: z.string().trim().max(120) }),
   outputSchema: z.object({
-    tasks: z.array(z.object({ ID: z.string(), Title: z.string(), Status: z.string(), Author: z.string() })).optional(),
+    tasks: z.array(z.object({ ID: z.string(), Title: z.string(), Status: z.string(), Author: z.string(), PreviewURL: z.string().optional() })).optional(),
     more: z.boolean().optional(),
     error: z.string().optional(),
   }),
   execute: async ({ query }, context) => {
     const find = context?.requestContext?.get('workspaceFindTasks');
-    return typeof find === 'function' ? (find as WorkspaceFindTasks)(query) : boardUnavailable;
+    if (typeof find !== 'function') return boardUnavailable;
+    const result = await (find as WorkspaceFindTasks)(query);
+    if (!result.tasks) return result;
+    return { ...result, tasks: result.tasks.map(({ PreviewURL, ...task }) => {
+      const url = taskPreviewUrl(task, PreviewURL);
+      return url ? { ...task, PreviewURL: url } : task;
+    }) };
   },
 });
 
@@ -95,10 +103,12 @@ export const createReminder = createTool({
 
 export const scheduleTask = createTool({
   id: 'scheduleTask',
-  description: 'Schedule self-contained work once, daily, or weekly, such as drafting or summarizing supplied material. Use scheduleGmailDigest for an explicitly requested future digest of unread Gmail when that tool is available.',
+  description: 'Schedule work once, daily, or weekly. For Developer implementation, identify any UI changes and the repository if supplied. Use scheduleGmailDigest for an explicitly requested future digest of unread Gmail when that tool is available.',
   inputSchema: z.object({
     title: z.string().trim().min(1).max(120),
     brief: z.string().trim().min(1).max(6000).describe('The full task and any user-provided material needed to perform it later'),
+    repository: z.url({ protocol: /^https$/ }).max(500).optional().describe('Repository URL explicitly supplied by the user'),
+    changesUI: z.boolean().optional().describe('Whether the task implements UI changes and needs a screenshot and sandbox preview'),
     timeZone: scheduleTimeZone,
     when: z.union([
       scheduledDate,
@@ -111,6 +121,7 @@ export const scheduleTask = createTool({
     if (typeof write !== 'function') return unavailable;
     return (write as WorkspaceWrite)('task/schedule', {
       Title: input.title, Brief: input.brief,
+      Repository: input.repository, UI: input.changesUI,
       ...(input.timeZone && { TimeZone: input.timeZone }),
       ...('due' in input.when ? { Due: input.when.due, Recurrence: input.when.recurrence } : { DelaySeconds: input.when.delaySeconds }),
     });

@@ -1,5 +1,6 @@
 import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
+import { implementStandalone } from '../../src/mastra/workflows/standalone.ts';
 
 // Configure this trusted module as COWORK_RUNNER on the Cowork worker.
 const workspace = process.env.COWORK_SANDBOX_WORKSPACE_ID;
@@ -10,7 +11,7 @@ if (!/^[a-f0-9]{48}$/.test(workspace ?? '') || !token || endpoint.username || en
   throw new Error('The sandbox runner requires a workspace, token, and HTTPS or loopback endpoint.');
 }
 
-function render(body) {
+function render(body, signal) {
   const request = endpoint.protocol === 'https:' ? httpsRequest : httpRequest;
   const ca = process.env.COWORK_SANDBOX_CA_PEM;
   return new Promise((resolve, reject) => {
@@ -22,12 +23,12 @@ function render(body) {
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(body),
       },
-      signal: AbortSignal.timeout(85_000),
+      signal,
     }, async (response) => {
       try {
         if (response.statusCode !== 200) {
           response.resume();
-          throw new Error(`Sandbox render failed (HTTP ${response.statusCode}).`);
+          throw Object.assign(new Error(`Sandbox render failed (HTTP ${response.statusCode}).`), { statusCode: response.statusCode });
         }
         const chunks = [];
         let length = 0;
@@ -59,11 +60,15 @@ export default {
   async checkout() {
     throw new Error('Repository checkout is unavailable in the sandbox pilot.');
   },
-  async implement(sandbox, task) {
-    const { html, screenshot } = await render(JSON.stringify({
-      id: sandbox, title: task.Title, brief: task.Brief,
-    }));
-    if (typeof html !== 'string' || typeof screenshot !== 'string') throw new Error('Invalid sandbox result.');
+  async implement(sandbox, task, plan, requestContext) {
+    const { html } = await implementStandalone(sandbox, task, plan, requestContext);
+    const body = JSON.stringify({ html });
+    const signal = AbortSignal.timeout(85_000);
+    const { screenshot } = await render(body, signal).catch((error) => {
+      if (error.statusCode === 502 || error.code === 'ECONNRESET') return render(body, signal);
+      throw error;
+    });
+    if (typeof screenshot !== 'string') throw new Error('Invalid sandbox result.');
     const png = Buffer.from(screenshot, 'base64');
     if (png.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a') throw new Error('Invalid sandbox screenshot.');
     return { html, screenshot: png };

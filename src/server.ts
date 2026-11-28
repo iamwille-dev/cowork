@@ -4,7 +4,8 @@ import { createSlackHandler } from './mastra/channels/slack.ts';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { dataRoot } from './mastra/workflows/developer.ts';
+import { dataRoot, openSandboxPreview } from './mastra/workflows/developer.ts';
+import { staticPreviewPolicy } from './mastra/workflows/standalone.ts';
 import { respond, runBackgroundTask, runGmailDigest, runTask } from './mastra/cowork.ts';
 import { gmailDigestConnection, gmailDigestUnavailable } from './mastra/gmail-digest.ts';
 import { checkTaskScope } from './mastra/classifiers/agent-request.ts';
@@ -23,13 +24,22 @@ const types: Record<string, string> = {
 async function worker(request: IncomingMessage, response: ServerResponse) {
   try {
     const url = request.url ?? "";
-    const artifact = /^\/artifact\/([a-f0-9]{48})\/(plan\.md|preview\.html|screenshot\.png)$/.exec(url);
+    const artifact = /^\/artifact\/([a-f0-9]{48})\/(plan\.md|preview\.html|preview|screenshot\.png)$/.exec(url);
     if (request.method === 'GET' && artifact) {
       const [, task, file] = artifact;
+      if (file === 'preview') {
+        try {
+          response.writeHead(307, { Location: await openSandboxPreview(task) }).end();
+        } catch (error) {
+          console.error('Cowork preview restoration failed:', error instanceof Error ? error.name : 'Unknown error');
+          response.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' }).end('The sandbox preview is temporarily unavailable. Reopen this link to retry.');
+        }
+        return;
+      }
       const bytes = await readFile(resolve(dataRoot, task, file));
       response.writeHead(200, {
         'Content-Type': types[file],
-        'Content-Security-Policy': "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:",
+        'Content-Security-Policy': staticPreviewPolicy,
         ...(file === 'plan.md' && { 'Content-Disposition': 'inline; filename="plan.md"' }),
       });
       response.end(bytes);

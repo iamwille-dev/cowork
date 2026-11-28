@@ -26,7 +26,8 @@ export type Task = {
 export function TaskArtifacts({ task, inline = false }: { task: Task; inline?: boolean }) {
   const prefix = `/api/artifact/${task.ID}/`;
   const artifacts = (task.Artifacts ?? []).filter(({ URL }) =>
-    URL.startsWith('https://') || (URL.startsWith(prefix) && /^[-\w]+\.(md|png|html)$/.test(URL.slice(prefix.length))),
+    URL.startsWith('https://') || URL === prefix + 'preview' ||
+      (URL.startsWith(prefix) && /^[-\w]+\.(md|png|html)$/.test(URL.slice(prefix.length))),
   );
   const screenshot = artifacts.find(({ URL }) => URL === prefix + 'screenshot.png');
   const preview = artifacts.find(({ URL }) => URL === prefix + 'preview.html');

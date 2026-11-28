@@ -276,11 +276,7 @@ func worker(ctx context.Context, path string, input workerRequest, session strin
 		client = &taskClient
 	case "chat":
 		request.Header.Set("X-Cowork-Session", session)
-		timeout := 125 * time.Second
-		if input.ChannelActor != nil {
-			timeout = 180 * time.Second
-		}
-		client = &http.Client{Timeout: timeout}
+		client = &http.Client{Timeout: 180 * time.Second}
 	}
 	res, err := client.Do(request)
 	if err != nil {

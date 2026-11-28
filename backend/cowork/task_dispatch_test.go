@@ -32,6 +32,7 @@ func TestTaskDispatcherWaitsForTheAssignedAgent(t *testing.T) {
 			{ID: "review", AgentID: "developer", Status: "Ready for review"},
 			{ID: "timer", AgentID: "developer", Status: "Scheduled", ScheduledFor: &due},
 			{ID: "old-backlog", AgentID: "sales", Status: "Assigned", Title: "Write outreach"},
+			{ID: "scheduled-ui", AgentID: "developer", Status: "Scheduled", ScheduledFor: &due, UI: true},
 		},
 	}
 	d.Workspaces["other"] = &Workspace{ID: "other", Role: "Developer", Tasks: []Task{
@@ -103,10 +104,11 @@ func TestTaskDispatcherWaitsForTheAssignedAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	run(claim("timer"))
+	run(claim("scheduled-ui"))
 	run(claim(newID))
 	claim("")
 
-	if want := "/scheduled-task:old-backlog,/task:independent,/scheduled-task:timer,/task:" + newID; strings.Join(dispatched, ",") != want {
+	if want := "/scheduled-task:old-backlog,/task:independent,/scheduled-task:timer,/task:scheduled-ui,/task:" + newID; strings.Join(dispatched, ",") != want {
 		t.Fatalf("dispatches = %v, want %s", dispatched, want)
 	}
 	latest, err := load()
@@ -118,7 +120,7 @@ func TestTaskDispatcherWaitsForTheAssignedAgent(t *testing.T) {
 		tasks[6].Status != "Ready for review" || tasks[6].Result != "Deliverable" ||
 		len(tasks[6].Notes) != 1 || tasks[6].Notes[0].Author != "Sam" ||
 		tasks[6].Notes[0].Text != "Completed the brief." || tasks[6].Notes[0].At.Before(now) ||
-		tasks[7].Status != "Ready for review" || tasks[7].WorkflowStarted != nil || len(tasks[7].Notes) != 1 {
+		tasks[8].Status != "Ready for review" || tasks[8].WorkflowStarted != nil || len(tasks[8].Notes) != 1 {
 		t.Fatalf("unexpected board after dispatch: %+v", tasks)
 	}
 }

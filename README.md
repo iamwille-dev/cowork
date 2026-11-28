@@ -74,7 +74,7 @@ Keep using the original `AGENT_CONNECTION_ENCRYPTION_KEY` or the original `.cowo
 
 1. Create an account with the Developer role.
 2. Assign a task with a title and brief, leave the repository blank, and enable the screenshot option.
-3. Open the task’s plan, sandbox preview, and screenshot. The built-in runner renders a standalone title-and-description page and captures it with Chromium.
+3. Open the sandbox preview from the Developer reply or task review. The built-in runner saves the implemented HTML and a Chromium screenshot with the task.
 4. To try a shared conversation, copy the invite code from Workspace settings and use it during account creation in a second browser profile.
 
 ## Configure OpenRouter
@@ -188,12 +188,13 @@ Set `COWORK_RUNNER` to the path of a trusted ES module to enable repository-back
 
 | Method | Expected behavior |
 | --- | --- |
-| `create(task, directory)` | Create an isolated workspace and return its handle. The provided directory is the artifact directory. |
+| `create(task, directory, options?)` | Create an isolated workspace and return its handle. With `{ replacement: true }`, provision a fresh sandbox for the same task. The provided directory is on the persistent worker volume. |
 | `checkout(sandbox, repository)` | Check out the latest revision of an authorized repository. |
-| `implement(sandbox, task, plan)` | Apply the work. Return `{ previewUrl, uiChanged, screenshot }` where the preview is an HTTPS URL and the screenshot is PNG bytes for UI changes. For self-contained static work, return `html` instead of `previewUrl`. |
+| `implement(sandbox, task, plan)` | Apply the work and save the exact changes needed to test it in the provided directory or persistent runner storage. Return `{ uiChanged, screenshot }`, with PNG bytes for UI changes. For self-contained static work, return the finished `html` so Cowork can serve it directly. |
+| `stagePreview(sandbox, task, directory)` | For live previews, stage the saved changes, start the review or test service, and return its ready HTTPS URL. With no sandbox handle, locate the current one by task ID. Return `null` if that sandbox has stopped or disappeared. On a replacement, use the saved changes and their original base revision. Repeated calls should reuse a healthy preview. |
 | `openPullRequest(sandbox, task, implementation)` | Publish the reviewed change set as a pull request and return its HTTPS URL. |
 
-The workflow calls the runner in that order, saves the plan before implementation, and validates the screenshot and preview before calling the pull request step. The built-in runner skips pull request creation for standalone preview tasks. Repository-backed tasks require a runner that supplies isolated execution, authorized repository access, and Git credentials. No repository service is configured by default.
+Cowork publishes a workspace-authenticated link and checks the live sandbox again each time a reviewer opens it. If the sandbox is gone, Cowork creates a replacement and stages the saved changes before redirecting. Self-contained HTML previews remain available directly from the artifact volume. Set `COWORK_PUBLIC_URL` so Slack and Telegram replies link back to the Cowork workspace. Repository-backed tasks require a runner that supplies isolated execution, authorized repository access, Git credentials, and a preview service for live work.
 
 Cowork stores workspace records in PostgreSQL and runs immediate Developer work during the task request. The backend is configured for a single instance with a persistent artifact volume.
 

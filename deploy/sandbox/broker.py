@@ -19,6 +19,7 @@ if not TOKEN:
     raise ValueError("A sandbox token is required")
 LOCK = threading.Lock()
 MAX_RESULT = 4 * 1024 * 1024
+MAX_REQUEST = 2 * 1024 * 1024
 
 
 def kubectl(*args):
@@ -123,7 +124,7 @@ class Broker(BaseHTTPRequestHandler):
             return
         try:
             size = int(self.headers.get("Content-Length", "0"))
-            if not 0 < size <= 32768:
+            if not 0 < size <= MAX_REQUEST:
                 raise ValueError()
             body = self.rfile.read(size)
         except (ValueError, OSError):

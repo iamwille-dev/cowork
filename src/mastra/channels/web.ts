@@ -30,7 +30,7 @@ bot.onDirectMessage(async (thread, message) => {
     method: 'POST',
     headers: { Cookie: turn.cookie, 'Content-Type': 'application/json' },
     body: JSON.stringify({ Text: message.text, TimeZone: turn.timeZone, ThreadID: turn.threadId }),
-    signal: AbortSignal.timeout(130_000),
+    signal: AbortSignal.timeout(185_000),
   });
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || 'Cowork could not complete the chat request.');

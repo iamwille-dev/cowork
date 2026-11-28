@@ -1,9 +1,12 @@
 # Developer sandbox pilot
 
 This runner routes standalone UI tasks from one Developer workspace to one
-preprovisioned KubeVirt VM. Each task renders a static title-and-brief preview in
-graphical Chromium with a persistent profile, captures a screenshot, and publishes
-the preview and screenshot through the existing task workflow.
+preprovisioned KubeVirt VM. The Developer agent generates the standalone HTML,
+then the runner stages it in the guest and captures it in Chromium. Cowork saves
+the same HTML and the screenshot on its persistent artifact volume, so the task
+link keeps working after the VM stops. If the VM disappears during staging, the
+runner resubmits the same HTML and the broker starts a replacement VM instance.
+Deploy the worker, broker, and guest service together so they use the same render request.
 
 ## Guest
 

@@ -248,7 +248,10 @@ func findBoardTasks(w http.ResponseWriter, r *http.Request, space *Workspace, me
 
 func replyBoardTaskMatches(w http.ResponseWriter, space *Workspace, memberID, query string) {
 	query = strings.ToLower(strings.TrimSpace(query))
-	type match struct{ ID, Title, Status, Author string }
+	type match struct {
+		ID, Title, Status, Author string
+		PreviewURL                string `json:",omitempty"`
+	}
 	matches := []match{}
 	more := false
 	for i := len(space.Tasks) - 1; i >= 0; i-- {
@@ -263,7 +266,14 @@ func replyBoardTaskMatches(w http.ResponseWriter, space *Workspace, memberID, qu
 			more = true
 			break
 		}
-		matches = append(matches, match{task.ID, task.Title, task.Status, task.Author})
+		result := match{ID: task.ID, Title: task.Title, Status: task.Status, Author: task.Author}
+		for _, artifact := range task.Artifacts {
+			if artifact.Name == "Sandbox preview" {
+				result.PreviewURL = artifact.URL
+				break
+			}
+		}
+		matches = append(matches, result)
 	}
 	jsonReply(w, 200, map[string]any{"tasks": matches, "more": more})
 }

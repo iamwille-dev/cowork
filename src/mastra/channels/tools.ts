@@ -14,6 +14,7 @@ import type { GitTokens } from '../tools/repositories.ts';
 import type { WorkspaceFindTasks, WorkspaceWrite } from '../tools/workspace.ts';
 import { channelReplyGuidance, normalizeChannelReply } from './format.ts';
 import { telegramBridgeSecret } from './telegram-auth.ts';
+import { previewLink, taskPreviewUrl } from '../task-preview.ts';
 
 export type SlackAgentKey = ChannelAgent | '' | `agent:${string}`;
 
@@ -44,7 +45,7 @@ type TaskResult = {
   ScheduledTimeZone?: string;
   Recurrence?: 'daily' | 'weekly';
   Steps?: string[];
-  Artifacts?: { Name: string }[];
+  Artifacts?: { Name: string; URL: string }[];
 };
 
 function bridge(actor: ChannelActor, operation: 'available' | 'context' | 'slack-message' | 'task/find' | Parameters<WorkspaceWrite>[0], Data?: Record<string, unknown>) {
@@ -57,7 +58,7 @@ function bridge(actor: ChannelActor, operation: 'available' | 'context' | 'slack
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + secret },
     body: JSON.stringify({ ...actor, Data }),
-    signal: AbortSignal.timeout(operation === 'task' ? 110_000 :
+    signal: AbortSignal.timeout(operation === 'task' ? 170_000 :
       operation === 'task/schedule' || operation === 'task/update' ? 15_000 : 5000),
   });
 }
@@ -163,8 +164,9 @@ export async function respondFromChannel(
         confirmations.push(`Task scheduled: ${task.Title} · ${recurrence}${due} (${zone}). Find the result in Tasks after it runs.`);
         return { id: task.ID, status: task.Status, due: task.ScheduledFor };
       }
-      confirmations.push(taskConfirmation(task));
-      return { id: task.ID, status: task.Status, error: task.Error };
+      const previewUrl = taskPreviewUrl(task);
+      confirmations.push(taskConfirmation(task, previewUrl));
+      return { id: task.ID, status: task.Status, error: task.Error, ...(previewUrl && { previewUrl }) };
     })().catch(() => failure);
     writes.set(key, operation);
     return operation;
@@ -220,10 +222,11 @@ export async function respondFromChannel(
   }
 }
 
-function taskConfirmation({ Title, Status, Error, Steps, Artifacts }: TaskResult) {
+function taskConfirmation({ Title, Status, Error, Steps, Artifacts }: TaskResult, previewUrl?: string) {
   return [
     `Task created: ${Title} · ${Status === 'Assigned' ? 'Queued' : Status}.`,
     Status === 'Ready for review' && Steps?.includes('Selected workspace sandbox') && 'Ran in the linked workspace sandbox.',
+    previewLink(previewUrl),
     Artifacts?.some(({ Name }) => Name === 'UI screenshot') && 'UI screenshot saved in the Cowork task.',
     Error,
   ].filter(Boolean).join(' ');

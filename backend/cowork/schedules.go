@@ -10,6 +10,8 @@ import (
 
 type taskSchedule struct {
 	Title, Brief, ThreadID, TimeZone, Recurrence, Assignee, GmailConnectionID string
+	Repository                                                                string
+	UI                                                                        bool
 	Due                                                                       *time.Time
 	DelaySeconds                                                              int64
 }
@@ -28,7 +30,7 @@ func saveTaskSchedule(ctx context.Context, w http.ResponseWriter, d *database, a
 		return
 	}
 	title, brief := strings.TrimSpace(input.Title), strings.TrimSpace(input.Brief)
-	if title == "" || len(title) > 120 || brief == "" || len(brief) > 6000 {
+	if title == "" || len(title) > 120 || brief == "" || len(brief) > 6000 || len(input.Repository) > 500 {
 		fail(w, 400, "Enter a title and a task brief within the displayed limits.")
 		return
 	}
@@ -62,7 +64,7 @@ func saveTaskSchedule(ctx context.Context, w http.ResponseWriter, d *database, a
 		return
 	}
 	task := Task{
-		ID: key(), Title: title, Brief: brief, Author: a.Name, Status: "Scheduled",
+		ID: key(), Title: title, Brief: brief, Author: a.Name, Status: "Scheduled", Repository: strings.TrimSpace(input.Repository), UI: input.UI,
 		MemoryMemberID: a.ID,
 		ThreadID:       input.ThreadID, AgentID: agent.ID, AgentRole: agent.Role, ScheduledFor: &due, ScheduledTimeZone: location.String(),
 	}

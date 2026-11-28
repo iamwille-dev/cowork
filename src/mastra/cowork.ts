@@ -15,6 +15,7 @@ import type { GitTokens } from './tools/repositories.ts';
 import { workspaceRepositoryTools } from './tools/repository-inventory.ts';
 import { scheduleGmailDigest, type WorkspaceFindTasks, type WorkspaceWrite } from './tools/workspace.ts';
 import { bindDrive, driveTools } from './tools/drive.ts';
+import { previewLink, taskPreviewUrl } from './task-preview.ts';
 
 export async function runTask(task: Task, agentMemory?: string[], driveGrant?: string) {
   const run = await mastra.getWorkflow('developerTask').createRun();
@@ -100,7 +101,7 @@ type ChatTurn = AgentConnectionContext & {
   GitTokens?: GitTokens;
 };
 type WorkspaceRecords = {
-  Tasks?: { ID: string; Title: string; Status: string; Error?: string; ScheduledFor?: string; ScheduledTimeZone?: string; Recurrence?: 'daily' | 'weekly' }[];
+  Tasks?: { ID: string; Title: string; Status: string; Error?: string; ScheduledFor?: string; ScheduledTimeZone?: string; Recurrence?: 'daily' | 'weekly'; Artifacts?: { Name: string; URL: string }[] }[];
   Reminders?: { ID: string; Due: string }[];
 };
 
@@ -146,7 +147,7 @@ export async function respond({ Role, AgentName, AgentMemory, Messages, TimeZone
           method: 'POST',
           headers,
           body: JSON.stringify(route === 'reminder' ? data : { ...data, ThreadID, TimeZone: data.TimeZone ?? TimeZone }),
-          signal: AbortSignal.timeout(route === 'task' ? 105_000 : 95_000),
+          signal: AbortSignal.timeout(route === 'task' ? 170_000 : 95_000),
         });
         if (!response.ok) {
           const detail = await response.json().catch(() => ({})) as { error?: string };
@@ -162,6 +163,7 @@ export async function respond({ Role, AgentName, AgentMemory, Messages, TimeZone
           return { id, status: task.Status };
         }
         const due = task?.ScheduledFor || reminder?.Due;
+        const previewUrl = task && taskPreviewUrl(task);
         if (due) {
           const zone = task?.ScheduledTimeZone || TimeZone;
           const localDue = new Intl.DateTimeFormat('en-CA', {
@@ -172,9 +174,9 @@ export async function respond({ Role, AgentName, AgentMemory, Messages, TimeZone
             : `Reminder saved: ${data.Text} · ${localDue} (${TimeZone}).`);
         } else if (task) {
           const status = task.Status === 'Assigned' ? 'Queued' : task.Status;
-          confirmations.push(`Task created: ${data.Title} · ${status}.${task.Error ? ' ' + task.Error : ''}`);
+          confirmations.push([`Task created: ${data.Title} · ${status}.`, previewLink(previewUrl), task.Error].filter(Boolean).join(' '));
         }
-        return { id, status: task?.Status, due, error: task?.Error || undefined };
+        return { id, status: task?.Status, due, error: task?.Error || undefined, ...(previewUrl && { previewUrl }) };
       })().catch(() => ({ id: '', error: 'Encore did not confirm the write. Check the workspace before retrying.' }));
       writes.set(key, operation);
       return operation;
