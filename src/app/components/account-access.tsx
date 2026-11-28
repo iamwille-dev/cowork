@@ -1,7 +1,7 @@
 import { useId, type ReactNode } from 'react';
 import Image from 'next/image';
 import {
-  ChatBubbleLeftRightIcon, CheckCircleIcon, DocumentTextIcon, FolderIcon, RectangleGroupIcon,
+  BellIcon, ChatBubbleLeftRightIcon, CheckCircleIcon, DocumentTextIcon, FolderIcon, PhotoIcon, RectangleGroupIcon,
 } from '@heroicons/react/24/outline';
 import developer from '../assets/agents/developer.webp';
 import styles from './account-access.module.css';
@@ -25,19 +25,33 @@ export function AccountAccess({ children }: { children: ReactNode }) {
         <div className={styles.previewBody}>
           <section className={styles.conversation}>
             <h3><ChatBubbleLeftRightIcon aria-hidden="true" /> Conversation</h3>
-            <p className={styles.request}>Create a task to build a launch page.</p>
-            <div className={styles.reply}>
-              <Image src={developer} width={30} height={30} alt="" unoptimized />
-              <div><strong>Developer agent</strong><p>The launch page is ready for review.</p></div>
+            <div className={styles.messages}>
+              <p className={styles.request}>Build a launch page for the beta with a signup form.</p>
+              <div className={styles.reply}>
+                <Image src={developer} width={36} height={36} alt="" unoptimized />
+                <div>
+                  <strong>Developer agent</strong>
+                  <p>The launch page is ready for review. I’ve attached the plan, preview, and screenshot.</p>
+                </div>
+              </div>
+              <p className={styles.request}>Remind me tomorrow at 9 AM to review it.</p>
             </div>
           </section>
-          <section className={styles.artifacts}>
-            <h3><FolderIcon aria-hidden="true" /> Task artifacts</h3>
-            <ul role="list">
-              <li><DocumentTextIcon aria-hidden="true" /> Implementation plan</li>
-              <li><RectangleGroupIcon aria-hidden="true" /> Sandbox preview</li>
-            </ul>
-          </section>
+          <div className={styles.previewDetails}>
+            <section className={styles.artifacts}>
+              <h3><FolderIcon aria-hidden="true" /> Task artifacts</h3>
+              <ul role="list">
+                <li><DocumentTextIcon aria-hidden="true" /> Implementation plan</li>
+                <li><RectangleGroupIcon aria-hidden="true" /> Sandbox preview</li>
+                <li><PhotoIcon aria-hidden="true" /> UI screenshot</li>
+              </ul>
+            </section>
+            <section className={styles.reminder}>
+              <h3><BellIcon aria-hidden="true" /> Reminder</h3>
+              <p><strong>Review the launch page</strong></p>
+              <p>Tomorrow at 9:00 AM</p>
+            </section>
+          </div>
         </div>
       </div>
     </aside>
