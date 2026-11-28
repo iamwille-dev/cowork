@@ -111,7 +111,7 @@ func initializeStorage(ctx context.Context, db *sql.DB, schema string) error {
 	if err := postgres.EnsureSchema(ctx, tx, schema); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, storageSchema); err != nil {
+	if _, err := tx.ExecContext(ctx, storageSchema+driveSchema); err != nil {
 		return err
 	}
 	var revision int64

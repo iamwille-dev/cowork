@@ -231,7 +231,22 @@ PostgreSQL integration tests create and drop isolated schemas in the database sp
 
 Framework references are available in the [Mastra quickstart](https://mastra.ai/docs), [Chat SDK Web adapter docs](https://chat-sdk.dev/adapters/official/web), and [Encore.go API docs](https://encore.dev/docs/go/primitives/defining-apis).
 
+## Shared drive
+
+Open **Drive** in the workspace sidebar. Members can browse folders, upload and download files, rename files and folders, replace file contents, edit plain text, and delete files or empty folders. A file upload can be up to 5 MiB. Plain UTF-8 files up to 256 KiB are searchable by text and editable in Cowork. Other files can be found by filename, downloaded, and replaced.
+
+**Task artifacts** groups plans, previews, screenshots, pull-request links, and written results in a folder for each task. The Drive indexes artifact labels and task titles, plus the text of written task results. Existing task permissions also apply in Drive. The workspace owner can open **Access log** to review successful reads, downloads, searches, and changes by members and agents. Entries record the actor, action, item, and time. Cowork omits file contents and search terms from the log.
+
+Signed-in Cowork chats and member-authorized background tasks can list and search Drive, open task folders, read text and supported task artifacts, and edit existing text files. Developer implementation runs can use Drive as a reference during planning and built-in preview generation. Guest and external messaging conversations have no Drive grant. A conversation becomes ineligible for guest links once its agent accesses Drive.
+
 ## Coolify deployment
+
+Drive uses the same PostgreSQL database and schema as Cowork. The backend creates the Drive tables on its first database connection. Upgrading an existing application requires no new service, mount, or environment variable. Keep the current `DATABASE_URL` and `COWORK_DATABASE_SCHEMA` values so the release opens the existing workspace data.
+
+1. For a new app, create PostgreSQL on the same Coolify destination and use its private connection URL as the runtime `DATABASE_URL`. For an existing app, keep its current database. [Coolify PostgreSQL setup](https://coolify.io/docs/databases/postgresql)
+2. Deploy the CI-built Docker image and expose port `4400`. Keep the existing persistent mount at `/app/backend/.cowork` for task artifacts and other local state. Use the image’s built-in health check at `/api/health` with the Coolify dashboard override disabled. [Coolify Docker Image setup](https://coolify.io/docs/applications/deployments/docker-image), [Coolify health checks](https://coolify.io/docs/applications/configuration/health-checks)
+3. Sign in, upload a small text file, find it in Drive, and check **Access log**. Ask a signed-in agent to read the file. Reopen an existing task artifact and verify the uploaded file and log remain available after redeploy.
+4. Back up PostgreSQL for Drive files, logs, and workspace records. Back up the application volume for task artifact files and local state. Test both restores together in a separate environment. [Coolify database backups](https://coolify.io/docs/databases/backups)
 
 Cowork runs as one container with Next.js on port 4400 and the Encore and Mastra services on loopback. `deploy/package.sh` builds the Encore Linux/amd64 release and prints a temporary release directory. Build locally with `docker build -f RELEASE/Dockerfile RELEASE`. For a Coolify build without a Git checkout, stage `RELEASE/cowork-release.tar.xz` on a private endpoint reachable from the build server. Replace the Dockerfile’s copy step with a checksum-verified archive download and extraction into `/app`. The package includes source and the compiled backend. It omits `.env` and local workspace data.
 

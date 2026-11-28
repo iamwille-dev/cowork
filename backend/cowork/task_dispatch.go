@@ -230,6 +230,10 @@ func startTaskRun(d *database, space *Workspace, task *Task, agent workspaceAgen
 		configureGmailDigest(d, space, agent, &request)
 	} else if run.MemoryMemberID != "" && !hasActiveGuestGrant(d, space.ID, run.ThreadID) {
 		request.AgentMemory = space.memoryFor(run.MemoryMemberID, agent.ID).Items
+		if _, member := driveMember(d, space.ID, run.MemoryMemberID); member &&
+			!telegramThread(space, run.ThreadID) && !slackLinked(space, run.ThreadID) {
+			request.DriveGrant = newDriveGrant(space, run.MemoryMemberID, run.ThreadID, agent.ID, &run)
+		}
 	}
 	return request
 }

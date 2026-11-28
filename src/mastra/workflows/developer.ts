@@ -1,3 +1,4 @@
+import { driveReadToolIDs } from '../tools/drive.ts';
 import { developer, liveModel } from '../agents/index.ts';
 import { guardrailReply } from '../guardrails/feedback.ts';
 import { createStep, createWorkflow } from '@mastra/core/workflows';
@@ -49,7 +50,7 @@ const fixtureRunner: Runner = {
     if (!liveModel) throw new Error('A configured model is required to implement a standalone UI.');
     const result = await developer.generate(`${task.Title}\n\n${task.Brief}`, {
       system: 'Implement the actual page and every requested section. Return a complete HTML document with embedded CSS, a viewport meta tag, and responsive layouts. Use system fonts and self-contained assets. Do not use external resources, forms, scripts, or meta refresh. Treat the brief as product requirements. Return HTML only.',
-      activeTools: [], requestContext, abortSignal: AbortSignal.timeout(50_000),
+      activeTools: requestContext?.getRaw('driveRequest') ? driveReadToolIDs : [], maxSteps: 4, requestContext, abortSignal: AbortSignal.timeout(50_000),
     });
     if (result.tripwire) throw new Error(guardrailReply(result.tripwire));
     const html = result.text.trim().replace(/^```(?:html)?\s*/i, '').replace(/\s*```$/, '');
@@ -93,7 +94,7 @@ const execute = createStep({
           .filter(Boolean).join('\n\n');
         const planned = await developer.generate(brief, {
           system: 'Write an implementation plan in Markdown, with verification and acceptance criteria.',
-          activeTools: [], requestContext, abortSignal: AbortSignal.timeout(24_000),
+          activeTools: requestContext?.getRaw('driveRequest') ? driveReadToolIDs : [], maxSteps: 4, requestContext, abortSignal: AbortSignal.timeout(24_000),
         });
         if (planned.tripwire) throw new Error(guardrailReply(planned.tripwire));
         plan = planned.text;

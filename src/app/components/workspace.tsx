@@ -16,6 +16,7 @@ import { api, initials, localDay } from './api';
 import { AuthForm, Modal } from './forms';
 import { NewChatMenu } from './new-chat-menu';
 import { Select } from './select';
+import { SharedDrive } from './drive';
 import { ClerkSignIn, useClerkMode } from './clerk-auth';
 import type { AccountMode } from './account-access';
 import { ConnectionActivity } from './managed-connections';
@@ -43,19 +44,20 @@ type WorkspaceData = {
     Tasks?: Task[]; Reminders?: Reminder[]; Channels?: Record<string, string>;
   };
 };
-type View = 'conversations' | 'tasks' | 'reminders' | 'settings' | 'activity';
+type View = 'conversations' | 'tasks' | 'reminders' | 'drive' | 'settings' | 'activity';
 type ModalName = 'invite' | 'task' | 'reminder' | 'edit-schedule' | 'cancel-schedule';
 
-const titles: Record<View, string> = { conversations: 'Conversations', tasks: 'Tasks', reminders: 'Reminders', settings: 'Workspace settings', activity: 'Activity' };
+const titles: Record<View, string> = { conversations: 'Conversations', tasks: 'Tasks', reminders: 'Reminders', drive: 'Shared drive', settings: 'Workspace settings', activity: 'Activity' };
 const descriptions: Record<View, string> = {
   conversations: 'Chat with your agent and keep your team in the loop.',
   tasks: 'See what’s planned, who owns it, and what’s ready for review.',
   reminders: 'See what’s coming up and keep track of follow-ups.',
+  drive: 'Browse workspace files, folders, and task artifacts.',
   settings: 'Manage your workspace, teammates, and integrations.',
   activity: 'Review operations performed through Agent Connections.',
 };
-const shellPages: Record<View, string> = { conversations: 'chat', settings: 'admin', activity: 'admin', tasks: 'tasks', reminders: 'reminders' };
-const shellRoutes: Record<string, View> = { chat: 'conversations', admin: 'settings', tasks: 'tasks', reminders: 'reminders' };
+const shellPages: Record<View, string> = { conversations: 'chat', settings: 'admin', activity: 'admin', tasks: 'tasks', reminders: 'reminders', drive: 'drive' };
+const shellRoutes: Record<string, View> = { chat: 'conversations', admin: 'settings', tasks: 'tasks', reminders: 'reminders', drive: 'drive' };
 const dataOf = (event: FormEvent<HTMLFormElement>) => {
   event.preventDefault();
   return Object.fromEntries(new FormData(event.currentTarget));
@@ -361,6 +363,7 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
         {view === 'reminders' && <section className="page"><ReminderCalendar selected={selectedDay} reminders={workspace.Reminders ?? []}
           select={setSelectedDay} add={() => setModal('reminder')}
           complete={(id) => void run(async () => { await write('reminder/done', { ID: id }); })} /></section>}
+        {view === 'drive' && <SharedDrive owner={state.admin} />}
         {view === 'activity' && <div className="page">
           {state.admin && state.managedConnections ? <ConnectionActivity /> : <p className="panel p-4">
             {state.managedConnections ? 'Workspace owners can view activity.' : 'Activity is available when managed Agent Connections are enabled.'}

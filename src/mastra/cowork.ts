@@ -14,11 +14,13 @@ import { agentConnection, type AgentConnectionContext } from './tools/agent-conn
 import type { GitTokens } from './tools/repositories.ts';
 import { workspaceRepositoryTools } from './tools/repository-inventory.ts';
 import { scheduleGmailDigest, type WorkspaceFindTasks, type WorkspaceWrite } from './tools/workspace.ts';
+import { bindDrive, driveTools } from './tools/drive.ts';
 
-export async function runTask(task: Task, agentMemory?: string[]) {
+export async function runTask(task: Task, agentMemory?: string[], driveGrant?: string) {
   const run = await mastra.getWorkflow('developerTask').createRun();
   const requestContext = new RequestContext();
   requestContext.setRaw('agentMemory', agentMemory);
+  bindDrive(requestContext, driveGrant);
   const output = await run.start({ inputData: task, requestContext });
   if (output.status !== 'success') throw new Error('Developer workflow failed.');
   const result = output.result;
@@ -29,7 +31,7 @@ export async function runTask(task: Task, agentMemory?: string[]) {
   return { ...result, Note };
 }
 
-export async function runBackgroundTask({ Task, Role, TimeZone, AgentMemory }: { Task: Task; Role: string; TimeZone: string; AgentMemory?: string[] }) {
+export async function runBackgroundTask({ Task, Role, TimeZone, AgentMemory, DriveGrant }: { Task: Task; Role: string; TimeZone: string; AgentMemory?: string[]; DriveGrant?: string }) {
   if (!liveModel) return { Error: 'Set OPENROUTER_API_KEY to run background tasks.' };
   const scope = await checkTaskScope(Role, Task);
   if (!scope.allowed) return { Error: scope.message };
@@ -38,10 +40,11 @@ export async function runBackgroundTask({ Task, Role, TimeZone, AgentMemory }: {
   }).format(new Date());
   const requestContext = new RequestContext();
   requestContext.setRaw('agentMemory', AgentMemory);
+  bindDrive(requestContext, DriveGrant);
   const response = await mastra.getAgent(workspaceAgentRole(Role)).generate(
     `${Task.Title}\n\n${Task.Brief}`,
-    { activeTools: [], requestContext, abortSignal: AbortSignal.timeout(75_000),
-      system: `This is a background task. Complete the recorded brief now. Start with one short line beginning with the literal label "Agent note:" that states what you completed and mentions any relevant limitation. Then write the complete deliverable on the following lines. You have no tools during this run. If the brief requires unavailable information or actions, state what could not be completed. Current local time: ${localTime}.` },
+    { activeTools: DriveGrant ? Object.keys(driveTools) : [], maxSteps: DriveGrant ? 6 : 1, requestContext, abortSignal: AbortSignal.timeout(75_000),
+      system: `This is a background task. Complete the recorded brief now. Start with one short line beginning with the literal label "Agent note:" that states what you completed and mentions any relevant limitation. Then write the complete deliverable on the following lines. ${DriveGrant ? 'Use Drive tools when needed for the brief.' : 'You have no tools during this run.'} If the brief requires unavailable information or actions, state what could not be completed. Current local time: ${localTime}.` },
   );
   if (response.tripwire) return { Error: guardrailReply(response.tripwire) };
   return backgroundDeliverable(response.text);
@@ -93,6 +96,7 @@ type ChatTurn = AgentConnectionContext & {
   CanScheduleGmailDigest?: boolean;
   ThreadID?: string;
   Guest?: boolean;
+  DriveGrant?: string;
   GitTokens?: GitTokens;
 };
 type WorkspaceRecords = {
@@ -100,7 +104,7 @@ type WorkspaceRecords = {
   Reminders?: { ID: string; Due: string }[];
 };
 
-export async function respond({ Role, AgentName, AgentMemory, Messages, TimeZone, WorkspaceID, UseWorkspaceMemory, CanScheduleGmailDigest, ThreadID, Guest, GitTokens, ...connectionContext }: ChatTurn, session?: string) {
+export async function respond({ Role, AgentName, AgentMemory, Messages, TimeZone, WorkspaceID, UseWorkspaceMemory, CanScheduleGmailDigest, ThreadID, Guest, GitTokens, DriveGrant, ...connectionContext }: ChatTurn, session?: string) {
   if (!liveModel) return { Reply: 'Set OPENROUTER_API_KEY to enable Cowork chat and its tools.' };
   const latest = Messages.at(-1);
   if (!latest) throw new Error('A conversation message is required.');
@@ -112,6 +116,7 @@ export async function respond({ Role, AgentName, AgentMemory, Messages, TimeZone
       || !/\b(?:chat is|i(?: am|['’]m)) in demo mode\b/i.test(message.Text))
     .map(({ Author, Text, At, SenderID, Agent }) => ({ participant: Author, message: Text, at: At, participantId: SenderID, agent: Agent }));
   const requestContext = new RequestContext<{ workspaceWrite: WorkspaceWrite; workspaceFindTasks: WorkspaceFindTasks }>();
+  if (!Guest) bindDrive(requestContext, DriveGrant);
   const shareWorkspaceMemory = Boolean(UseWorkspaceMemory && session && !Guest);
   if (shareWorkspaceMemory) requestContext.setRaw('agentMemory', AgentMemory);
   let updatedMemory: string[] | undefined;

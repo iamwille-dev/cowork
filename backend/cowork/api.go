@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path"
 	"sort"
 	"strings"
 	"sync"
@@ -231,6 +232,7 @@ type workerRequest struct {
 	AgentConnectionPaused    bool              `json:",omitempty"`
 	CanScheduleGmailDigest   bool              `json:",omitempty"`
 	UseWorkspaceMemory       bool              `json:",omitempty"`
+	DriveGrant               string            `json:",omitempty"`
 	WorkspaceID              string            `json:",omitempty"`
 	ThreadID                 string            `json:",omitempty"`
 	Task                     Task
@@ -364,6 +366,12 @@ func API(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	space := d.Workspaces[account.Workspace]
+	if action, ok := strings.CutPrefix(route, "drive/"); ok {
+		mutex.Unlock()
+		defer mutex.Lock()
+		driveBrowser(w, r, space, account, action)
+		return
+	}
 	if r.Method == "GET" {
 		if route == "telegram" {
 			viewTelegramConnection(w, d, account, space, r.URL.Query().Get("agent"))
@@ -388,7 +396,7 @@ func API(w http.ResponseWriter, r *http.Request) {
 			view(w, d, account)
 			return
 		}
-		serveArtifact(w, r, space, account.ID, route)
+		serveArtifact(w, r, space, account, route)
 		return
 	}
 	if route == "logout" {
@@ -620,6 +628,9 @@ func runAgent(w http.ResponseWriter, r *http.Request, d *database, a Account, sp
 	}
 	request.TimeZone = location.String()
 	request.UseWorkspaceMemory = !hasGuests
+	if !hasGuests {
+		request.DriveGrant = newDriveGrant(space, a.ID, input.ThreadID, agent.ID, nil)
+	}
 	request.CanScheduleGmailDigest = a.ID == space.Owner && !hasGuests && space.AgentConnectionEnabled
 	*messages = append(*messages, Message{Author: a.Name, Text: input.Text, At: time.Now(), SenderID: a.ID})
 	request.Messages = (*messages)[max(0, len(*messages)-24):]
@@ -706,25 +717,49 @@ func runAgent(w http.ResponseWriter, r *http.Request, d *database, a Account, sp
 	view(w, latest, a)
 }
 
-func serveArtifact(w http.ResponseWriter, r *http.Request, space *Workspace, memberID, route string) {
+func fetchTaskArtifact(ctx context.Context, route string) (*http.Response, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://127.0.0.1:4401/"+route, nil)
+	if err != nil {
+		return nil, err
+	}
+	client := *workerClient
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	return client.Do(request)
+}
+
+func serveArtifact(w http.ResponseWriter, r *http.Request, space *Workspace, account Account, route string) {
 	if !strings.HasPrefix(route, "artifact/") {
 		fail(w, 404, "Unknown endpoint.")
 		return
 	}
 	for _, task := range space.Tasks {
-		if !task.visibleTo(memberID) {
+		if !task.visibleTo(account.ID) {
 			continue
 		}
 		for _, artifact := range task.Artifacts {
 			if artifact.URL != r.URL.Path {
 				continue
 			}
-			res, err := workerClient.Get("http://127.0.0.1:4401/" + route)
+			// Restoring a live sandbox can take time, so let other workspace requests proceed.
+			mutex.Unlock()
+			defer mutex.Lock()
+			res, err := fetchTaskArtifact(r.Context(), route)
 			if err != nil {
 				fail(w, 502, "Artifact service unavailable.")
 				return
 			}
 			defer res.Body.Close()
+			if res.StatusCode == http.StatusOK || res.StatusCode == http.StatusTemporaryRedirect {
+				db, err := storage.connect(r.Context())
+				if err == nil {
+					actor := driveActor{Account: account, Source: "member"}
+					err = logDrive(r.Context(), db, actor, "open", task.ID+":"+path.Base(route), artifact.Name, task.PrivateMemberID)
+				}
+				if err != nil {
+					driveError(w, err)
+					return
+				}
+			}
 			for _, header := range []string{"Content-Type", "Content-Security-Policy", "Content-Disposition"} {
 				if value := res.Header.Get(header); value != "" {
 					w.Header().Set(header, value)
@@ -732,6 +767,10 @@ func serveArtifact(w http.ResponseWriter, r *http.Request, space *Workspace, mem
 			}
 			w.Header().Set("X-Content-Type-Options", "nosniff")
 			w.Header().Set("Cache-Control", "private, no-store")
+			if res.StatusCode == http.StatusTemporaryRedirect {
+				w.Header().Set("Location", res.Header.Get("Location"))
+				w.Header().Set("Referrer-Policy", "no-referrer")
+			}
 			w.WriteHeader(res.StatusCode)
 			io.Copy(w, res.Body)
 			return

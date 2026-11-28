@@ -5,13 +5,14 @@ import {
   Dialog, DialogBackdrop, DialogPanel, DialogTitle, Menu, MenuButton, MenuItem, MenuItems, TransitionChild,
 } from '@headlessui/react';
 import {
-  Bars3Icon, BellIcon, CalendarIcon, ChatBubbleLeftRightIcon, Cog6ToothIcon, FolderIcon, MoonIcon, SparklesIcon, SunIcon, XMarkIcon,
+  Bars3Icon, BellIcon, CalendarIcon, ChatBubbleLeftRightIcon, Cog6ToothIcon, CircleStackIcon, FolderIcon, MoonIcon, SparklesIcon, SunIcon, XMarkIcon,
 } from '@heroicons/react/24/outline';
 import { ChevronDownIcon, MagnifyingGlassIcon } from '@heroicons/react/20/solid';
 
 const navigation = [
   { page: 'chat', name: 'Conversations', icon: ChatBubbleLeftRightIcon },
   { page: 'tasks', name: 'Tasks', icon: FolderIcon },
+  { page: 'drive', name: 'Drive', icon: CircleStackIcon },
   { page: 'reminders', name: 'Reminders', icon: CalendarIcon },
 ] as const;
 

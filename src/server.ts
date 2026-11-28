@@ -59,7 +59,7 @@ async function worker(request: IncomingMessage, response: ServerResponse) {
       result = await gmailDigestConnection(payload, payload.Task.GmailConnectionID)
         ? { ScopeAllowed: true } : { Error: gmailDigestUnavailable };
     } else if (url === '/gmail-digest') result = await runGmailDigest(payload);
-    else if (url === '/task') result = await runTask({ ...payload.Task, WorkspaceID: payload.WorkspaceID }, payload.AgentMemory);
+    else if (url === '/task') result = await runTask({ ...payload.Task, WorkspaceID: payload.WorkspaceID }, payload.AgentMemory, payload.DriveGrant);
     else if (url === '/scheduled-task') result = await runBackgroundTask(payload);
     else if (payload.ChannelActor?.Channel === 'telegram') {
       const reply = liveModel && await respondFromChannel(mastra, payload.ChannelActor, payload.Messages, { telegramThreadId: payload.ThreadID });

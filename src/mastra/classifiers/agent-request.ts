@@ -23,7 +23,7 @@ export const agentRequestClassifier = new Classifier({
       ].join(' '),
       criteria: {
         ...roleScopes,
-        shared: 'Greetings, simple acknowledgments, unclear chat messages that need clarification, and routine Cowork help such as looking up tasks, setting reminders, changing task status, saving personal preferences, or scheduling a private digest of unread Gmail.',
+        shared: 'Greetings, simple acknowledgments, unclear chat messages that need clarification, and routine Cowork help such as finding, reading, or editing workspace Drive files, looking up task artifacts, looking up tasks, setting reminders, changing task status, saving personal preferences, or scheduling a private digest of unread Gmail.',
         mixed: 'Separate deliverables for more than one role, such as fixing a bug and drafting sales outreach.',
         unsupported: 'A clear request that falls outside every listed role and shared Cowork actions.',
       },
