@@ -102,6 +102,10 @@ func updateBoardTask(w http.ResponseWriter, r *http.Request, d *database, a Acco
 	if !decode(w, r, &input) {
 		return
 	}
+	saveBoardTaskUpdate(w, d, a, space, input)
+}
+
+func saveBoardTaskUpdate(w http.ResponseWriter, d *database, a Account, space *Workspace, input taskUpdate) {
 	for i := range space.Tasks {
 		task := &space.Tasks[i]
 		if task.ID != input.ID {
@@ -131,7 +135,11 @@ func findBoardTasks(w http.ResponseWriter, r *http.Request, space *Workspace) {
 	if !decode(w, r, &input) {
 		return
 	}
-	query := strings.ToLower(strings.TrimSpace(input.Query))
+	replyBoardTaskMatches(w, space, input.Query)
+}
+
+func replyBoardTaskMatches(w http.ResponseWriter, space *Workspace, query string) {
+	query = strings.ToLower(strings.TrimSpace(query))
 	type match struct{ ID, Title, Status, Author string }
 	matches := []match{}
 	more := false

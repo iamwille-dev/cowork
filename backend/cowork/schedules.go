@@ -12,15 +12,21 @@ import (
 
 const scheduledRunLease = 3 * time.Minute
 
+type taskSchedule struct {
+	Title, Brief, ThreadID, TimeZone, Recurrence, Assignee string
+	Due                                                    *time.Time
+	DelaySeconds                                           int64
+}
+
 func scheduleTask(w http.ResponseWriter, r *http.Request, d *database, a Account, space *Workspace) {
-	var input struct {
-		Title, Brief, ThreadID, TimeZone, Recurrence, Assignee string
-		Due                                                    *time.Time
-		DelaySeconds                                           int64
-	}
+	var input taskSchedule
 	if !decode(w, r, &input) {
 		return
 	}
+	saveTaskSchedule(w, d, a, space, input, space.threadAgent(input.ThreadID))
+}
+
+func saveTaskSchedule(w http.ResponseWriter, d *database, a Account, space *Workspace, input taskSchedule, fallback workspaceAgent) {
 	if threadMessages(space, input.ThreadID) == nil {
 		fail(w, 404, "Conversation not found.")
 		return
@@ -54,7 +60,7 @@ func scheduleTask(w http.ResponseWriter, r *http.Request, d *database, a Account
 		fail(w, http.StatusBadRequest, "Select an active agent for the scheduled run.")
 		return
 	}
-	agent, member, ok := taskAssignee(d, space, input.Assignee, space.threadAgent(input.ThreadID))
+	agent, member, ok := taskAssignee(d, space, input.Assignee, fallback)
 	if !ok || member != "" {
 		fail(w, 400, "Select an agent in this workspace for the scheduled run.")
 		return

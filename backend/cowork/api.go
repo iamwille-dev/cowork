@@ -490,8 +490,7 @@ func API(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400, "Enter a reminder and a due time.")
 			return
 		}
-		reminder := Reminder{key(), strings.TrimSpace(input.Text), account.Name, input.Due, false}
-		space.Reminders = append(space.Reminders, reminder)
+		reminder := appendReminder(space, input.Text, account.Name, input.Due)
 		w.Header().Set("X-Cowork-Record-Id", reminder.ID)
 	case "reminder/done":
 		found := false
@@ -529,6 +528,12 @@ func API(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	view(w, d, account)
+}
+
+func appendReminder(space *Workspace, text, author string, due time.Time) Reminder {
+	reminder := Reminder{key(), strings.TrimSpace(text), author, due, false}
+	space.Reminders = append(space.Reminders, reminder)
+	return reminder
 }
 
 // Empty IDs preserve the original shared workspace conversation.

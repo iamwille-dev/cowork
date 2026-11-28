@@ -5,8 +5,8 @@ import { liveModel } from './agents/index.ts';
 import { updateAgentMemory } from './agent-memory.ts';
 import { bindDockerSandbox } from './docker-workspace.ts';
 import { agentConnection, type AgentConnectionContext } from './tools/agent-connection.ts';
-import { repositoryTools, type GitTokens } from './tools/repositories.ts';
-import { repositoryInventory, repositoryMetadata } from './tools/repository-inventory.ts';
+import type { GitTokens } from './tools/repositories.ts';
+import { workspaceRepositoryTools } from './tools/repository-inventory.ts';
 import type { WorkspaceFindTasks, WorkspaceWrite } from './tools/workspace.ts';
 
 export async function runTask(task: Task, agentMemory?: string[]) {
@@ -86,7 +86,7 @@ export async function respond({ Role, AgentName, AgentMemory, Messages, TimeZone
         const response = await fetch(`http://127.0.0.1:4000/api/${route}`, {
           method: 'POST',
           headers,
-          body: JSON.stringify(route === 'reminder' ? data : { ...data, ThreadID, TimeZone }),
+          body: JSON.stringify(route === 'reminder' ? data : { ...data, ThreadID, TimeZone: data.TimeZone ?? TimeZone }),
           signal: AbortSignal.timeout(95_000),
         });
         if (!response.ok) {
@@ -124,20 +124,11 @@ export async function respond({ Role, AgentName, AgentMemory, Messages, TimeZone
     timeZone: TimeZone, year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', second: '2-digit', timeZoneName: 'longOffset',
   }).format(new Date());
-  const repositories = !Guest && session && GitTokens ? repositoryTools(GitTokens) : undefined;
   const access = Guest ? undefined : await agentConnection(connectionContext);
-  const connection = access?.connection;
-  const repositoryLookups = {
-    ...((repositories || connection?.hasTools('github_list_installations', 'github_list_repositories')) && {
-      list_repositories: repositoryInventory(connection, repositories ? GitTokens : undefined),
-    }),
-    ...((repositories || connection?.hasTools('github_get_repository')) && {
-      get_repository: repositoryMetadata(connection, repositories ? GitTokens : undefined),
-    }),
-  };
+  const repositories = Guest ? undefined : workspaceRepositoryTools(access?.connection, session ? GitTokens : undefined);
   const toolsets = Guest ? undefined : {
     ...access?.tools,
-    repositories: { ...repositories?.tools, ...repositoryLookups },
+    repositories: repositories?.tools ?? {},
     ...(shareWorkspaceMemory && { personalMemory: { updateAgentMemory: updateAgentMemory((items) => { updatedMemory = items; }) } }),
   };
   const memory = WorkspaceID ? {
@@ -175,6 +166,6 @@ export async function respond({ Role, AgentName, AgentMemory, Messages, TimeZone
     throw error;
   } finally {
     await releaseSandbox?.();
-    await repositories?.close();
+    await repositories?.close?.();
   }
 }

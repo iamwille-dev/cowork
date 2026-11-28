@@ -114,7 +114,7 @@ func receiveTelegramMessage(w http.ResponseWriter, r *http.Request) {
 		Role: role, AgentName: agentName, WorkspaceID: space.ID, ThreadID: thread.ID, TimeZone: "UTC",
 		ChannelActor: &channelActor{
 			WorkspaceID: space.ID, Channel: "telegram", Agent: input.Agent, Installation: input.Version,
-			Conversation: input.ChatID, SenderID: input.SenderID, Author: input.Author,
+			Conversation: input.ChatID, ThreadID: thread.ID, SenderID: input.SenderID, Author: input.Author,
 		},
 		Messages: thread.Messages[max(0, len(thread.Messages)-24):],
 	}

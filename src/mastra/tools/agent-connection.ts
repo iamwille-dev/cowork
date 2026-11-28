@@ -38,7 +38,7 @@ async function discover(client: Client, signal: AbortSignal) {
 
 export async function agentConnection({
   AgentConnectionWorkspace: workspaceId, AgentConnectionKey: savedKey, AgentConnectionIDs: allowedIDs, AgentConnectionPaused: paused,
-}: AgentConnectionContext, scope: 'workspace' | 'channel' = 'workspace') {
+}: AgentConnectionContext) {
   const allowed = allowedIDs && new Set(allowedIDs);
   const key = workspaceId && (savedKey || (workspaceId === process.env.AGENT_CONNECTION_WORKSPACE_ID
     ? process.env.AGENT_CONNECTION_KEY?.trim()
@@ -86,7 +86,6 @@ export async function agentConnection({
     // Gateway tool names are scoped by provider, for example github_list_repositories.
     // Legacy workspaces grant read access through their workspace credential.
     const ids = granted.filter(({ kind }) => name.startsWith(`${kind}_`) &&
-      (scope !== 'channel' || (kind === 'github' && annotations?.readOnlyHint === true)) &&
       (allowed || annotations?.readOnlyHint === true)).map(({ id }) => id);
     if (!ids.length) continue;
     access.set(name, new Set(ids));

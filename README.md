@@ -118,9 +118,11 @@ For Telegram, create a distinct bot for each agent in BotFather. In Cowork, save
 
 ## Workspace tools in Slack and Telegram
 
-After a Cowork workspace owner connects Slack or Telegram, people in the linked channel can assign tasks without a Cowork account. Developer tasks run through the linked workspace’s configured workflow and sandbox. Other roles create assigned tasks for tracking.
+After a Cowork workspace owner connects Slack or Telegram, people in the linked channel can create, find, update, and schedule Cowork tasks. Developer tasks run through the linked workspace’s configured workflow and sandbox. Other roles create assigned tasks for tracking.
 
-Repository listing follows the linked workspace’s existing configuration. Enable Agent Connection with a GitHub grant or save a workspace Git token to make repository listing available in chat. Repository results are visible to people who can read the conversation. Slack tool access is limited to full members of the installed Slack workspace. Externally shared Slack Connect channels are excluded. Telegram access covers participants in the configured group. Set the same `MASTRA_ENCRYPTION_KEY` on the worker and Encore for Slack tools. Telegram uses the existing `COWORK_TELEGRAM_BRIDGE_SECRET`.
+Slack and Telegram inherit the agent’s existing Agent Connections grants from Cowork web chat. Tool results in replies are visible to people who can read the conversation. Slack tool access is limited to full members of the installed Slack workspace. Externally shared Slack Connect channels are excluded. Telegram access covers participants in the configured group. Set the same `MASTRA_ENCRYPTION_KEY` on the worker and Encore for Slack tools. Telegram uses the existing `COWORK_TELEGRAM_BRIDGE_SECRET`.
+
+Ask an agent in either channel to save a reminder with a due date and time. The reminder appears on the Cowork Reminders page. Slack supplies the requester’s time zone when available.
 
 ## Connect a work Gmail mailbox
 

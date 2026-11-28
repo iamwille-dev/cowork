@@ -91,8 +91,8 @@ test('discovers MCP tools and permits calls only for the selected agent’s gran
   assert.equal(reply.text, 'Fetched releases.');
   assert.deepEqual(calls.map(({ name }) => name), ['list_connections', 'github_inspect_releases']);
 
-  const channel = await agentConnection(context, 'channel');
-  assert.deepEqual(Object.keys(channel.tools.agentConnection).sort(), ['github_inspect_releases', 'list_connections']);
+  const withMail = await agentConnection({ ...context, AgentConnectionIDs: ['granted', 'mail'] });
+  assert.deepEqual(Object.keys(withMail.tools.agentConnection).sort(), ['github_inspect_releases', 'github_publish_release', 'gmail_search', 'list_connections']);
   const denied = await agentConnection({ ...context, AgentConnectionIDs: [] });
   assert.deepEqual(Object.keys(denied.tools.agentConnection), ['list_connections']);
   assert.equal(calls.length, 3);

@@ -25,6 +25,8 @@ test('Slack provisions named apps and routes managed and legacy installs to regi
     app: string; bot: string; token: string; secret: string; name: string; webhook: string; callback: string;
   }>();
   let rotations = 0;
+  let reminderWrites = 0;
+  const due = new Date(Date.now() + 3_600_000).toISOString();
   const posted: (string | undefined)[] = [];
   const sdk = createServer((req, res) => {
     const path = req.url?.split('?')[0];
@@ -49,13 +51,16 @@ test('Slack provisions named apps and routes managed and legacy installs to regi
 
   Object.assign(process.env, {
     COWORK_STATE_DIR: state, COWORK_PUBLIC_URL: 'https://cowork.example',
+    OPENROUTER_API_KEY: 'test-key',
     MASTRA_ENCRYPTION_KEY: 'test-encryption-key-for-slack-installations',
+    AGENT_CONNECTIONS_MCP_URL: 'https://connections.example/mcp',
     SLACK_API_URL: `http://127.0.0.1:${address.port}/`,
     SLACK_CLIENT_ID: 'shared', SLACK_CLIENT_SECRET: 'secret', SLACK_SIGNING_SECRET: installs.shared.secret, SLACK_APP_ID: installs.shared.app,
     SLACK_ADA_CLIENT_ID: 'ada', SLACK_ADA_CLIENT_SECRET: 'secret', SLACK_ADA_SIGNING_SECRET: installs.ada.secret, SLACK_ADA_APP_ID: installs.ada.app,
   });
 
   const bridgeCalls: string[] = [];
+  let mailCalls = 0;
   t.mock.method(globalThis, 'fetch', async (input: string | URL, init?: RequestInit) => {
     const url = new URL(input);
     switch (url.pathname) {
@@ -90,9 +95,9 @@ test('Slack provisions named apps and routes managed and legacy installs to regi
           team: { id: input.get('code') === 'wrong-team' ? 'TOTHER' : team } });
       }
       case '/api/users.info':
-        return Response.json({ ok: true, user: { team_id: team } });
+        return Response.json({ ok: true, user: { team_id: team, tz: 'America/Regina' } });
       case '/api/conversations.info':
-        return Response.json({ ok: true, channel: { name: 'general', is_channel: true, is_private: false } });
+        return Response.json({ ok: true, channel: { name: 'workspace', is_channel: true, is_private: url.searchParams.get('channel') === 'CPRIVATE' } });
       case '/internal/channel-tools/available': {
         const actor = JSON.parse(String(init?.body));
         return Response.json({ agentID: actor.AgentInstance ?? 'developer' });
@@ -105,12 +110,71 @@ test('Slack provisions named apps and routes managed and legacy installs to regi
           const agent = workspaceAgents.find(({ ID }) => ID === actor.AgentInstance);
           assert.ok(agent);
           assert.equal(actor.Agent, 'agent:' + agent.ID);
-          return Response.json({ Role: agent.Role, AgentName: agent.Name });
+          return Response.json({
+            Role: agent.Role, AgentName: agent.Name,
+            AgentConnectionWorkspace: workspace, AgentConnectionKey: 'workspace-key',
+            AgentConnectionIDs: agent.ID === 'product-manager' ? ['granted-mail'] : [],
+          });
         }
         return Response.json({ Role: 'Developer', AgentName: actor.Agent ? 'Ada' : 'Cowork' });
       }
       case '/internal/channel-tools/slack-message':
         return Response.json({ Sync: true });
+      case '/internal/channel-tools/task/find': {
+        const actor = JSON.parse(String(init?.body));
+        assert.equal(actor.WorkspaceID, workspace);
+        assert.deepEqual(actor.Data, { Query: 'Review' });
+        return Response.json({ tasks: [{ ID: 'existing', Title: 'Review', Status: 'Assigned', Author: 'Workspace Member' }], more: false });
+      }
+      case '/internal/channel-tools/task/update': {
+        const actor = JSON.parse(String(init?.body));
+        assert.equal(actor.WorkspaceID, workspace);
+        assert.deepEqual(actor.Data, { ID: 'existing', ExpectedStatus: 'Assigned', Status: 'Completed' });
+        return Response.json({ workspace: { Tasks: [{ ID: 'existing', Title: 'Review', Status: 'Completed' }] } }, {
+          headers: { 'X-Cowork-Record-Id': 'existing' },
+        });
+      }
+      case '/internal/channel-tools/task/schedule': {
+        const actor = JSON.parse(String(init?.body));
+        assert.equal(actor.WorkspaceID, workspace);
+        assert.deepEqual(actor.Data, { Title: 'Draft', Brief: 'Draft the brief', DelaySeconds: 3600, TimeZone: 'America/Regina' });
+        return Response.json({ workspace: { Tasks: [{ ID: 'schedule', Title: 'Draft', Status: 'Scheduled', ScheduledFor: due }] } }, {
+          headers: { 'X-Cowork-Record-Id': 'schedule' },
+        });
+      }
+      case '/internal/channel-tools/reminder': {
+        const actor = JSON.parse(String(init?.body));
+        assert.equal(actor.WorkspaceID, workspace);
+        assert.equal(actor.AgentInstance, 'product-manager');
+        assert.deepEqual(actor.Data, { Text: 'Review the brief', Due: due });
+        reminderWrites++;
+        return Response.json({ ID: 'saved-reminder', Text: actor.Data.Text, Due: actor.Data.Due }, {
+          headers: { 'X-Cowork-Record-Id': 'saved-reminder' },
+        });
+      }
+      case '/mcp': {
+        assert.equal(new Headers(init?.headers).get('authorization'), 'Bearer workspace-key');
+        const { id, method, params } = JSON.parse(String(init?.body));
+        if (id === undefined) return new Response(null, { status: 202 });
+        let result;
+        if (method === 'initialize') {
+          result = { protocolVersion: params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: 'test', version: '1' } };
+        } else if (method === 'tools/list') {
+          result = { tools: [{
+            name: 'gmail_search', inputSchema: { type: 'object', properties: { connection_id: { type: 'string' } } },
+            annotations: { readOnlyHint: true },
+          }] };
+        } else if (method === 'tools/call' && params.name === 'list_connections') {
+          result = { content: [], structuredContent: { connections: [{ id: 'granted-mail', kind: 'gmail' }, { id: 'other-mail', kind: 'gmail' }] } };
+        } else if (method === 'tools/call' && params.name === 'gmail_search') {
+          assert.equal(params.arguments.connection_id, 'granted-mail');
+          mailCalls++;
+          result = { content: [], structuredContent: { matches: 1 } };
+        } else {
+          throw new Error('Unexpected MCP request');
+        }
+        return Response.json({ jsonrpc: '2.0', id, result });
+      }
       default:
         throw new Error('Unexpected request to ' + url.pathname);
     }
@@ -123,13 +187,16 @@ test('Slack provisions named apps and routes managed and legacy installs to regi
   const canonical = '/api/agents/developer/channels/slack/webhook';
   assert.equal(mastra.getAgent('Developer'), developer);
   assert.equal(developer.getChannels()?.getWebhookRoutes()[0]?.path, canonical);
-  assert.ok(Object.hasOwn(await developer.listTools(), 'scheduleTask'));
+  const workspaceTools = await developer.listTools();
+  for (const name of ['createTask', 'createReminder', 'findTasks', 'updateTask', 'scheduleTask']) {
+    assert.ok(Object.hasOwn(workspaceTools, name));
+  }
 
   const turns: Promise<unknown>[] = [];
   const modelCalls: string[] = [];
   t.mock.method(developer, 'stream', async (prompt: string, { requestContext }: { requestContext: RequestContext }) => {
     const tools = await developer.listTools({ requestContext });
-    assert.deepEqual(Object.keys(tools), ['createTask']);
+    assert.deepEqual(Object.keys(tools), Object.keys(workspaceTools));
     modelCalls.push(prompt);
     return { text: Promise.resolve('Cowork reply'), fullStream: [] };
   });
@@ -175,10 +242,10 @@ test('Slack provisions named apps and routes managed and legacy installs to regi
       options?.waitUntil?.(task);
     } }));
 
-  const event = ({ app, bot }: typeof installs.ada) => ({
+  const event = ({ app, bot }: typeof installs.ada, channel = 'CGENERAL') => ({
     type: 'event_callback', api_app_id: app, team_id: team, event_id: 'E' + app,
     authorizations: [{ team_id: team, user_id: bot, is_bot: true }],
-    event: { type: 'app_mention', user: 'UMEMBER', text: `<@${bot}> Hello from Slack`, channel: 'CGENERAL', ts: '1700000000.000001' },
+    event: { type: 'app_mention', user: 'UMEMBER', text: `<@${bot}> Hello from Slack`, channel, ts: '1700000000.000001' },
   });
   const results = await Promise.all([
     send('/integrations/slack/events', event(installs.shared), installs.shared.secret),
@@ -232,15 +299,45 @@ test('Slack provisions named apps and routes managed and legacy installs to regi
     const webhook = registeredChannels.handleWebhookEvent.bind(registeredChannels);
     t.mock.method(registeredChannels, 'handleWebhookEvent', (platform: string, req: Request) =>
       webhook(platform, req, { waitUntil: (task) => { turns.push(task); } }));
-    t.mock.method(registered, 'stream', async (prompt: string) => {
+    t.mock.method(registered, 'stream', async (prompt: string, { requestContext, system, toolsets }: {
+      requestContext: RequestContext;
+      system: string;
+      toolsets: { agentConnection: Record<string, { execute?: (input: { connection_id: string }) => unknown }> };
+    }) => {
       modelCalls.push(agent.ID + ': ' + prompt);
+      if (index === 0) {
+        assert.match(system, /America\/Regina/);
+        const mail = toolsets.agentConnection.gmail_search;
+        assert.ok(mail?.execute);
+        assert.deepEqual(await mail.execute({ connection_id: 'granted-mail' }), { matches: 1 });
+        assert.deepEqual(await mail.execute({ connection_id: 'other-mail' }), { error: 'This tool is not enabled for the selected connection.' });
+        const { createReminder, findTasks, updateTask, scheduleTask } = await registered.listTools({ requestContext });
+        assert.ok(createReminder.execute);
+        for (let attempt = 0; attempt < 2; attempt++) {
+          assert.deepEqual(await createReminder.execute({ text: 'Review the brief', due }, { requestContext }), { id: 'saved-reminder', due });
+        }
+        assert.ok(findTasks.execute && updateTask.execute && scheduleTask.execute);
+        assert.deepEqual(await findTasks.execute({ query: 'Review' }, { requestContext }), {
+          tasks: [{ ID: 'existing', Title: 'Review', Status: 'Assigned', Author: 'Workspace Member' }], more: false,
+        });
+        assert.deepEqual(await updateTask.execute({ id: 'existing', expectedStatus: 'Assigned', status: 'Completed' }, { requestContext }), {
+          id: 'existing', status: 'Completed',
+        });
+        assert.deepEqual(await scheduleTask.execute({ title: 'Draft', brief: 'Draft the brief', when: { delaySeconds: 3600 } }, { requestContext }), {
+          id: 'schedule', status: 'Scheduled', due,
+        });
+      } else {
+        assert.equal(toolsets.agentConnection.gmail_search, undefined);
+      }
       return { text: Promise.resolve(agent.Name + ' reply'), fullStream: [] };
     });
-    assert.equal((await send(pending.app.webhook, event(pending.app), pending.app.secret)).status, 200);
+    assert.equal((await send(pending.app.webhook, event(pending.app, 'CPRIVATE'), pending.app.secret)).status, 200);
     await Promise.all(turns);
     assert.equal(posted.at(-1), 'Bearer ' + pending.app.token);
     assert.match(modelCalls.at(-1) ?? '', new RegExp('^' + agent.ID));
   }
   assert.equal(rotations, 1);
   assert.equal(created.size, 2);
+  assert.equal(reminderWrites, 1);
+  assert.equal(mailCalls, 1);
 });

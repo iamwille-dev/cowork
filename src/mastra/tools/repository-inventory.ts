@@ -1,7 +1,23 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import type { AgentConnection, ConnectionClient } from './agent-connection.ts';
-import { repositoryURL, type GitTokens } from './repositories.ts';
+import { repositoryTools, repositoryURL, type GitTokens } from './repositories.ts';
+
+export function workspaceRepositoryTools(connection: AgentConnection | undefined, tokens?: GitTokens) {
+  const checkout = tokens && repositoryTools(tokens);
+  return {
+    tools: {
+      ...checkout?.tools,
+      ...((checkout || connection?.hasTools('github_list_installations', 'github_list_repositories')) && {
+        list_repositories: repositoryInventory(connection, tokens),
+      }),
+      ...((checkout || connection?.hasTools('github_get_repository')) && {
+        get_repository: repositoryMetadata(connection, tokens),
+      }),
+    },
+    close: checkout?.close,
+  };
+}
 
 const githubRepo = z.object({ full_name: z.string(), html_url: z.string() });
 const gitlabRepo = z.object({ path_with_namespace: z.string(), web_url: z.string() });

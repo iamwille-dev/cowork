@@ -736,7 +736,7 @@ async function handleSlackMessage(
     headers: { Authorization: 'Bearer ' + token }, signal: AbortSignal.timeout(5000),
   }).catch(() => undefined);
   const identity = await userResponse?.json().catch(() => undefined) as {
-    ok?: boolean; user?: { team_id?: string; team?: string; is_stranger?: boolean; is_external?: boolean; suspended?: boolean; is_bot?: boolean; is_restricted?: boolean; is_ultra_restricted?: boolean; deleted?: boolean };
+    ok?: boolean; user?: { team_id?: string; team?: string; tz?: string; is_stranger?: boolean; is_external?: boolean; suspended?: boolean; is_bot?: boolean; is_restricted?: boolean; is_ultra_restricted?: boolean; deleted?: boolean };
   } | undefined;
   const user = identity?.user;
   if (!identity?.ok || !user || (user.team_id ?? user.team) !== team || user.is_stranger ||
@@ -777,6 +777,7 @@ async function handleSlackMessage(
   try {
     const reply = await respondFromChannel(mastra, actor, mirrored?.Messages ?? await slackMessages(thread, message), {
       installationActive,
+      timeZone: slackTimeZone(user.tz),
       progress: async (status, displayName) => {
         name = displayName;
         await thread.startTyping(status).catch(() => undefined);
@@ -806,6 +807,15 @@ async function handleSlackMessage(
     }
   } finally {
     await thread.startTyping('').catch(() => undefined);
+  }
+}
+
+function slackTimeZone(timeZone: unknown): string | undefined {
+  if (typeof timeZone !== 'string' || !timeZone) return;
+  try {
+    return new Intl.DateTimeFormat('en', { timeZone }).resolvedOptions().timeZone;
+  } catch {
+    return;
   }
 }
 
