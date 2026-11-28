@@ -226,7 +226,9 @@ func startTaskRun(d *database, space *Workspace, task *Task, agent workspaceAgen
 		Task: run, Role: agent.Role, AgentName: agent.Name, TimeZone: zone,
 		WorkspaceID: space.ID, ThreadID: run.ThreadID,
 	}
-	if run.MemoryMemberID != "" && !hasActiveGuestGrant(d, space.ID, run.ThreadID) {
+	if run.GmailConnectionID != "" {
+		configureGmailDigest(d, space, agent, &request)
+	} else if run.MemoryMemberID != "" && !hasActiveGuestGrant(d, space.ID, run.ThreadID) {
 		request.AgentMemory = space.memoryFor(run.MemoryMemberID, agent.ID).Items
 	}
 	return request
@@ -235,7 +237,12 @@ func startTaskRun(d *database, space *Workspace, task *Task, agent workspaceAgen
 func executeTaskRun(request workerRequest, scopeChecked bool) error {
 	path := "scheduled-task"
 	timeout := 90 * time.Second
-	if request.Task.ScheduledFor == nil && request.Role == "Developer" {
+	if request.Task.GmailConnectionID != "" {
+		if request.AgentConnectionWorkspace == "" {
+			return finishTaskRun(request, workerResponse{Error: "Gmail access changed. Check the selected account and agent grant in Settings."}, nil)
+		}
+		path = "gmail-digest"
+	} else if request.Task.ScheduledFor == nil && request.Role == "Developer" {
 		path = "task"
 		if !scopeChecked {
 			scope, cancel := context.WithTimeout(context.Background(), 8*time.Second)

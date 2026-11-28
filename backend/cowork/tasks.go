@@ -8,6 +8,10 @@ import (
 	"time"
 )
 
+func (task Task) visibleTo(memberID string) bool {
+	return task.PrivateMemberID == "" || task.PrivateMemberID == memberID
+}
+
 func taskAssignee(d *database, space *Workspace, selection string, fallback workspaceAgent) (workspaceAgent, string, bool) {
 	if selection == "" {
 		// Conversation and channel calls already supply their own default agent.
@@ -148,6 +152,9 @@ func applyTaskUpdate(d *database, space *Workspace, task *Task, input taskUpdate
 		updated.Status = input.Status
 	}
 	if input.Assignee != nil {
+		if task.GmailConnectionID != "" {
+			return 400, "Create a new Gmail digest to use a different agent."
+		}
 		if *input.Assignee == "" {
 			return 400, "Select an agent or a team member."
 		}
@@ -196,7 +203,7 @@ func updateBoardTask(w http.ResponseWriter, r *http.Request, d *database, a Acco
 func saveBoardTaskUpdate(ctx context.Context, w http.ResponseWriter, d *database, a Account, space *Workspace, input taskUpdate) {
 	for i := range space.Tasks {
 		task := &space.Tasks[i]
-		if task.ID != input.ID {
+		if task.ID != input.ID || !task.visibleTo(a.ID) {
 			continue
 		}
 		updated := *task
@@ -204,7 +211,7 @@ func saveBoardTaskUpdate(ctx context.Context, w http.ResponseWriter, d *database
 			fail(w, code, message)
 			return
 		}
-		if updated.AssigneeMemberID == "" && (input.Assignee != nil || task.Title != updated.Title || task.Brief != updated.Brief) {
+		if updated.GmailConnectionID == "" && updated.AssigneeMemberID == "" && (input.Assignee != nil || task.Title != updated.Title || task.Brief != updated.Brief) {
 			role := assignedTaskRole(space, updated)
 			if role != "" && !validateTaskAssignment(ctx, w, role, updated) {
 				return
@@ -231,21 +238,24 @@ func saveTaskChange(w http.ResponseWriter, d *database, message string) bool {
 	return err == nil
 }
 
-func findBoardTasks(w http.ResponseWriter, r *http.Request, space *Workspace) {
+func findBoardTasks(w http.ResponseWriter, r *http.Request, space *Workspace, memberID string) {
 	var input struct{ Query string }
 	if !decode(w, r, &input) {
 		return
 	}
-	replyBoardTaskMatches(w, space, input.Query)
+	replyBoardTaskMatches(w, space, memberID, input.Query)
 }
 
-func replyBoardTaskMatches(w http.ResponseWriter, space *Workspace, query string) {
+func replyBoardTaskMatches(w http.ResponseWriter, space *Workspace, memberID, query string) {
 	query = strings.ToLower(strings.TrimSpace(query))
 	type match struct{ ID, Title, Status, Author string }
 	matches := []match{}
 	more := false
 	for i := len(space.Tasks) - 1; i >= 0; i-- {
 		task := space.Tasks[i]
+		if !task.visibleTo(memberID) {
+			continue
+		}
 		if query != "" && task.ID != query && !strings.Contains(strings.ToLower(task.Title), query) {
 			continue
 		}

@@ -78,31 +78,38 @@ export async function saveSlackMessage(actor: ChannelActor, data: {
 }
 
 const progressLabels: Record<string, string> = {
-  list_repositories: 'Looking up repositories…',
-  createTask: 'Creating a Cowork task…',
-  createReminder: 'Saving a Cowork reminder…',
-  scheduleTask: 'Scheduling a Cowork task…',
-  findTasks: 'Looking up Cowork tasks…',
-  updateTask: 'Updating a Cowork task…',
+  list_repositories: 'is looking up repositories…',
+  gmail_search: 'is searching Gmail…',
+  gmail_read: 'is reading Gmail…',
+  createTask: 'is creating a Cowork task…',
+  createReminder: 'is saving a Cowork reminder…',
+  scheduleTask: 'is scheduling a Cowork task…',
+  findTasks: 'is looking up Cowork tasks…',
+  updateTask: 'is updating a Cowork task…',
 };
 
 export async function respondFromChannel(
   mastra: Mastra,
   actor: ChannelActor,
-  messages: ChannelMessage[],
+  history: ChannelMessage[] | (() => Promise<ChannelMessage[]>),
   { installationActive = async () => true, progress, telegramThreadId, timeZone }: {
     installationActive?: () => Promise<boolean>;
-    progress?: (status: string, agentName: string) => Promise<void>;
+    progress?: (status: string, agentName: string) => void;
     telegramThreadId?: string;
     timeZone?: string;
   } = {},
 ) {
+  if (Array.isArray(history) && !history.length) return;
+  if (!await installationActive()) return;
+  const [messages, response] = await Promise.all([
+    typeof history === 'function' ? history() : history,
+    bridge(actor, 'context'),
+  ]);
   const latest = messages.at(-1);
   if (!latest) return;
-  if (!await installationActive()) return;
-  const response = await bridge(actor, 'context');
   if (!response.ok) throw new Error('Cowork could not load channel tools.');
   const context = await response.json() as ToolContext;
+  const access = actor.Channel === 'slack' ? agentConnection(context).catch(() => undefined) : undefined;
   const scope = await checkChatScope(context.Role, messages);
   if (!scope.allowed) return scope.message;
   const requestContext = new RequestContext<{ workspaceWrite: WorkspaceWrite; workspaceFindTasks: WorkspaceFindTasks }>();
@@ -177,8 +184,10 @@ export async function respondFromChannel(
   ]) : undefined;
   let repositories: ReturnType<typeof workspaceRepositoryTools> | undefined;
   try {
-    if (progress) await progress('Working…', name);
-    const { connection, tools } = await agentConnection(context);
+    progress?.('is thinking…', name);
+    const credentials = await (access ?? agentConnection(context));
+    if (!credentials) throw new Error('Cowork could not load Agent Connections.');
+    const { connection, tools } = credentials;
     repositories = workspaceRepositoryTools(connection, context.GitTokens);
     const toolsets = { ...tools, repositories: repositories.tools };
     if (!await installationActive()) return;
@@ -192,7 +201,7 @@ export async function respondFromChannel(
       for await (const event of result.fullStream) {
         if (event.type === 'tripwire') return [...confirmations, guardrailReply(event.payload)].join('\n\n');
         if (event.type === 'tool-call' && Object.hasOwn(progressLabels, event.payload.toolName)) {
-          await progress(progressLabels[event.payload.toolName], name);
+          progress(progressLabels[event.payload.toolName], name);
         }
       }
       reply = await result.text;

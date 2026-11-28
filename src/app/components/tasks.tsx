@@ -20,7 +20,7 @@ export type Task = {
   AgentID?: string; AgentRole?: string; AssigneeMemberID?: string; Repository?: string; Steps?: string[];
   Artifacts?: { Name: string; URL: string }[]; ScheduledFor?: string; ScheduledTimeZone?: string;
   ScheduledStarted?: string; WorkflowStarted?: string; Recurrence?: Cadence; RunRecurrence?: Cadence; Result?: string;
-  Notes?: TaskNote[];
+  Notes?: TaskNote[]; PrivateMemberID?: string;
 };
 
 export function TaskArtifacts({ task, inline = false }: { task: Task; inline?: boolean }) {
@@ -219,6 +219,7 @@ function TaskDetail({ task, person, assignees, busy, notice, close, update, mana
     <div className={styles.detailMeta}>
       <span className={'status ' + taskGroup(task.Status)}>{task.Status}</span>
       <TaskTiming task={task} full />
+      {task.PrivateMemberID && <small>Private to you</small>}
       <small>Assigned by {task.Author}</small>
     </div>
     {running && <p className={styles.detailNote}>The agent is running this task. You can edit it when the run finishes.</p>}
@@ -232,7 +233,7 @@ function TaskDetail({ task, person, assignees, busy, notice, close, update, mana
         <label>Task brief<Textarea required maxLength={6000} rows={4} value={brief} onChange={(event) => setBrief(event.target.value)} /></label>
       </>}
       <div className={styles.detailFields}>
-        <label>Assignee<Select value={assignee} required onChange={(event) => setAssignee(event.target.value)}>
+        <label>Assignee<Select value={assignee} required disabled={Boolean(task.PrivateMemberID)} onChange={(event) => setAssignee(event.target.value)}>
           {!assignees.some(({ value }) => value === person.value) && <option value={person.value}>{person.name}</option>}
           <AssigneeOptions assignees={assignees} agentsOnly={scheduled} />
         </Select></label>

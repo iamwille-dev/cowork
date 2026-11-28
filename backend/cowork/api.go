@@ -52,6 +52,8 @@ type Task struct {
 	AgentRole                                           string `json:",omitempty"`
 	AssigneeMemberID                                    string `json:",omitempty"`
 	MemoryMemberID                                      string `json:",omitempty"`
+	PrivateMemberID                                     string `json:",omitempty"`
+	GmailConnectionID                                   string `json:",omitempty"`
 	UI                                                  bool
 	Steps                                               []string
 	Artifacts                                           []Artifact
@@ -127,6 +129,15 @@ func tokenFor(r *http.Request) string {
 }
 func view(w http.ResponseWriter, d *database, a Account) {
 	space := *d.Workspaces[a.Workspace]
+	if space.Tasks != nil {
+		tasks := make([]Task, 0, len(space.Tasks))
+		for _, task := range space.Tasks {
+			if task.visibleTo(a.ID) {
+				tasks = append(tasks, task)
+			}
+		}
+		space.Tasks = tasks
+	}
 	agentMemories := space.AgentMemories[a.ID]
 	space.AgentMemories = nil
 	members := []string{}
@@ -218,6 +229,7 @@ type workerRequest struct {
 	AgentConnectionKey       string            `json:",omitempty"`
 	AgentConnectionIDs       *[]string         `json:",omitempty"`
 	AgentConnectionPaused    bool              `json:",omitempty"`
+	CanScheduleGmailDigest   bool              `json:",omitempty"`
 	UseWorkspaceMemory       bool              `json:",omitempty"`
 	WorkspaceID              string            `json:",omitempty"`
 	ThreadID                 string            `json:",omitempty"`
@@ -376,7 +388,7 @@ func API(w http.ResponseWriter, r *http.Request) {
 			view(w, d, account)
 			return
 		}
-		serveArtifact(w, r, space, route)
+		serveArtifact(w, r, space, account.ID, route)
 		return
 	}
 	if route == "logout" {
@@ -402,7 +414,7 @@ func API(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if route == "task/find" {
-		findBoardTasks(w, r, space)
+		findBoardTasks(w, r, space, account.ID)
 		return
 	}
 	if route == "task" {
@@ -608,6 +620,7 @@ func runAgent(w http.ResponseWriter, r *http.Request, d *database, a Account, sp
 	}
 	request.TimeZone = location.String()
 	request.UseWorkspaceMemory = !hasGuests
+	request.CanScheduleGmailDigest = a.ID == space.Owner && !hasGuests && space.AgentConnectionEnabled
 	*messages = append(*messages, Message{Author: a.Name, Text: input.Text, At: time.Now(), SenderID: a.ID})
 	request.Messages = (*messages)[max(0, len(*messages)-24):]
 
@@ -693,12 +706,15 @@ func runAgent(w http.ResponseWriter, r *http.Request, d *database, a Account, sp
 	view(w, latest, a)
 }
 
-func serveArtifact(w http.ResponseWriter, r *http.Request, space *Workspace, route string) {
+func serveArtifact(w http.ResponseWriter, r *http.Request, space *Workspace, memberID, route string) {
 	if !strings.HasPrefix(route, "artifact/") {
 		fail(w, 404, "Unknown endpoint.")
 		return
 	}
 	for _, task := range space.Tasks {
+		if !task.visibleTo(memberID) {
+			continue
+		}
 		for _, artifact := range task.Artifacts {
 			if artifact.URL != r.URL.Path {
 				continue

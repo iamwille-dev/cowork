@@ -93,13 +93,15 @@ In Cowork, the workspace owner opens **Settings → Messaging channels → Slack
 
 Cowork creates one Slack app per agent using the saved Cowork name for both the app and the bot. Approve the installation in Slack. If Cowork shows a verification link, use it to verify the Events API request URL in the Slack app’s **App Manifest** settings. Then DM the bot, or invite it to a channel and mention it by name. Slack app names can be up to 35 characters, and Slack normalizes the bot’s mention username. [Slack manifest reference](https://docs.slack.dev/reference/app-manifest/)
 
+Slack shows a loading status for agent replies in threads. When native status is unavailable, including in unthreaded DMs, Cowork sends a brief acknowledgement visible only to the sender. Managed Slack apps enable the online dot using the saved app configuration token. See [Slack bot presence](https://docs.slack.dev/apis/web-api/user-presence-and-status/#bot-presence).
+
 Set `COWORK_PUBLIC_URL` to the public HTTPS origin, `MASTRA_ENCRYPTION_KEY` to a stable random secret of at least 32 characters on the worker and Encore, and `OPENROUTER_API_KEY` on the worker. Cowork stores provisioning credentials and installation tokens in the worker’s `slack-oauth.db`. Keep that state volume and encryption key across restarts. The app installs in the Slack workspace that issued the configuration token.
 
 Disconnecting removes the Slack installation from the workspace. Reconnecting reuses the same app and applies the agent’s current Cowork name. For an agent already connected through a shared or fixed-name app, disconnect that installation before adding its dedicated app.
 
 ### Manage legacy Slack installations
 
-Existing shared Cowork apps use `SLACK_APP_ID`, `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, and `SLACK_SIGNING_SECRET` on the worker. Their OAuth and Events API URLs are in the [legacy app manifest](deploy/slack-app-manifest.json).
+Existing shared Cowork apps use `SLACK_APP_ID`, `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, and `SLACK_SIGNING_SECRET` on the worker. Their OAuth and Events API URLs are in the [legacy app manifest](deploy/slack-app-manifest.json). For manually managed installs, the Slack app owner controls the online dot in the app’s settings.
 
 Each Slack workspace is associated with one Cowork workspace. When the workspace owner chooses Slack as an agent's preferred channel, its internal public Slack threads are mirrored into Cowork under a stable conversation ID. Participants reply in Slack. Direct messages and private Slack channels keep their history in Slack. Run one worker per deployment.
 
@@ -167,6 +169,8 @@ Type `Create a task to draft the launch page` or `Remind me to review the launch
 Agent-assigned tasks in Planned form the work queue. Cowork checks PostgreSQL every two seconds and checks again when a background task finishes. Each workspace agent works on one task at a time. Due schedules take priority, then the agent picks up the oldest queued assignment. Manually moving an agent’s work to In progress reserves that agent until the task leaves that column. Team member assignments stay under team control. Successful runs move to In review. Open a task to read its dated agent notes alongside the deliverable or any blocker. Each recurring run has its own notes.
 
 Ask in a signed-in conversation to run work later, for example, “In 10 minutes, draft a three-sentence launch announcement using the details above.” For recurring work, try “Every Monday at 9 am, draft a planning agenda using this brief.” Daily and weekly schedules follow the local time zone of the conversation. The Tasks page shows the next run and a separate result for each execution. Open a recurring schedule there to pause, resume, edit, or cancel it. Resuming skips occurrences missed during the pause. Canceling stops future runs and keeps past results. After downtime, a recurring schedule runs once to catch up and then resumes its regular schedule. The dispatcher runs in the backend with the browser closed. Scheduled runs use the assigned role and saved brief for self-contained work such as drafts and summaries.
+
+A workspace owner can ask in Cowork web chat, “Every morning at 8 in America/Regina, summarize my unread Gmail.” The conversation must have no guests and the agent must have access to the selected Gmail connection. Each run checks that grant, reads up to 10 unread inbox messages, and saves the digest and notes in **Tasks**, visible only to the person who scheduled it. The schedule uses read-only Gmail access.
 
 ## Invite a guest to a conversation
 

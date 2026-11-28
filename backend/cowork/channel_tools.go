@@ -201,7 +201,7 @@ func ChannelToolBridge(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400, "Invalid task search.")
 			return
 		}
-		replyBoardTaskMatches(w, space, data.Query)
+		replyBoardTaskMatches(w, space, "", data.Query)
 	case "/internal/channel-tools/task/update":
 		var data taskUpdate
 		if json.Unmarshal(input.Data, &data) != nil {
@@ -214,6 +214,10 @@ func ChannelToolBridge(w http.ResponseWriter, r *http.Request) {
 		var data taskSchedule
 		if json.Unmarshal(input.Data, &data) != nil {
 			fail(w, 400, "Invalid task schedule.")
+			return
+		}
+		if data.GmailConnectionID != "" {
+			fail(w, 403, "Schedule a private Gmail digest in Cowork web chat.")
 			return
 		}
 		data.ThreadID = input.channelActor.boundThreadID(space)

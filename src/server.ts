@@ -5,7 +5,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { dataRoot } from './mastra/workflows/developer.ts';
-import { respond, runBackgroundTask, runTask } from './mastra/cowork.ts';
+import { respond, runBackgroundTask, runGmailDigest, runTask } from './mastra/cowork.ts';
+import { gmailDigestConnection, gmailDigestUnavailable } from './mastra/gmail-digest.ts';
 import { checkTaskScope } from './mastra/classifiers/agent-request.ts';
 import { startDockerSandboxCleanup } from './mastra/docker-workspace.ts';
 import { mastra } from './mastra/index.ts';
@@ -34,7 +35,7 @@ async function worker(request: IncomingMessage, response: ServerResponse) {
       response.end(bytes);
       return;
     }
-    if (request.method !== 'POST' || !['/task', '/chat', '/scheduled-task', '/task-scope'].includes(url)) {
+    if (request.method !== 'POST' || !['/task', '/chat', '/scheduled-task', '/task-scope', '/gmail-digest-check', '/gmail-digest'].includes(url)) {
       response.writeHead(404).end();
       return;
     }
@@ -54,7 +55,11 @@ async function worker(request: IncomingMessage, response: ServerResponse) {
     if (url === '/task-scope') {
       const scope = await checkTaskScope(payload.Role, payload.Task);
       result = scope.allowed ? { ScopeAllowed: true } : { Error: scope.message, ScopeUnavailable: scope.unavailable };
-    } else if (url === '/task') result = await runTask({ ...payload.Task, WorkspaceID: payload.WorkspaceID }, payload.AgentMemory);
+    } else if (url === '/gmail-digest-check') {
+      result = await gmailDigestConnection(payload, payload.Task.GmailConnectionID)
+        ? { ScopeAllowed: true } : { Error: gmailDigestUnavailable };
+    } else if (url === '/gmail-digest') result = await runGmailDigest(payload);
+    else if (url === '/task') result = await runTask({ ...payload.Task, WorkspaceID: payload.WorkspaceID }, payload.AgentMemory);
     else if (url === '/scheduled-task') result = await runBackgroundTask(payload);
     else if (payload.ChannelActor?.Channel === 'telegram') {
       const reply = liveModel && await respondFromChannel(mastra, payload.ChannelActor, payload.Messages, { telegramThreadId: payload.ThreadID });

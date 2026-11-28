@@ -11,7 +11,7 @@
     },
     "bot_user": {
       "display_name": "Cowork",
-      "always_online": false
+      "always_online": true
     }
   },
   "oauth_config": {

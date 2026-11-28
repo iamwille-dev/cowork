@@ -34,6 +34,11 @@ test('Slack provisions named apps and routes managed and legacy installs to regi
   const posted: (string | undefined)[] = [];
   const sdkPosts = new Map<string | undefined, Record<string, string>>();
   const customPosts = new Map<string | null, URLSearchParams>();
+  const feedback: { token: string | null; method: string; body: URLSearchParams }[] = [];
+  const presenceUpdates: string[] = [];
+  const releaseSlowStatus = Promise.withResolvers<void>();
+  const toolStatus = Promise.withResolvers<void>();
+  t.after(() => { releaseSlowStatus.resolve(); toolStatus.resolve(); });
   const sdk = createServer(async (req, res) => {
     const path = req.url?.split('?')[0];
     const user = { id: 'UMEMBER', team_id: team, real_name: 'Workspace Member' };
@@ -92,6 +97,7 @@ test('Slack provisions named apps and routes managed and legacy installs to regi
         const manifest = JSON.parse((init?.body as URLSearchParams).get('manifest')!);
         const name = manifest.display_information.name as string;
         assert.equal(manifest.features.bot_user.display_name, name);
+        assert.equal(manifest.features.bot_user.always_online, true);
         const client = 'client-' + name;
         const config = {
           name, app: 'A' + name.toUpperCase(), bot: 'UBOT' + name.toUpperCase(), token: 'token-' + name, secret: 'secret-' + name,
@@ -103,6 +109,18 @@ test('Slack provisions named apps and routes managed and legacy installs to regi
           client_id: client, client_secret: 'client-secret-' + name, signing_secret: config.secret,
         } });
       }
+      case '/api/apps.manifest.export':
+        assert.equal(new Headers(init?.headers).get('authorization'), 'Bearer configuration-access');
+        return Response.json({ ok: true, manifest: { features: { bot_user: { display_name: 'Existing bot', always_online: false } },
+          settings: { event_subscriptions: { bot_events: ['app_mention'] } } } });
+      case '/api/apps.manifest.update': {
+        const args = init?.body as URLSearchParams;
+        const manifest = JSON.parse(args.get('manifest')!);
+        assert.deepEqual(manifest.features.bot_user, { display_name: 'Existing bot', always_online: true });
+        assert.deepEqual(manifest.settings.event_subscriptions.bot_events, ['app_mention']);
+        presenceUpdates.push(args.get('app_id')!);
+        return Response.json({ ok: true });
+      }
       case '/api/oauth.v2.access': {
         const input = init?.body as URLSearchParams;
         const client = input.get('client_id')!;
@@ -111,7 +129,21 @@ test('Slack provisions named apps and routes managed and legacy installs to regi
           team: { id: input.get('code') === 'wrong-team' ? 'TOTHER' : team } });
       }
       case '/api/users.info':
+        feedback.push({ token: new Headers(init?.headers).get('authorization'), method: 'identity', body: url.searchParams });
         return Response.json({ ok: true, user: { team_id: team, tz: 'America/Regina' } });
+      case '/api/assistant.threads.setStatus': {
+        const token = new Headers(init?.headers).get('authorization');
+        const body = init?.body as URLSearchParams;
+        feedback.push({ token, method: 'status', body });
+        if (token === 'Bearer ada-token' && body.get('thread_ts') === '1700000000.000001') {
+          if (body.get('status') === 'is thinking…') await releaseSlowStatus.promise;
+          if (body.get('status') === 'is looking up Cowork tasks…') toolStatus.resolve();
+        }
+        return Response.json(token === 'Bearer shared-token' ? { ok: false, error: 'missing_scope' } : { ok: true });
+      }
+      case '/api/chat.postEphemeral':
+        feedback.push({ token: new Headers(init?.headers).get('authorization'), method: 'ack', body: init?.body as URLSearchParams });
+        return Response.json({ ok: true });
       case '/api/chat.postMessage': {
         const token = new Headers(init?.headers).get('authorization');
         customPosts.set(token, init?.body as URLSearchParams);
@@ -227,6 +259,13 @@ test('Slack provisions named apps and routes managed and legacy installs to regi
     assert.equal(message.attributes?.user_id, 'UMEMBER');
     const prompt = String(message.contents);
     modelCalls.push(prompt);
+    if (prompt.includes('timing fixture')) {
+      releaseSlowStatus.resolve();
+      return {
+        text: toolStatus.promise.then(() => 'Cowork reply'),
+        fullStream: [{ type: 'tool-call', payload: { toolName: 'findTasks' } }],
+      };
+    }
     return { text: Promise.resolve(prompt.includes('long formatted reply') ? longReply : 'Cowork reply'), fullStream: [] };
   });
 
@@ -278,9 +317,11 @@ test('Slack provisions named apps and routes managed and legacy installs to regi
   });
   const longReplyEvent = event(installs.shared);
   longReplyEvent.event.text += '. Please send a long formatted reply.';
+  const timingEvent = event(installs.ada);
+  timingEvent.event.text += '. timing fixture';
   const results = await Promise.all([
     send('/integrations/slack/events', longReplyEvent, installs.shared.secret),
-    send(canonical, event(installs.ada), installs.ada.secret),
+    send(canonical, timingEvent, installs.ada.secret),
   ]);
   assert.deepEqual(results.map(({ status }) => status), [200, 200]);
   await Promise.all(turns);
@@ -291,6 +332,14 @@ test('Slack provisions named apps and routes managed and legacy installs to regi
   assert.match(sdkPosts.get('Bearer shared-token')?.text ?? '', /^\*Long reply\*\n\nLine\./);
   assert.equal(sdkPosts.get('Bearer shared-token')?.markdown_text, undefined);
   assert.equal(sdkPosts.get('Bearer ada-token')?.markdown_text, 'Cowork reply');
+  const adaFeedback = feedback.filter(({ token }) => token === 'Bearer ada-token');
+  assert.equal(adaFeedback[0]?.method, 'status');
+  assert.deepEqual(adaFeedback.filter(({ method }) => method === 'status').map(({ body }) => body.get('status')),
+    ['is thinking…', 'is looking up Cowork tasks…', '']);
+  const fallback = feedback.filter(({ token, method }) => token === 'Bearer shared-token' && method === 'ack');
+  assert.equal(fallback.length, 1);
+  assert.equal(fallback[0]?.body.get('user'), 'UMEMBER');
+  assert.equal(fallback[0]?.body.get('thread_ts'), '1700000000.000001');
 
   const outOfScope = event(installs.ada);
   outOfScope.event_id += '-sales';
@@ -300,6 +349,16 @@ test('Slack provisions named apps and routes managed and legacy installs to regi
   await Promise.all(turns);
   assert.equal(modelCalls.length, 2);
   assert.equal(posted.length, 3);
+
+  const dm = { ...event(installs.ada), event_id: 'EUNTHREADED_DM', event: {
+    type: 'message', channel_type: 'im', user: 'UMEMBER', text: 'Hello in a DM', channel: 'DPRIVATE', ts: '1700000000.000003',
+  } };
+  assert.equal((await send(canonical, dm, installs.ada.secret)).status, 200);
+  await Promise.all(turns);
+  const dmFeedback = feedback.find(({ method, body }) => method === 'ack' && body.get('channel') === 'DPRIVATE');
+  assert.equal(dmFeedback?.body.get('user'), 'UMEMBER');
+  assert.equal(dmFeedback?.body.has('thread_ts'), false);
+  assert.equal(sdkPosts.get('Bearer ada-token')?.thread_ts, undefined);
 
   for (const [index, agent] of workspaceAgents.entries()) {
     const endpoint = '/api/slack/agents/' + agent.ID;
@@ -420,4 +479,5 @@ test('Slack provisions named apps and routes managed and legacy installs to regi
   assert.equal(created.size, 2);
   assert.equal(reminderWrites, 1);
   assert.equal(mailCalls, 1);
+  assert.deepEqual(presenceUpdates.sort(), ['AATLAS', 'ANOVA']);
 });

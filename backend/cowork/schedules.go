@@ -3,14 +3,15 @@ package cowork
 import (
 	"context"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 )
 
 type taskSchedule struct {
-	Title, Brief, ThreadID, TimeZone, Recurrence, Assignee string
-	Due                                                    *time.Time
-	DelaySeconds                                           int64
+	Title, Brief, ThreadID, TimeZone, Recurrence, Assignee, GmailConnectionID string
+	Due                                                                       *time.Time
+	DelaySeconds                                                              int64
 }
 
 func scheduleTask(w http.ResponseWriter, r *http.Request, d *database, a Account, space *Workspace) {
@@ -68,7 +69,17 @@ func saveTaskSchedule(ctx context.Context, w http.ResponseWriter, d *database, a
 	if input.Recurrence != "" {
 		task.Recurrence, task.RecurrenceStart = input.Recurrence, &due
 	}
-	if !validateTaskAssignment(ctx, w, agent.Role, task) {
+	if input.GmailConnectionID != "" {
+		if a.ID != space.Owner || hasActiveGuestGrant(d, space.ID, input.ThreadID) {
+			fail(w, 403, "The workspace owner can schedule a private Gmail digest in Cowork web chat without guests.")
+			return
+		}
+		task.PrivateMemberID, task.GmailConnectionID = a.ID, input.GmailConnectionID
+		task.ThreadID, task.MemoryMemberID = "", ""
+		if !validateGmailDigest(ctx, w, d, space, agent, task) {
+			return
+		}
+	} else if !validateTaskAssignment(ctx, w, agent.Role, task) {
 		return
 	}
 	space.Tasks = append(space.Tasks, task)
@@ -77,6 +88,50 @@ func saveTaskSchedule(ctx context.Context, w http.ResponseWriter, d *database, a
 	}
 	w.Header().Set("X-Cowork-Record-Id", task.ID)
 	view(w, d, a)
+}
+
+func configureGmailDigest(d *database, space *Workspace, agent workspaceAgent, request *workerRequest) {
+	task := request.Task
+	if task.PrivateMemberID == "" || task.PrivateMemberID != space.Owner || !space.AgentConnectionEnabled ||
+		!providerConnectionID.MatchString(task.GmailConnectionID) ||
+		(agent.ID != "" && !slices.Contains(agent.ConnectionIDs, task.GmailConnectionID)) {
+		return
+	}
+	if stored := d.AgentConnectionKeys[space.ID]; stored != "" {
+		aead, err := agentConnectionCipher(false)
+		if err != nil {
+			return
+		}
+		request.AgentConnectionKey, err = openAgentConnectionKey(aead, space.ID, stored)
+		if err != nil {
+			return
+		}
+	}
+	ids := []string{task.GmailConnectionID}
+	request.AgentConnectionWorkspace, request.AgentConnectionIDs = space.ID, &ids
+}
+
+func validateGmailDigest(ctx context.Context, w http.ResponseWriter, d *database, space *Workspace, agent workspaceAgent, task Task) bool {
+	request := workerRequest{Task: task}
+	configureGmailDigest(d, space, agent, &request)
+	if request.AgentConnectionWorkspace == "" {
+		fail(w, http.StatusUnprocessableEntity, "Choose a Gmail account enabled for this agent in Settings.")
+		return false
+	}
+	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	mutex.Unlock()
+	result, err := worker(ctx, "gmail-digest-check", request, "")
+	mutex.Lock()
+	if err != nil {
+		fail(w, http.StatusServiceUnavailable, "Cowork could not verify Gmail access. Try again shortly.")
+		return false
+	}
+	if result.Error != "" || !result.ScopeAllowed {
+		fail(w, http.StatusUnprocessableEntity, "The selected Gmail account is unavailable to this agent. Check its grant in Settings.")
+		return false
+	}
+	return true
 }
 
 func recurrenceDays(recurrence string) int {
@@ -99,7 +154,7 @@ func updateSchedule(w http.ResponseWriter, r *http.Request, d *database, a Accou
 	}
 	for index := range space.Tasks {
 		task := &space.Tasks[index]
-		if task.ID != input.ID || task.ScheduledFor == nil || task.RunRecurrence != "" {
+		if task.ID != input.ID || !task.visibleTo(a.ID) || task.ScheduledFor == nil || task.RunRecurrence != "" {
 			continue
 		}
 		if task.Status == "Canceled" && input.Action == "cancel" {
@@ -158,10 +213,12 @@ func updateSchedule(w http.ResponseWriter, r *http.Request, d *database, a Accou
 				updated.RecurrenceStart = updated.ScheduledFor
 			}
 			updated.Title, updated.Brief, updated.Recurrence = title, brief, input.Recurrence
-			if (title != task.Title || brief != task.Brief) && !validateTaskAssignment(r.Context(), w, assignedTaskRole(space, updated), updated) {
+			if task.GmailConnectionID == "" && (title != task.Title || brief != task.Brief) && !validateTaskAssignment(r.Context(), w, assignedTaskRole(space, updated), updated) {
 				return
 			}
-			updated.MemoryMemberID = a.ID
+			if task.GmailConnectionID == "" {
+				updated.MemoryMemberID = a.ID
+			}
 			*task = updated
 		default:
 			fail(w, 400, "Choose a schedule action.")

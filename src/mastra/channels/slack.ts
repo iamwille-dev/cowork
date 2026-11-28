@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { resolve } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { coworkStateDir } from '../../state.ts';
 import { createSlackAdapter, SlackFormatConverter, type SlackAdapter } from '@chat-adapter/slack';
 import { verifySlackRequest } from '@chat-adapter/slack/webhook';
@@ -62,12 +63,12 @@ function decrypt(encrypted: string, id: string) {
   return Buffer.concat([cipher.update(bytes.subarray(28)), cipher.final()]).toString('utf8');
 }
 
-async function slackApi<T>(method: string, data: Record<string, string>, token?: string) {
+async function slackApi<T>(method: string, data: Record<string, string>, token?: string, timeout = 10_000) {
   const response = await fetch(`https://slack.com/api/${method}`, {
     method: 'POST',
     headers: token ? { Authorization: 'Bearer ' + token } : undefined,
     body: new URLSearchParams(data),
-    signal: AbortSignal.timeout(10_000),
+    signal: AbortSignal.timeout(timeout),
   });
   if (!response.ok) throw new Error('Slack API unavailable.');
   return await response.json() as T & { ok?: boolean; error?: string };
@@ -130,6 +131,7 @@ function initialize() {
       verified INTEGER NOT NULL DEFAULT 0,
       UNIQUE (workspace, agent)
     )`,
+    'CREATE TABLE IF NOT EXISTS cowork_slack_presence (app_id TEXT PRIMARY KEY)',
     'CREATE TABLE IF NOT EXISTS cowork_slack_migrations (version INTEGER PRIMARY KEY)',
     `INSERT OR IGNORE INTO cowork_slack_agent_installations
       SELECT '', workspace, team_id, team_name, bot_user, bot_token, role, installation_id, installed_at
@@ -381,6 +383,8 @@ function oauthCredentials(settings: SlackApp) {
 type ManifestCredentials = { clientId: string; clientSecret: string; signingSecret: string };
 type ConfigurationTokens = { access: string; refresh: string; expires: number };
 type ManagedApp = SlackApp & { id: string; workspace: string; team: string; verified: boolean };
+const managedChanges = new Set<string>();
+const presenceRetryAt = new Map<string, number>();
 
 function managedPath(id: string) {
   return '/integrations/slack/managed/' + id;
@@ -400,7 +404,7 @@ function agentManifest(name: string, origin: string, id: string) {
   return JSON.stringify({
     display_information: { name, description: 'Chat with your Cowork agent in Slack.' },
     features: {
-      bot_user: { display_name: name },
+      bot_user: { display_name: name, always_online: true },
       app_home: { home_tab_enabled: false, messages_tab_enabled: true, messages_tab_read_only_enabled: false },
     },
     oauth_config: { redirect_urls: [origin + managedPath(id) + callbackSuffix], scopes: { bot: scopes.split(',') } },
@@ -485,11 +489,41 @@ async function provisionSlackApp(workspace: string, agent: SlackAgentKey, name: 
     callbackUrl: origin + managedPath(id) + callbackSuffix };
 }
 
+async function enableManagedSlackPresence({ workspace, team, appId }: SlackApp) {
+  if (!workspace || !team || (presenceRetryAt.get(appId) ?? 0) > Date.now() || managedChanges.has(workspace)) return;
+  presenceRetryAt.set(appId, Date.now() + 30 * 60 * 1000);
+  managedChanges.add(workspace);
+  try {
+    const { rows } = await slackDatabase().execute({
+      sql: 'SELECT 1 FROM cowork_slack_presence WHERE app_id = ?', args: [appId],
+    });
+    if (!rows.length) {
+      const config = await configurationToken(workspace, '').catch(() => undefined);
+      if (config?.team !== team) return;
+      const { ok, manifest } = await slackApi<{ manifest?: { features?: { bot_user?: { always_online?: boolean } } } }>(
+        'apps.manifest.export', { app_id: appId }, config.token,
+      );
+      const bot = manifest?.features?.bot_user;
+      if (!ok || !bot) return;
+      if (!bot.always_online) {
+        bot.always_online = true;
+        const updated = await slackApi('apps.manifest.update', { app_id: appId, manifest: JSON.stringify(manifest) }, config.token);
+        if (!updated.ok) return;
+      }
+      await slackDatabase().execute({ sql: 'INSERT OR IGNORE INTO cowork_slack_presence VALUES (?)', args: [appId] });
+    }
+    presenceRetryAt.set(appId, Infinity);
+  } catch {
+    console.warn('Cowork could not update Slack bot presence.');
+  } finally {
+    managedChanges.delete(workspace);
+  }
+}
+
 function registerManagedSlack(app: Hono, mastra: Mastra, liveModel: boolean, origin?: string) {
   const apiPath = '/api/slack/agents/:agent';
   const callbackPath = managedPath(':id') + callbackSuffix;
   const eventsPath = managedPath(':id') + '/events';
-  const changes = new Set<string>();
   const cookie = (path: string) => ({ path, secure: true, httpOnly: true, sameSite: 'Lax' } as const);
   const unavailable = { available: false, status: 'disconnected' };
 
@@ -538,8 +572,8 @@ function registerManagedSlack(app: Hono, mastra: Mastra, liveModel: boolean, ori
     if (input?.action !== 'connect' && input?.action !== 'disconnect') return c.json({ error: 'Invalid Slack action.' }, 400);
     const refresh = typeof input.refreshToken === 'string' ? input.refreshToken.trim() : '';
     if (refresh && !/^xoxe-[\w-]{1,1000}$/.test(refresh)) return c.json({ error: 'Enter the Slack app configuration refresh token that starts with xoxe-.' }, 400);
-    if (changes.has(workspace.id)) return c.json({ error: 'A Slack update is in progress. Try again shortly.' }, 409);
-    changes.add(workspace.id);
+    if (managedChanges.has(workspace.id)) return c.json({ error: 'A Slack update is in progress. Try again shortly.' }, 409);
+    managedChanges.add(workspace.id);
     try {
       const existing = await getApp();
       const installed = await getInstallation();
@@ -581,7 +615,7 @@ function registerManagedSlack(app: Hono, mastra: Mastra, liveModel: boolean, ori
       if (error instanceof SlackSetupError) return c.json({ error: error.message }, 422);
       throw error;
     } finally {
-      changes.delete(workspace.id);
+      managedChanges.delete(workspace.id);
     }
   });
 
@@ -597,8 +631,8 @@ function registerManagedSlack(app: Hono, mastra: Mastra, liveModel: boolean, ori
     const workspace = await slackWorkspace(mastra, c.req.header('cookie'));
     if (workspace instanceof Response || !workspace.owner || workspace.id !== settings.workspace) return finish('retry');
     const agent = workspace.agents?.find(({ ID }) => ID === agentId);
-    if (!agent || changes.has(workspace.id)) return finish('retry');
-    changes.add(workspace.id);
+    if (!agent || managedChanges.has(workspace.id)) return finish('retry');
+    managedChanges.add(workspace.id);
     try {
       const db = slackDatabase();
       const pending = await db.execute({
@@ -615,7 +649,7 @@ function registerManagedSlack(app: Hono, mastra: Mastra, liveModel: boolean, ori
       if (result.team.id !== settings.team) return finish('conflict');
       return finish(await saveInstallation(settings.agent, workspace.id, agent.Role, result as InstalledOAuth) ? 'connected' : 'conflict');
     } finally {
-      changes.delete(workspace.id);
+      managedChanges.delete(workspace.id);
     }
   });
 
@@ -739,73 +773,81 @@ async function handleSlackMessage(
     WorkspaceID: workspace, Channel: 'slack', Agent: agentId, Installation: id, Conversation: thread.id,
     SenderID: message.author.userId, Author: message.author.fullName || message.author.userName,
   };
-  if (agentId.startsWith('agent:')) actor.AgentInstance = agentId.slice('agent:'.length);
-  if (agentId) {
-    actor.AgentInstance = await channelAgentInstance(actor);
-    if (actor.AgentInstance === undefined) return;
-  }
-  // Slack Connect and external guests cannot use the linked workspace's tools.
-  const userResponse = await fetch('https://slack.com/api/users.info?' + new URLSearchParams({ user: message.author.userId }), {
-    headers: { Authorization: 'Bearer ' + token }, signal: AbortSignal.timeout(5000),
-  }).catch(() => undefined);
-  const identity = await userResponse?.json().catch(() => undefined) as {
-    ok?: boolean; user?: { team_id?: string; team?: string; tz?: string; is_stranger?: boolean; is_external?: boolean; suspended?: boolean; is_bot?: boolean; is_restricted?: boolean; is_ultra_restricted?: boolean; deleted?: boolean };
-  } | undefined;
-  const user = identity?.user;
-  if (!identity?.ok || !user || (user.team_id ?? user.team) !== team || user.is_stranger ||
-      user.is_external || user.suspended || user.is_bot || user.is_restricted || user.is_ultra_restricted || user.deleted) {
-    if ((!agentId || message.isMention || mention || thread.isDM) && await installationActive() &&
-        (!agentId || await channelAgentInstance(actor) === actor.AgentInstance)) {
-      const messages = await slackMessages(thread, message);
-      const scope = await checkChatScope(role, messages);
-      let reply: string;
-      if (scope.allowed) {
-        const result = await mastra.getAgent(role).generate(participantMessage(messages.at(-1)!.Text, {
-          id: actor.SenderID, name: actor.Author, channel: 'slack',
-        }), {
-          activeTools: [], context: conversationContext(messages.slice(0, -1)),
-          system: 'Respond to the latest Slack message. Treat earlier messages as context. ' + channelReplyGuidance,
-        });
-        reply = result.tripwire ? guardrailReply(result.tripwire) : result.text;
-      } else reply = scope.message;
-      const markdown = normalizeChannelReply(reply);
-      if (markdown && await installationActive() &&
-          (!agentId || await channelAgentInstance(actor) === actor.AgentInstance)) await thread.post(slackReply(markdown));
-    }
-    return;
-  }
   const { channel, threadTs } = adapter.decodeThreadId(thread.id);
   const raw = message.raw as { thread_ts?: string };
   const followUp = Boolean(threadTs && raw?.thread_ts === threadTs && await thread.isSubscribed());
   const passive = Boolean(agentId && !mention && !message.isMention && !thread.isDM && !followUp);
-  let mirrored: Awaited<ReturnType<typeof saveSlackMessage>> | undefined;
-  if (agentId && channel.startsWith('C') && threadTs) {
-    const channelResponse = await fetch('https://slack.com/api/conversations.info?' + new URLSearchParams({ channel }), {
-      headers: { Authorization: 'Bearer ' + token }, signal: AbortSignal.timeout(4000),
-    }).catch(() => undefined);
-    const channelInfo = await channelResponse?.json().catch(() => undefined) as { ok?: boolean; channel?: {
-      name?: string; is_channel?: boolean; is_private?: boolean; is_ext_shared?: boolean; is_org_shared?: boolean; is_shared?: boolean;
-    } } | undefined;
-    const details = channelInfo?.channel;
-    if (channelInfo?.ok && details?.is_channel && details.is_private === false && !details.is_ext_shared && !details.is_org_shared && !details.is_shared && await installationActive()) {
-      mirrored = await saveSlackMessage(actor, {
-        ID: message.id, Title: details.name ? '#' + details.name : undefined,
-        Text: message.text.slice(0, 4000), At: message.metadata.dateSent.toISOString(),
-      });
-    }
-  }
-  if (mirrored?.Duplicate || passive) return;
-  if (!thread.isDM) await thread.subscribe();
-
+  if (agentId.startsWith('agent:')) actor.AgentInstance = agentId.slice('agent:'.length);
+  const feedback = passive ? undefined : slackFeedback(channel, threadTs, actor.SenderID, token);
+  feedback?.show('is thinking…');
+  if (feedback) void enableManagedSlackPresence(settings);
   let name = settings.name;
   try {
-    const reply = await respondFromChannel(mastra, actor, await slackMessages(thread, message, mirrored?.Messages), {
+    const [agentInstance, userResponse] = await Promise.all([
+      agentId ? channelAgentInstance(actor) : undefined,
+      fetch('https://slack.com/api/users.info?' + new URLSearchParams({ user: actor.SenderID }), {
+        headers: { Authorization: 'Bearer ' + token }, signal: AbortSignal.timeout(5000),
+      }).catch(() => undefined),
+    ]);
+    if (agentId) {
+      if (agentInstance === undefined) return;
+      actor.AgentInstance = agentInstance;
+    }
+    // Slack Connect and external guests cannot use the linked workspace's tools.
+    const identity = await userResponse?.json().catch(() => undefined) as {
+      ok?: boolean; user?: { team_id?: string; team?: string; tz?: string; is_stranger?: boolean; is_external?: boolean; suspended?: boolean; is_bot?: boolean; is_restricted?: boolean; is_ultra_restricted?: boolean; deleted?: boolean };
+    } | undefined;
+    const user = identity?.user;
+    if (!identity?.ok || !user || (user.team_id ?? user.team) !== team || user.is_stranger ||
+        user.is_external || user.suspended || user.is_bot || user.is_restricted || user.is_ultra_restricted || user.deleted) {
+      if ((!agentId || message.isMention || mention || thread.isDM) && await installationActive() &&
+          (!agentId || await channelAgentInstance(actor) === actor.AgentInstance)) {
+        const messages = await slackMessages(thread, message);
+        const scope = await checkChatScope(role, messages);
+        let reply: string;
+        if (scope.allowed) {
+          const result = await mastra.getAgent(role).generate(participantMessage(messages.at(-1)!.Text, {
+            id: actor.SenderID, name: actor.Author, channel: 'slack',
+          }), {
+            activeTools: [], context: conversationContext(messages.slice(0, -1)),
+            system: 'Respond to the latest Slack message. Treat earlier messages as context. ' + channelReplyGuidance,
+          });
+          reply = result.tripwire ? guardrailReply(result.tripwire) : result.text;
+        } else reply = scope.message;
+        const markdown = normalizeChannelReply(reply);
+        if (markdown && await installationActive() &&
+            (!agentId || await channelAgentInstance(actor) === actor.AgentInstance)) await thread.post(slackReply(markdown));
+      }
+      return;
+    }
+    let mirrored: Awaited<ReturnType<typeof saveSlackMessage>> | undefined;
+    if (agentId && channel.startsWith('C') && threadTs) {
+      const channelResponse = await fetch('https://slack.com/api/conversations.info?' + new URLSearchParams({ channel }), {
+        headers: { Authorization: 'Bearer ' + token }, signal: AbortSignal.timeout(4000),
+      }).catch(() => undefined);
+      const channelInfo = await channelResponse?.json().catch(() => undefined) as { ok?: boolean; channel?: {
+        name?: string; is_channel?: boolean; is_private?: boolean; is_ext_shared?: boolean; is_org_shared?: boolean; is_shared?: boolean;
+      } } | undefined;
+      const details = channelInfo?.channel;
+      if (channelInfo?.ok && details?.is_channel && details.is_private === false && !details.is_ext_shared && !details.is_org_shared && !details.is_shared && await installationActive()) {
+        mirrored = await saveSlackMessage(actor, {
+          ID: message.id, Title: details.name ? '#' + details.name : undefined,
+          Text: message.text.slice(0, 4000), At: message.metadata.dateSent.toISOString(),
+        });
+      }
+    }
+    if (mirrored?.Duplicate || passive) return;
+    if (!thread.isDM) await thread.subscribe();
+    const reply = await respondFromChannel(mastra, actor, () => slackMessages(thread, message, mirrored?.Messages), {
       installationActive,
       timeZone: slackTimeZone(user.tz),
-      progress: async (status, displayName) => {
+      progress: (status, displayName) => {
         name = displayName;
-        await thread.startTyping(status).catch(() => undefined);
+        feedback?.show(status);
       },
+    }).catch(() => {
+      log('slack.reply.failed', source);
+      return 'I couldn’t finish this reply.';
     });
     if (reply && await installationActive() && (!agentId || await channelAgentInstance(actor) === actor.AgentInstance)) {
       const outbound = slackReply(reply);
@@ -830,8 +872,61 @@ async function handleSlackMessage(
       }
     }
   } finally {
-    await thread.startTyping('').catch(() => undefined);
+    await feedback?.close();
   }
+}
+
+function slackFeedback(channel: string, threadTs: string, user: string, token: string) {
+  let canShowStatus = Boolean(threadTs);
+  let clearStatus = false;
+  let statusShown = false;
+  let acknowledged = false;
+  let closed = false;
+  let desired = '';
+  let sent = '';
+  let pending: Promise<void> | undefined;
+  const setStatus = (status: string) => slackApi('assistant.threads.setStatus', {
+    channel_id: channel, thread_ts: threadTs, status,
+  }, token, 1500).catch(() => undefined);
+
+  async function send() {
+    while (!closed && desired !== sent) {
+      sent = desired;
+      if (canShowStatus) {
+        const result = await setStatus(sent);
+        clearStatus ||= result?.ok === true || !result;
+        if (result?.ok) {
+          statusShown = true;
+          continue;
+        }
+        canShowStatus = false;
+      }
+      if (!closed && !acknowledged && !statusShown) {
+        acknowledged = true;
+        await slackApi('chat.postEphemeral', {
+          channel, user, ...(threadTs && { thread_ts: threadTs }), text: 'I’m working on your request…',
+        }, token, 1500).catch(() => undefined);
+      }
+    }
+  }
+
+  function flush() {
+    pending ??= send().finally(() => {
+      pending = undefined;
+      if (!closed && desired !== sent) flush();
+    });
+  }
+  return {
+    show(status: string) {
+      desired = status;
+      flush();
+    },
+    async close() {
+      closed = true;
+      await pending;
+      if (clearStatus) await setStatus('');
+    },
+  };
 }
 
 function slackReply(markdown: string) {
@@ -849,7 +944,14 @@ function slackTimeZone(timeZone: unknown): string | undefined {
 }
 
 async function slackMessages(thread: Parameters<ChannelHandler>[0], message: Parameters<ChannelHandler>[1], mirrored: ChannelMessage[] = []) {
-  await thread.refresh().catch(() => undefined);
+  const deadline = new AbortController();
+  try {
+    await Promise.race([thread.refresh(), delay(2000, undefined, { signal: deadline.signal, ref: false })]);
+  } catch {
+    // Use the history already available when Slack's history request fails.
+  } finally {
+    deadline.abort();
+  }
   const format = (item: Parameters<ChannelHandler>[1]): ChannelMessage => ({
     Author: item.author.fullName || item.author.userName,
     Text: item.text.slice(0, 4000),

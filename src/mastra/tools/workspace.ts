@@ -15,6 +15,13 @@ const outcome = z.object({
 });
 const unavailable = { error: 'Creating workspace items requires a signed-in Cowork conversation.' };
 const boardUnavailable = { error: 'The task board requires a signed-in Cowork conversation.' };
+const scheduleTimeZone = z.string().trim().min(1).max(100).optional().describe(
+  'IANA time zone specified by the participant, such as America/Regina. It determines the local hour of recurring runs.',
+);
+const scheduledDate = z.object({
+  due: z.iso.datetime({ offset: true }).describe('First future run as an RFC 3339 timestamp with the requested local UTC offset'),
+  recurrence: z.enum(['daily', 'weekly']).optional().describe('Omit for a one-time run. Weekly repeats on the weekday of the first run.'),
+});
 
 export const findTasks = createTool({
   id: 'findTasks',
@@ -88,16 +95,13 @@ export const createReminder = createTool({
 
 export const scheduleTask = createTool({
   id: 'scheduleTask',
-  description: 'Wake the workspace agent once or on a daily or weekly schedule to complete a self-contained task and save each written result. Use this for delayed work such as drafting or summarizing supplied material. Scheduled runs have no connected apps or workspace tools.',
+  description: 'Schedule self-contained work once, daily, or weekly, such as drafting or summarizing supplied material. Use scheduleGmailDigest for an explicitly requested future digest of unread Gmail when that tool is available.',
   inputSchema: z.object({
     title: z.string().trim().min(1).max(120),
     brief: z.string().trim().min(1).max(6000).describe('The full task and any user-provided material needed to perform it later'),
-    timeZone: z.string().trim().min(1).max(100).optional().describe('IANA time zone specified by the participant for a schedule, such as America/Regina. It determines the local hour of recurring runs.'),
+    timeZone: scheduleTimeZone,
     when: z.union([
-      z.object({
-        due: z.iso.datetime({ offset: true }).describe('First future run as an RFC 3339 timestamp with the requested local UTC offset'),
-        recurrence: z.enum(['daily', 'weekly']).optional().describe('Omit for a one-time run. Weekly repeats on the weekday of the first run.'),
-      }),
+      scheduledDate,
       z.object({ delaySeconds: z.number().int().min(1).max(31_536_000).describe('Number of seconds from scheduling until the agent should run') }),
     ]),
   }),
@@ -113,10 +117,27 @@ export const scheduleTask = createTool({
   },
 });
 
+export const scheduleGmailDigest = createTool({
+  id: 'scheduleGmailDigest',
+  description: 'Schedule a private digest of unread Gmail inbox messages once, daily, or weekly. Use only when the participant explicitly requests the schedule. Get the Gmail connection ID from list_connections. Ask which account to use if more than one Gmail account matches.',
+  inputSchema: scheduledDate.extend({
+    connectionId: z.string().min(1).max(80).describe('Gmail connection ID selected from list_connections'),
+    timeZone: scheduleTimeZone,
+  }),
+  outputSchema: outcome,
+  execute: async ({ connectionId, due, recurrence, timeZone }, context) => {
+    const write = context?.requestContext?.get('workspaceWrite');
+    if (typeof write !== 'function') return unavailable;
+    return (write as WorkspaceWrite)('task/schedule', {
+      Title: 'Unread Gmail digest', Brief: 'Summarize unread inbox messages, highlight actions, and flag any deadlines.',
+      GmailConnectionID: connectionId, Due: due, Recurrence: recurrence, ...(timeZone && { TimeZone: timeZone }),
+    });
+  },
+});
+
 export const getCurrentDate = createTool({
   id: 'getCurrentDate',
-  description:
-    'Wake the workspace agent once or on a daily or weekly schedule to complete a self-contained task and save each written result. Use this for delayed work such as drafting or summarizing supplied material. Scheduled runs have no connected apps or workspace tools.',
+  description: 'Get the current date and time.',
   outputSchema: z.object({
     currentDate: z.string().optional(),
     longDate: z.string().optional(),

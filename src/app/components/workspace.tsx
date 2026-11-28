@@ -329,7 +329,7 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
               readOnly={removedAgent || Boolean(current.TelegramTopic || current.Slack)} channel={current.Slack ? 'Slack' : current.TelegramTopic ? 'Telegram' : undefined}
               readOnlyMessage={removedAgent ? 'The agent for this conversation was removed. Start a new conversation to continue.' : undefined}
               messages={current.Messages ?? []}
-              tasks={tasks.filter((task) => (task.ThreadID ?? '') === current.ID && (task.Status === 'Ready for review' || task.Status === 'Failed' || task.Status === 'Blocked'))}
+              tasks={tasks.filter((task) => !task.PrivateMemberID && (task.ThreadID ?? '') === current.ID && (task.Status === 'Ready for review' || task.Status === 'Failed' || task.Status === 'Blocked'))}
               send={async (transport) => {
                 await run(async () => {
                   try { await transport(); } finally { setState(await api<WorkspaceData>('workspace')); }
@@ -345,7 +345,7 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
                 })}>Join conversation</Button>
               </li>)}</ul>
             </section>}
-            <ConversationIndex threads={threads} tasks={tasks} role={workspace.Role} open={route} />
+            <ConversationIndex threads={threads} tasks={tasks.filter((task) => !task.PrivateMemberID)} role={workspace.Role} open={route} />
           </>}
         </section>}
         {view === 'tasks' && <section className="page"><TaskBoard tasks={tasks} assignees={assignees} busy={busy}
