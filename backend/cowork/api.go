@@ -33,6 +33,10 @@ type Message struct {
 	SlackMessage    string `json:",omitempty"`
 }
 type Artifact struct{ Name, URL string }
+type TaskNote struct {
+	Author, Text string
+	At           time.Time
+}
 type Thread struct {
 	ID, Title, Author string
 	CreatedAt         time.Time
@@ -51,6 +55,9 @@ type Task struct {
 	UI                                                  bool
 	Steps                                               []string
 	Artifacts                                           []Artifact
+	Notes                                               []TaskNote `json:",omitempty"`
+	QueuedAt                                            *time.Time `json:",omitempty"`
+	RetryAfter                                          *time.Time `json:",omitempty"`
 	ScheduledFor                                        *time.Time `json:",omitempty"`
 	ScheduledStarted                                    *time.Time `json:",omitempty"`
 	WorkflowStarted                                     *time.Time `json:",omitempty"`
@@ -223,6 +230,7 @@ type workerRequest struct {
 }
 type workerResponse struct {
 	Reply            string
+	Note             string
 	AgentMemory      *[]string
 	Steps            []string
 	Artifacts        []Artifact
@@ -232,6 +240,7 @@ type workerResponse struct {
 }
 
 var workerClient = &http.Client{Timeout: 90 * time.Second}
+var errWorkerResponse = errors.New("agent request failed")
 
 func worker(ctx context.Context, path string, input workerRequest, session string) (workerResponse, error) {
 	var output workerResponse
@@ -245,7 +254,13 @@ func worker(ctx context.Context, path string, input workerRequest, session strin
 	}
 	request.Header.Set("Content-Type", "application/json")
 	client := workerClient
-	if path == "chat" {
+	switch path {
+	case "task":
+		// The dispatcher bounds the request by the run lease.
+		taskClient := *workerClient
+		taskClient.Timeout = 0
+		client = &taskClient
+	case "chat":
 		request.Header.Set("X-Cowork-Session", session)
 		timeout := 125 * time.Second
 		if input.ChannelActor != nil {
@@ -259,7 +274,7 @@ func worker(ctx context.Context, path string, input workerRequest, session strin
 	}
 	defer res.Body.Close()
 	if res.StatusCode != 200 {
-		return output, errors.New("agent request failed")
+		return output, errWorkerResponse
 	}
 	return output, json.NewDecoder(io.LimitReader(res.Body, 2<<20)).Decode(&output)
 }
@@ -390,8 +405,12 @@ func API(w http.ResponseWriter, r *http.Request) {
 		findBoardTasks(w, r, space)
 		return
 	}
-	if route == "task" || route == "chat" {
-		runAgent(w, r, d, account, space, route, "")
+	if route == "task" {
+		createBoardTask(w, r, d, account, space, "")
+		return
+	}
+	if route == "chat" {
+		runAgent(w, r, d, account, space)
 		return
 	}
 	if route == "agent-connection" {
@@ -555,10 +574,9 @@ func threadMessages(space *Workspace, id string) *[]Message {
 	return nil
 }
 
-func runAgent(w http.ResponseWriter, r *http.Request, d *database, a Account, space *Workspace, route, role string) {
+func runAgent(w http.ResponseWriter, r *http.Request, d *database, a Account, space *Workspace) {
 	var input struct {
-		Title, Brief, Repository, Text, TimeZone, ThreadID, Assignee string
-		UI, PlanOnly                                                 bool
+		Text, TimeZone, ThreadID string
 	}
 	if !decode(w, r, &input) {
 		return
@@ -568,73 +586,30 @@ func runAgent(w http.ResponseWriter, r *http.Request, d *database, a Account, sp
 		fail(w, 404, "Conversation not found.")
 		return
 	}
-	if (route == "chat" || (role == "" && input.Assignee == "")) && space.threadHasRemovedAgent(input.ThreadID) {
+	if space.threadHasRemovedAgent(input.ThreadID) {
 		fail(w, http.StatusConflict, "The agent for this conversation was removed. Start a new conversation to continue.")
 		return
 	}
 	agent := space.threadAgent(input.ThreadID)
-	if role != "" && role != agent.Role {
-		agent = workspaceAgent{Role: role, Name: role + " agent"}
-		for _, candidate := range space.Agents {
-			if candidate.Role == role {
-				agent = candidate
-				break
-			}
-		}
-	}
 	request := workerRequest{Role: agent.Role, AgentName: agent.Name, WorkspaceID: space.ID, ThreadID: input.ThreadID}
 	hasGuests := hasActiveGuestGrant(d, space.ID, input.ThreadID)
-	if route == "chat" {
-		if telegramThread(space, input.ThreadID) || slackLinked(space, input.ThreadID) {
-			fail(w, 403, "Reply to this conversation in its messaging channel.")
-			return
-		}
-		input.Text = strings.TrimSpace(input.Text)
-		if input.Text == "" || len(input.Text) > 4000 {
-			fail(w, 400, "Enter a message of up to 4,000 characters.")
-			return
-		}
-		location, err := time.LoadLocation(input.TimeZone)
-		if err != nil || input.TimeZone == "Local" {
-			location = time.UTC
-		}
-		request.TimeZone = location.String()
-		request.UseWorkspaceMemory = !hasGuests
-		*messages = append(*messages, Message{Author: a.Name, Text: input.Text, At: time.Now(), SenderID: a.ID})
-		request.Messages = (*messages)[max(0, len(*messages)-24):]
-	} else {
-		input.Title = strings.TrimSpace(input.Title)
-		input.Brief = strings.TrimSpace(input.Brief)
-		if input.Title == "" || len(input.Title) > 120 || input.Brief == "" || len(input.Brief) > 6000 || len(input.Repository) > 500 {
-			fail(w, 400, "Enter a title and a task brief within the displayed limits.")
-			return
-		}
-		assignee, member, ok := taskAssignee(d, space, input.Assignee, agent)
-		if !ok {
-			fail(w, 400, "Select an agent or a team member in this workspace.")
-			return
-		}
-		agent = assignee
-		request.Role, request.AgentName = agent.Role, agent.Name
-		request.Task = Task{ID: key(), Title: input.Title, Brief: input.Brief, Repository: strings.TrimSpace(input.Repository), Author: a.Name, Status: "Assigned", UI: input.UI, ThreadID: input.ThreadID, AgentID: agent.ID, AgentRole: agent.Role, AssigneeMemberID: member}
-		if member == "" && !validateTaskAssignment(r.Context(), w, agent.Role, request.Task) {
-			return
-		}
-		start := agent.Role == "Developer" && !input.PlanOnly
-		if start {
-			now := time.Now().UTC()
-			request.Task.Status, request.Task.WorkflowStarted = "Running", &now
-		}
-		space.Tasks = append(space.Tasks, request.Task)
-		if !start {
-			if !saveTaskChange(w, d, "Could not save task.") {
-				return
-			}
-			w.Header().Set("X-Cowork-Record-Id", request.Task.ID)
-			view(w, d, a)
-			return
-		}
+	if telegramThread(space, input.ThreadID) || slackLinked(space, input.ThreadID) {
+		fail(w, 403, "Reply to this conversation in its messaging channel.")
+		return
 	}
+	input.Text = strings.TrimSpace(input.Text)
+	if input.Text == "" || len(input.Text) > 4000 {
+		fail(w, 400, "Enter a message of up to 4,000 characters.")
+		return
+	}
+	location, err := time.LoadLocation(input.TimeZone)
+	if err != nil || input.TimeZone == "Local" {
+		location = time.UTC
+	}
+	request.TimeZone = location.String()
+	request.UseWorkspaceMemory = !hasGuests
+	*messages = append(*messages, Message{Author: a.Name, Text: input.Text, At: time.Now(), SenderID: a.ID})
+	request.Messages = (*messages)[max(0, len(*messages)-24):]
 
 	memory := space.memoryFor(a.ID, agent.ID)
 	if !hasGuests {
@@ -644,8 +619,8 @@ func runAgent(w http.ResponseWriter, r *http.Request, d *database, a Account, sp
 		ids := append([]string{}, agent.ConnectionIDs...)
 		request.AgentConnectionIDs = &ids
 	}
-	request.AgentConnectionPaused = route == "chat" && !space.AgentConnectionEnabled && d.AgentConnectionKeys[space.ID] != ""
-	if route == "chat" && space.AgentConnectionEnabled && (agent.ID == "" || len(agent.ConnectionIDs) > 0) && protectCredentialThread(d, space.ID, input.ThreadID) {
+	request.AgentConnectionPaused = !space.AgentConnectionEnabled && d.AgentConnectionKeys[space.ID] != ""
+	if space.AgentConnectionEnabled && (agent.ID == "" || len(agent.ConnectionIDs) > 0) && protectCredentialThread(d, space.ID, input.ThreadID) {
 		request.AgentConnectionWorkspace = space.ID
 		if stored := d.AgentConnectionKeys[space.ID]; stored != "" {
 			aead, err := agentConnectionCipher(false)
@@ -659,7 +634,7 @@ func runAgent(w http.ResponseWriter, r *http.Request, d *database, a Account, sp
 		}
 	}
 
-	if route == "chat" && agent.ID == "" && len(d.GitTokens[space.ID]) > 0 && protectCredentialThread(d, space.ID, input.ThreadID) {
+	if agent.ID == "" && len(d.GitTokens[space.ID]) > 0 && protectCredentialThread(d, space.ID, input.ThreadID) {
 		tokens, err := unlockGitTokens(space.ID, d.GitTokens[space.ID])
 		if err != nil {
 			fail(w, 500, "Could not unlock the saved Git tokens.")
@@ -671,15 +646,12 @@ func runAgent(w http.ResponseWriter, r *http.Request, d *database, a Account, sp
 	if !saveTaskChange(w, d, "Could not save request.") {
 		return
 	}
-	if route == "task" {
-		w.Header().Set("X-Cowork-Record-Id", request.Task.ID)
-	}
 	mutex.Unlock()
 	session := tokenFor(r)
-	if clerkEnabled() && route == "chat" {
+	if clerkEnabled() {
 		session = newWorkerSession(a.ID)
 	}
-	result, err := worker(r.Context(), route, request, session)
+	result, err := worker(r.Context(), "chat", request, session)
 	mutex.Lock()
 	latest, loadErr := load()
 	if loadErr != nil {
@@ -687,30 +659,7 @@ func runAgent(w http.ResponseWriter, r *http.Request, d *database, a Account, sp
 		return
 	}
 	space = latest.Workspaces[a.Workspace]
-	if route == "task" {
-		for i := range space.Tasks {
-			task := &space.Tasks[i]
-			if task.ID != request.Task.ID {
-				continue
-			}
-			if task.Status != "Running" || task.WorkflowStarted == nil || !task.WorkflowStarted.Equal(*request.Task.WorkflowStarted) {
-				break
-			}
-			task.WorkflowStarted = nil
-			task.Steps, task.Artifacts = result.Steps, result.Artifacts
-			task.Error = result.Error
-			switch {
-			case err != nil:
-				task.Status = "Failed"
-				task.Error = "The agent service was unavailable."
-			case result.Error != "":
-				task.Status = "Blocked"
-			default:
-				task.Status = "Ready for review"
-			}
-			break
-		}
-	} else if err == nil {
+	if err == nil {
 		if request.UseWorkspaceMemory && hasActiveGuestGrant(latest, space.ID, input.ThreadID) {
 			fail(w, 409, "Message saved. Guest access changed while the agent was replying.")
 			return
@@ -737,7 +686,7 @@ func runAgent(w http.ResponseWriter, r *http.Request, d *database, a Account, sp
 		fail(w, 500, "Could not save result.")
 		return
 	}
-	if route == "chat" && err != nil {
+	if err != nil {
 		fail(w, 502, "Message saved. The agent service was unavailable.")
 		return
 	}

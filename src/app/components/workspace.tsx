@@ -98,7 +98,7 @@ function NewTaskForm({ assignees, busy, notice, submit }: {
       if (next?.kind !== 'agent' || (timing === 'now' && next.role !== 'Developer')) setTiming('planned');
     }}><AssigneeOptions assignees={assignees} /></Select></label>
     {person?.kind === 'agent' && <label>Timing<Select value={timing} onChange={(event) => setTiming(event.target.value)}>
-      <option value="planned">Add to Planned</option>
+      <option value="planned">Queue for agent</option>
       {developer && <option value="now">Run now</option>}
       <option value="scheduled">Schedule for later</option>
     </Select></label>}
@@ -108,11 +108,11 @@ function NewTaskForm({ assignees, busy, notice, submit }: {
         <option value="">Once</option><option value="daily">Daily</option><option value="weekly">Weekly</option>
       </Select></label>
     </>}
-    {timing === 'now' && <>
+    {developer && timing !== 'scheduled' && <>
       <label>Repository URL (optional)<Input name="Repository" type="url" maxLength={500} /></label>
-      <label className="checkbox"><input name="UI" type="checkbox" defaultChecked /> Include a UI screenshot</label>
+      <label className="checkbox"><input name="UI" type="checkbox" defaultChecked={timing === 'now'} /> Include a UI screenshot</label>
     </>}
-    <Button type="submit" className="justify-self-start" disabled={busy}>{busy ? 'Saving…' : timing === 'now' ? 'Run task' : timing === 'scheduled' ? 'Schedule task' : 'Create task'}</Button>
+    <Button type="submit" className="justify-self-start" disabled={busy}>{busy ? 'Saving…' : timing === 'now' ? 'Run task' : timing === 'scheduled' ? 'Schedule task' : person?.kind === 'agent' ? 'Queue task' : 'Create task'}</Button>
     {notice && <p role="status">{notice}</p>}
   </form>;
 }

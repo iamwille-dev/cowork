@@ -5,7 +5,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { dataRoot } from './mastra/workflows/developer.ts';
-import { respond, runScheduledTask, runTask } from './mastra/cowork.ts';
+import { respond, runBackgroundTask, runTask } from './mastra/cowork.ts';
 import { checkTaskScope } from './mastra/classifiers/agent-request.ts';
 import { startDockerSandboxCleanup } from './mastra/docker-workspace.ts';
 import { mastra } from './mastra/index.ts';
@@ -55,7 +55,7 @@ async function worker(request: IncomingMessage, response: ServerResponse) {
       const scope = await checkTaskScope(payload.Role, payload.Task);
       result = scope.allowed ? { ScopeAllowed: true } : { Error: scope.message, ScopeUnavailable: scope.unavailable };
     } else if (url === '/task') result = await runTask({ ...payload.Task, WorkspaceID: payload.WorkspaceID }, payload.AgentMemory);
-    else if (url === '/scheduled-task') result = await runScheduledTask(payload);
+    else if (url === '/scheduled-task') result = await runBackgroundTask(payload);
     else if (payload.ChannelActor?.Channel === 'telegram') {
       const reply = liveModel && await respondFromChannel(mastra, payload.ChannelActor, payload.Messages, { telegramThreadId: payload.ThreadID });
       result = { Reply: reply || '' };

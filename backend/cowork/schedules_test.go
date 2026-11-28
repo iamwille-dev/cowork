@@ -10,12 +10,12 @@ import (
 	"time"
 )
 
-func TestNextScheduledTask(t *testing.T) {
+func TestNextDueTask(t *testing.T) {
 	now := time.Date(2026, time.November, 24, 16, 0, 0, 0, time.UTC)
 	future := now.Add(time.Minute)
 	older := now.Add(-2 * time.Minute)
 	recent := now.Add(-time.Minute)
-	expired := now.Add(-scheduledRunLease)
+	expired := now.Add(-taskRunLease)
 	d := emptyDatabase()
 	d.Workspaces["first"] = &Workspace{Tasks: []Task{
 		{ID: "legacy", Status: "Running"},
@@ -28,17 +28,17 @@ func TestNextScheduledTask(t *testing.T) {
 		{ID: "interrupted", Status: "Running", ScheduledFor: &older, ScheduledStarted: &expired},
 	}}
 
-	space, task := nextScheduledTask(d, now)
+	space, task := nextTask(d, now)
 	if space != d.Workspaces["second"] || task == nil || task.ID != "interrupted" {
 		t.Fatalf("expected the oldest due task with an expired claim, got %+v", task)
 	}
 	task.Status = "Ready for review"
-	space, task = nextScheduledTask(d, now)
+	space, task = nextTask(d, now)
 	if space != d.Workspaces["first"] || task == nil || task.ID != "due" {
 		t.Fatalf("expected the task due now, got %+v", task)
 	}
 	task.Status = "Failed"
-	if _, task := nextScheduledTask(d, now); task != nil {
+	if _, task := nextTask(d, now); task != nil {
 		t.Fatalf("expected no eligible tasks, got %+v", task)
 	}
 }
@@ -101,12 +101,12 @@ func TestRecurringScheduleCreatesSeparateRuns(t *testing.T) {
 	}
 	lastRun := ""
 	for _, at := range []time.Time{due, due.AddDate(0, 0, 7)} {
-		workspace, dispatch, err := claimScheduledTask(at)
+		dispatch, err := claimNextTask(at)
 		run := dispatch.Task
-		if err != nil || workspace != space.ID || run.ID == "" || run.ID == id || run.ID == lastRun || run.Recurrence != "" || run.RunRecurrence != "weekly" {
+		if err != nil || dispatch.WorkspaceID != space.ID || run.ID == "" || run.ID == id || run.ID == lastRun || run.Recurrence != "" || run.RunRecurrence != "weekly" {
 			t.Fatalf("expected a separate run, got %+v, error %v", run, err)
 		}
-		if err := finishScheduledTask(workspace, run, workerResponse{Reply: "Agenda draft"}); err != nil {
+		if err := finishTaskRun(dispatch, workerResponse{Reply: "Agenda draft", Note: "Drafted the agenda."}, nil); err != nil {
 			t.Fatal(err)
 		}
 		lastRun = run.ID
@@ -117,7 +117,8 @@ func TestRecurringScheduleCreatesSeparateRuns(t *testing.T) {
 	}
 	tasks := d.Workspaces[space.ID].Tasks
 	if len(tasks) != 3 || tasks[0].Status != "Scheduled" || !tasks[0].ScheduledFor.Equal(due.AddDate(0, 0, 14)) ||
-		tasks[1].Result != "Agenda draft" || tasks[2].Result != "Agenda draft" {
+		tasks[1].Result != "Agenda draft" || tasks[2].Result != "Agenda draft" || len(tasks[0].Notes) != 0 ||
+		len(tasks[1].Notes) != 1 || len(tasks[2].Notes) != 1 || tasks[2].Notes[0].Text != "Drafted the agenda." {
 		t.Fatalf("expected two results and next week's schedule, got %+v", tasks)
 	}
 }
@@ -186,8 +187,8 @@ func TestManageRecurringSchedule(t *testing.T) {
 	}
 	// The one-time task is older, so claim and finish it before testing the recurring run.
 	for _, want := range []string{"one-time", "recurring"} {
-		workspace, dispatch, err := claimScheduledTask(due)
-		if err != nil || workspace != "space" || dispatch.Task.ID == "" {
+		dispatch, err := claimNextTask(due)
+		if err != nil || dispatch.WorkspaceID != "space" || dispatch.Task.ID == "" {
 			t.Fatalf("expected a claim, got %+v, %v", dispatch, err)
 		}
 		if want == "recurring" {
@@ -198,13 +199,13 @@ func TestManageRecurringSchedule(t *testing.T) {
 		} else if dispatch.Task.ID != want {
 			t.Fatalf("expected one-time run, got %+v", dispatch)
 		}
-		if err := finishScheduledTask(workspace, dispatch.Task, workerResponse{Reply: "Finished"}); err != nil {
+		if err := finishTaskRun(dispatch, workerResponse{Reply: "Finished"}, nil); err != nil {
 			t.Fatal(err)
 		}
 	}
 	update(`{"ID":"recurring","Action":"resume"}`, http.StatusConflict)
-	if workspace, _, err := claimScheduledTask(due.AddDate(0, 0, 14)); err != nil || workspace != "" {
-		t.Fatalf("canceled schedule dispatched again, workspace %q, error %v", workspace, err)
+	if dispatch, err := claimNextTask(due.AddDate(0, 0, 14)); err != nil || dispatch.Task.ID != "" {
+		t.Fatalf("canceled schedule dispatched again, workspace %q, error %v", dispatch.WorkspaceID, err)
 	}
 	latest, err := load()
 	if err != nil {
@@ -252,19 +253,19 @@ func TestScheduledTaskPersistsAndRunsWithoutSession(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	workspace, dispatch, err := claimScheduledTask(*task.ScheduledFor)
-	if err != nil || workspace != "space" || dispatch.Task.ID != id {
-		t.Fatalf("claim got workspace %q, task %q, error %v", workspace, dispatch.Task.ID, err)
+	dispatch, err := claimNextTask(*task.ScheduledFor)
+	if err != nil || dispatch.WorkspaceID != "space" || dispatch.Task.ID != id {
+		t.Fatalf("claim got workspace %q, task %q, error %v", dispatch.WorkspaceID, dispatch.Task.ID, err)
 	}
-	if duplicate, _, err := claimScheduledTask(*task.ScheduledFor); duplicate != "" || err != nil {
-		t.Fatalf("duplicate claim got workspace %q, error %v", duplicate, err)
+	if duplicate, err := claimNextTask(*task.ScheduledFor); duplicate.Task.ID != "" || err != nil {
+		t.Fatalf("duplicate claim got workspace %q, error %v", duplicate.Task.ID, err)
 	}
 	// Simulate an interrupted run so the scheduler can recover it on its next pass.
 	d, err = load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	expired := time.Now().Add(-scheduledRunLease - time.Minute)
+	expired := time.Now().Add(-taskRunLease - time.Minute)
 	stored := &d.Workspaces["space"].Tasks[0]
 	stored.ScheduledFor, stored.ScheduledStarted = &expired, &expired
 	if err := save(d); err != nil {
@@ -286,8 +287,14 @@ func TestScheduledTaskPersistsAndRunsWithoutSession(t *testing.T) {
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"Reply":"The launch is here."}`))}, nil
 	})}
 	for range 2 {
-		if err := runScheduledTask(); err != nil {
+		dispatch, err := claimNextTask(time.Now().UTC())
+		if err != nil {
 			t.Fatal(err)
+		}
+		if dispatch.Task.ID != "" {
+			if err := executeTaskRun(dispatch, false); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 	d, err = load()

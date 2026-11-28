@@ -239,7 +239,7 @@ func ChannelToolBridge(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400, "Invalid task request.")
 			return
 		}
-		runAgent(w, taskRequest, d, input.channelActor.account(), space, "task", role)
+		createBoardTask(w, taskRequest, d, input.channelActor.account(), space, role)
 	default:
 		fail(w, 404, "Unknown channel tool.")
 	}

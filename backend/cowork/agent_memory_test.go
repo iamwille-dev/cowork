@@ -95,7 +95,7 @@ func TestPersonalAgentMemory(t *testing.T) {
 		t.Fatalf("new conversation did not load this member's memory: %v", sent.AgentMemory)
 	}
 	request("member", "task/schedule", `{"Title":"Write a summary","Brief":"Draft next week's summary.","TimeZone":"UTC","DelaySeconds":60}`, http.StatusOK)
-	_, scheduled, err := claimScheduledTask(time.Now().Add(2 * time.Minute))
+	scheduled, err := claimNextTask(time.Now().Add(2 * time.Minute))
 	if err != nil || !slices.Equal(scheduled.AgentMemory, []string{learned}) {
 		t.Fatalf("scheduled run did not load the requesting member's memory: %v, %v", scheduled.AgentMemory, err)
 	}

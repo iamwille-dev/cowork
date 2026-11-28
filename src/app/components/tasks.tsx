@@ -14,11 +14,13 @@ import { Select } from './select';
 import styles from './task-board.module.css';
 
 type Cadence = 'daily' | 'weekly';
+type TaskNote = { Author: string; Text: string; At: string };
 export type Task = {
   ID: string; Title: string; Author: string; Status: string; Brief: string; Error?: string; ThreadID?: string;
   AgentID?: string; AgentRole?: string; AssigneeMemberID?: string; Repository?: string; Steps?: string[];
   Artifacts?: { Name: string; URL: string }[]; ScheduledFor?: string; ScheduledTimeZone?: string;
   ScheduledStarted?: string; WorkflowStarted?: string; Recurrence?: Cadence; RunRecurrence?: Cadence; Result?: string;
+  Notes?: TaskNote[];
 };
 
 export function TaskArtifacts({ task, inline = false }: { task: Task; inline?: boolean }) {
@@ -53,10 +55,24 @@ export function ConversationTaskReview({ tasks }: { tasks: Task[] }) {
       <summary><strong>{task.Title}</strong><span className={'status ' + taskGroup(task.Status)}>{task.Status}</span></summary>
       <div className="chat-task-review-body">
         {task.Error && <p className="task-error">{task.Error}</p>}
+        <AgentTaskNotes task={task} />
         {task.Result && <p className="whitespace-pre-wrap break-words">{task.Result}</p>}
         <TaskArtifacts task={task} inline />
       </div>
     </details>)}
+  </section>;
+}
+
+function AgentTaskNotes({ task, className }: { task: Task; className?: string }) {
+  if (!task.Notes?.length) return null;
+  return <section className={className} aria-label="Agent notes">
+    <h3>Agent notes</h3>
+    <ul className="mt-2 grid gap-3">
+      {[...task.Notes].reverse().map((note, index) => <li key={note.At + index}>
+        <small>{note.Author} · <time dateTime={note.At}>{new Date(note.At).toLocaleString()}</time></small>
+        <p className="whitespace-pre-wrap break-words">{note.Text}</p>
+      </li>)}
+    </ul>
   </section>;
 }
 
@@ -235,6 +251,7 @@ function TaskDetail({ task, person, assignees, busy, notice, close, update, mana
       <Button type="button" variant="quiet" disabled={busy} onClick={() => manageSchedule('cancel', task)}>Cancel schedule</Button>
     </div>}
     {task.Error && <p className={`task-error ${styles.detailNote}`}>{task.Error}</p>}
+    <AgentTaskNotes task={task} className={styles.detailResult} />
     {task.Result && <div className={styles.detailResult}><h3>Agent result</h3><p>{task.Result}</p></div>}
     {(task.Repository || Boolean(task.Steps?.length)) && <details className={styles.detailResult}><summary>Run details</summary>
       {task.Repository && <p>{task.Repository}</p>}

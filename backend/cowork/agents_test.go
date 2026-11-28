@@ -219,8 +219,8 @@ func TestRemoveWorkspaceAgent(t *testing.T) {
 		}
 	}
 	checkSlack(http.StatusForbidden)
-	if workspace, _, err := claimScheduledTask(now); err != nil || workspace != "" {
-		t.Fatalf("scheduler recovered a removed agent's run: %q, %v", workspace, err)
+	if request, err := claimNextTask(now); err != nil || request.Task.ID != "" {
+		t.Fatalf("scheduler recovered a removed agent's run: %q, %v", request.Task.ID, err)
 	}
 	post("owner", "agent/add", `{"ID":"developer","Name":"New Ada","Channel":"slack"}`, http.StatusOK)
 	post("member", "chat", `{"ThreadID":"old-chat","Text":"Hello"}`, http.StatusConflict)

@@ -2,15 +2,10 @@ package cowork
 
 import (
 	"context"
-	"errors"
-	"log"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 )
-
-const scheduledRunLease = 3 * time.Minute
 
 type taskSchedule struct {
 	Title, Brief, ThreadID, TimeZone, Recurrence, Assignee string
@@ -216,127 +211,4 @@ func nextOccurrence(task Task, now time.Time) time.Time {
 		next = atLocalTime(nextDay.AddDate(0, 0, interval))
 	}
 	return next
-}
-
-func init() {
-	if strings.TrimSpace(os.Getenv("DATABASE_URL")) == "" {
-		return
-	}
-	go func() {
-		ticker := time.NewTicker(2 * time.Second)
-		defer ticker.Stop()
-		for range ticker.C {
-			if err := runScheduledTask(); err != nil && !errors.Is(err, errStaleWorkspace) {
-				log.Printf("Cowork scheduler: %v", err)
-			}
-		}
-	}()
-}
-
-func nextScheduledTask(d *database, now time.Time) (*Workspace, *Task) {
-	var selected *Task
-	var workspace *Workspace
-	for _, space := range d.Workspaces {
-		for index := range space.Tasks {
-			task := &space.Tasks[index]
-			if task.ScheduledFor == nil || task.ScheduledFor.After(now) {
-				continue
-			}
-			expired := task.Status == "Running" && task.ScheduledStarted != nil &&
-				!task.ScheduledStarted.Add(scheduledRunLease).After(now)
-			if (task.Status == "Scheduled" || expired) &&
-				(selected == nil || task.ScheduledFor.Before(*selected.ScheduledFor)) {
-				workspace, selected = space, task
-			}
-		}
-	}
-	return workspace, selected
-}
-
-func claimScheduledTask(now time.Time) (string, workerRequest, error) {
-	mutex.Lock()
-	defer mutex.Unlock()
-	d, err := load()
-	if err != nil {
-		return "", workerRequest{}, err
-	}
-	space, task := nextScheduledTask(d, now)
-	if task == nil {
-		return "", workerRequest{}, nil
-	}
-	agent, active := space.agent(task.AgentID)
-	if !active {
-		// Let a claimed run finish, and cancel recovery if its lease expired after removal.
-		task.Status, task.ScheduledStarted = "Canceled", nil
-		return "", workerRequest{}, save(d)
-	}
-	run := *task
-	run.Status = "Running"
-	run.ScheduledStarted = &now
-	if task.RecurrenceStart != nil && recurrenceDays(task.Recurrence) > 0 {
-		// Commit the next wake-up and the current run together so recovery cannot create another copy.
-		next := nextOccurrence(*task, now)
-		task.ScheduledFor = &next
-		run.ID = key()
-		run.RunRecurrence = task.Recurrence
-		run.Recurrence, run.RecurrenceStart = "", nil
-		space.Tasks = append(space.Tasks, run)
-	} else {
-		*task = run
-	}
-	if err := save(d); err != nil {
-		return "", workerRequest{}, err
-	}
-	role := assignedTaskRole(space, run)
-	request := workerRequest{Task: run, Role: role, TimeZone: run.ScheduledTimeZone}
-	if run.MemoryMemberID != "" && agent.Role == role && !hasActiveGuestGrant(d, space.ID, run.ThreadID) {
-		request.AgentMemory = space.memoryFor(run.MemoryMemberID, agent.ID).Items
-	}
-	return space.ID, request, nil
-}
-
-func runScheduledTask() error {
-	workspace, request, err := claimScheduledTask(time.Now().UTC())
-	if err != nil || workspace == "" {
-		return err
-	}
-	result, runErr := worker(context.Background(), "scheduled-task", request, "")
-	if runErr != nil {
-		result.Error = "The agent service was unavailable."
-	}
-	for range 3 {
-		err = finishScheduledTask(workspace, request.Task, result)
-		if !errors.Is(err, errStaleWorkspace) {
-			break
-		}
-	}
-	return err
-}
-
-func finishScheduledTask(workspace string, claim Task, result workerResponse) error {
-	mutex.Lock()
-	defer mutex.Unlock()
-	d, err := load()
-	if err != nil {
-		return err
-	}
-	space := d.Workspaces[workspace]
-	if space == nil {
-		return nil
-	}
-	for index := range space.Tasks {
-		task := &space.Tasks[index]
-		if task.ID != claim.ID || task.Status != "Running" || task.ScheduledStarted == nil ||
-			!task.ScheduledStarted.Equal(*claim.ScheduledStarted) {
-			continue
-		}
-		task.ScheduledStarted = nil
-		task.Status = "Ready for review"
-		task.Result, task.Error = result.Reply, result.Error
-		if result.Error != "" {
-			task.Status = "Failed"
-		}
-		return save(d)
-	}
-	return nil
 }

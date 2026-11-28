@@ -30,6 +30,84 @@ func taskAssignee(d *database, space *Workspace, selection string, fallback work
 	return workspaceAgent{}, "", false
 }
 
+func createBoardTask(w http.ResponseWriter, r *http.Request, d *database, a Account, space *Workspace, channelRole string) {
+	var input struct {
+		Title, Brief, Repository, ThreadID, Assignee string
+		UI, PlanOnly                                 bool
+	}
+	if !decode(w, r, &input) {
+		return
+	}
+	if threadMessages(space, input.ThreadID) == nil {
+		fail(w, 404, "Conversation not found.")
+		return
+	}
+	if channelRole == "" && input.Assignee == "" && space.threadHasRemovedAgent(input.ThreadID) {
+		fail(w, http.StatusConflict, "The agent for this conversation was removed. Start a new conversation to continue.")
+		return
+	}
+	fallback := space.threadAgent(input.ThreadID)
+	if channelRole != "" && channelRole != fallback.Role {
+		fallback = workspaceAgent{Role: channelRole, Name: channelRole + " agent"}
+		for _, agent := range space.Agents {
+			if agent.Role == channelRole {
+				fallback = agent
+				break
+			}
+		}
+	}
+	agent, member, ok := taskAssignee(d, space, input.Assignee, fallback)
+	if !ok {
+		fail(w, 400, "Select an agent or a team member in this workspace.")
+		return
+	}
+	title, brief := strings.TrimSpace(input.Title), strings.TrimSpace(input.Brief)
+	if title == "" || len(title) > 120 || brief == "" || len(brief) > 6000 || len(input.Repository) > 500 {
+		fail(w, 400, "Enter a title and a task brief within the displayed limits.")
+		return
+	}
+	task := Task{
+		ID: key(), Title: title, Brief: brief, Repository: strings.TrimSpace(input.Repository),
+		Author: a.Name, Status: "Assigned", UI: input.UI, ThreadID: input.ThreadID,
+		AgentID: agent.ID, AgentRole: agent.Role, AssigneeMemberID: member,
+	}
+	if member == "" && !validateTaskAssignment(r.Context(), w, agent.Role, task) {
+		return
+	}
+	now := time.Now().UTC()
+	if member == "" {
+		task.MemoryMemberID, task.QueuedAt = a.ID, &now
+	}
+	space.Tasks = append(space.Tasks, task)
+	var request workerRequest
+	if agent.Role == "Developer" && !input.PlanOnly {
+		if next := nextWorkspaceTask(space, now, agent.Role); next != nil && next.ID == task.ID {
+			request = startTaskRun(d, space, next, agent, now)
+		}
+	}
+	if !saveTaskChange(w, d, "Could not save task.") {
+		return
+	}
+	w.Header().Set("X-Cowork-Record-Id", task.ID)
+	if request.Task.ID == "" {
+		view(w, d, a)
+		return
+	}
+	mutex.Unlock()
+	err := executeTaskRun(request, true)
+	mutex.Lock()
+	if err != nil {
+		fail(w, 500, "Task saved. Could not save the agent result.")
+		return
+	}
+	latest, err := load()
+	if err != nil {
+		fail(w, 500, "Task saved. Could not reload workspace.")
+		return
+	}
+	view(w, latest, a)
+}
+
 func boardTaskStatus(status string) bool {
 	switch status {
 	case "Assigned", "In progress", "Ready for review", "Blocked", "Completed":
@@ -40,7 +118,7 @@ func boardTaskStatus(status string) bool {
 
 func taskRunActive(task Task, now time.Time) bool {
 	return task.Status == "Running" && (task.ScheduledStarted != nil ||
-		(task.WorkflowStarted != nil && now.Before(task.WorkflowStarted.Add(scheduledRunLease))))
+		(task.WorkflowStarted != nil && now.Before(task.WorkflowStarted.Add(taskRunLease))))
 }
 
 type taskUpdate struct {
@@ -93,6 +171,15 @@ func applyTaskUpdate(d *database, space *Workspace, task *Task, input taskUpdate
 		if updated.Brief == "" || len(updated.Brief) > 6000 {
 			return 400, "Enter a task brief within the displayed limit."
 		}
+	}
+	if updated.Status == "Assigned" && updated.AssigneeMemberID == "" &&
+		(task.Status != updated.Status || task.AgentID != updated.AgentID ||
+			task.AgentRole != updated.AgentRole || task.AssigneeMemberID != updated.AssigneeMemberID) {
+		now = now.UTC()
+		updated.QueuedAt, updated.RetryAfter = &now, nil
+	}
+	if updated.Status != "Running" {
+		updated.WorkflowStarted = nil
 	}
 	*task = updated
 	return 200, ""

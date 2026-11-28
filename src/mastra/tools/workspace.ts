@@ -53,7 +53,7 @@ export const updateTask = createTool({
 
 export const createTask = createTool({
   id: 'createTask',
-  description: 'Create an assigned task in the current Cowork workspace. The workflow runs only in Developer workspaces. Other roles receive an assigned task for tracking.',
+  description: 'Assign a task in the current Cowork workspace. The agent picks it up when available. Developer tasks use the workspace workflow. Other agents produce a written deliverable from the brief.',
   inputSchema: z.object({
     title: z.string().trim().min(1).max(120),
     brief: z.string().trim().min(1).max(6000),

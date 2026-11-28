@@ -213,7 +213,7 @@ export async function respondFromChannel(
 
 function taskConfirmation({ Title, Status, Error, Steps, Artifacts }: TaskResult) {
   return [
-    `Task created: ${Title} · ${Status}.`,
+    `Task created: ${Title} · ${Status === 'Assigned' ? 'Queued' : Status}.`,
     Status === 'Ready for review' && Steps?.includes('Selected workspace sandbox') && 'Ran in the linked workspace sandbox.',
     Artifacts?.some(({ Name }) => Name === 'UI screenshot') && 'UI screenshot saved in the Cowork task.',
     Error,

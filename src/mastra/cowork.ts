@@ -20,11 +20,16 @@ export async function runTask(task: Task, agentMemory?: string[]) {
   requestContext.setRaw('agentMemory', agentMemory);
   const output = await run.start({ inputData: task, requestContext });
   if (output.status !== 'success') throw new Error('Developer workflow failed.');
-  return output.result;
+  const result = output.result;
+  const artifacts = new Intl.ListFormat('en').format(result.Artifacts.map(({ Name }) => Name));
+  const Note = artifacts && (result.Error
+    ? `I saved the following work before the task stopped: ${artifacts}.`
+    : `I completed the implementation and saved ${artifacts} for review.`);
+  return { ...result, Note };
 }
 
-export async function runScheduledTask({ Task, Role, TimeZone, AgentMemory }: { Task: Task; Role: string; TimeZone: string; AgentMemory?: string[] }) {
-  if (!liveModel) return { Error: 'Set OPENROUTER_API_KEY to run scheduled tasks.' };
+export async function runBackgroundTask({ Task, Role, TimeZone, AgentMemory }: { Task: Task; Role: string; TimeZone: string; AgentMemory?: string[] }) {
+  if (!liveModel) return { Error: 'Set OPENROUTER_API_KEY to run background tasks.' };
   const scope = await checkTaskScope(Role, Task);
   if (!scope.allowed) return { Error: scope.message };
   const localTime = new Intl.DateTimeFormat('en-CA', {
@@ -34,11 +39,15 @@ export async function runScheduledTask({ Task, Role, TimeZone, AgentMemory }: { 
   requestContext.setRaw('agentMemory', AgentMemory);
   const response = await mastra.getAgent(workspaceAgentRole(Role)).generate(
     `${Task.Title}\n\n${Task.Brief}`,
-    { activeTools: [], requestContext,
-      system: `This is a scheduled run. Complete the recorded brief now and return the written deliverable. You have no tools during this run. If the brief requires unavailable information or actions, state what could not be completed. Current local time: ${localTime}.` },
+    { activeTools: [], requestContext, abortSignal: AbortSignal.timeout(75_000),
+      system: `This is a background task. Complete the recorded brief now. Start with one short line beginning with the literal label "Agent note:" that states what you completed and mentions any relevant limitation. Then write the complete deliverable on the following lines. You have no tools during this run. If the brief requires unavailable information or actions, state what could not be completed. Current local time: ${localTime}.` },
   );
   if (response.tripwire) return { Error: guardrailReply(response.tripwire) };
-  return response.text.trim() ? { Reply: response.text.trim() } : { Error: 'The agent returned no result.' };
+  const text = response.text.trim();
+  const note = /^Agent note:[ \t]*([^\r\n]+)(?:\r?\n|$)/i.exec(text);
+  const Reply = note ? text.slice(note[0].length).trim() : text;
+  const Note = note?.[1].trim();
+  return Reply ? { Reply, Note } : { Error: 'The agent returned no deliverable.', Note };
 }
 
 type ChatTurn = AgentConnectionContext & {
@@ -123,7 +132,8 @@ export async function respond({ Role, AgentName, AgentMemory, Messages, TimeZone
             ? `Task scheduled: ${data.Title} · ${task.Recurrence ? `Repeats ${task.Recurrence}. Next run ` : ''}${localDue} (${TimeZone}). Find the result in Tasks after it runs.`
             : `Reminder saved: ${data.Text} · ${localDue} (${TimeZone}).`);
         } else if (task) {
-          confirmations.push(`Task created: ${data.Title} · ${task.Status}.${task.Error ? ' ' + task.Error : ''}`);
+          const status = task.Status === 'Assigned' ? 'Queued' : task.Status;
+          confirmations.push(`Task created: ${data.Title} · ${status}.${task.Error ? ' ' + task.Error : ''}`);
         }
         return { id, status: task?.Status, due, error: task?.Error || undefined };
       })().catch(() => ({ id: '', error: 'Encore did not confirm the write. Check the workspace before retrying.' }));
