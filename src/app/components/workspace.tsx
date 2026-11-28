@@ -7,7 +7,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth, useClerk } from '@clerk/nextjs';
 import { ArrowLeftIcon, PlusIcon, UserPlusIcon } from '@heroicons/react/24/outline';
-import { WorkspaceShell } from '../../sidebar';
+import { WorkspaceGuestTopbar, WorkspaceShell } from '../../sidebar';
 import { Conversation } from '../../chat';
 import { ConversationIndex, type Message, type Thread } from '../../conversations';
 import { ReminderCalendar } from '../../reminders';
@@ -17,6 +17,7 @@ import { api, initials, localDay } from './api';
 import { AuthForm, Modal } from './forms';
 import { Select } from './select';
 import { ClerkSignIn, useClerkMode } from './clerk-auth';
+import type { AccountMode } from './account-access';
 import { ConnectionActivity } from './managed-connections';
 import { WorkspaceOnboarding } from './onboarding';
 import type { WorkspaceAgent } from '../lib/workspace-agents';
@@ -118,7 +119,22 @@ function NewTaskForm({ assignees, busy, notice, submit }: {
   </form>;
 }
 
-type WorkspaceProps = { view: View; threadId?: string; initialMode?: 'signup' | 'login' };
+type WorkspaceProps = { view: View; threadId?: string; initialMode?: AccountMode };
+
+function useWorkspaceTheme() {
+  const [theme, setTheme] = useState<'light' | 'dark'>('light');
+  useEffect(() => {
+    if (document.documentElement.dataset.theme === 'dark') setTheme('dark');
+  }, []);
+
+  function changeTheme(value: 'light' | 'dark') {
+    document.documentElement.dataset.theme = value;
+    setTheme(value);
+    try { localStorage.setItem('cowork-theme', value); } catch { /* Storage may be disabled. */ }
+  }
+
+  return { theme, changeTheme, toggleTheme: () => changeTheme(theme === 'dark' ? 'light' : 'dark') };
+}
 
 export function Workspace(props: WorkspaceProps) {
   const mode = useClerkMode();
@@ -130,8 +146,12 @@ export function Workspace(props: WorkspaceProps) {
 function ClerkWorkspace(props: WorkspaceProps) {
   const { isLoaded, isSignedIn, userId } = useAuth();
   const { signOut } = useClerk();
+  const { theme, toggleTheme } = useWorkspaceTheme();
   if (!isLoaded) return <main className="workspace-setup"><p role="status">Loading Cowork…</p></main>;
-  if (!isSignedIn) return <ClerkSignIn initialMode={props.initialMode} />;
+  if (!isSignedIn) return <>
+    <WorkspaceGuestTopbar theme={theme} toggleTheme={toggleTheme} />
+    <main><ClerkSignIn initialMode={props.initialMode} /></main>
+  </>;
   return <WorkspaceContent key={userId} {...props} clerkSignOut={() => signOut({ redirectUrl: '/conversations' })} />;
 }
 
@@ -139,7 +159,7 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
   const router = useRouter();
   const [state, setState] = useState<WorkspaceData | null>();
   const [needsSetup, setNeedsSetup] = useState(false);
-  const [theme, setTheme] = useState<'light' | 'dark'>('light');
+  const { theme, changeTheme, toggleTheme } = useWorkspaceTheme();
   const [notice, setNotice] = useState('');
   const [taskAnnouncement, setTaskAnnouncement] = useState('');
   const [modal, setModal] = useState<ModalName | null>(null);
@@ -168,7 +188,6 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
   }
 
   useEffect(() => {
-    if (document.documentElement.dataset.theme === 'dark') setTheme('dark');
     void refresh();
     const timer = window.setInterval(() => { if (!pending.current) void refresh(); }, 4000);
     return () => window.clearInterval(timer);
@@ -190,12 +209,6 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
     setState(result);
     return result;
   };
-
-  function changeTheme(value: 'light' | 'dark') {
-    document.documentElement.dataset.theme = value;
-    setTheme(value);
-    try { localStorage.setItem('cowork-theme', value); } catch { /* Storage may be disabled. */ }
-  }
 
   const workspace = state?.workspace;
   const tasks = workspace?.Tasks ?? [];
@@ -260,11 +273,12 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
     </main>
   );
 
+  const showLegacyAuth = state === null && !clerkSignOut;
+
   return <WorkspaceShell
-    page={shellPages[view]} invitationCount={invitations.length} theme={theme}
+    page={shellPages[view]} invitationCount={invitations.length} theme={theme} toggleTheme={toggleTheme}
     account={state ? { name: state.name, initials: initials(state.name), role: state.workspace.Role } : undefined}
     navigate={(page) => router.push('/' + shellRoutes[page])}
-    toggleTheme={() => changeTheme(theme === 'dark' ? 'light' : 'dark')}
     signOut={() => void run(clerkSignOut ?? (async () => { await api('logout', {}); setState(null); router.push('/conversations'); }))}
     search={(query) => {
       const text = query.trim().toLowerCase();
@@ -276,15 +290,17 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
     }}>
     <main data-view={contentMode}>
       {view === 'tasks' && <div className="sr-only" role="status">{taskAnnouncement}</div>}
-      {notice && !modal && <div id="notice" role="status">{notice}</div>}
+      {notice && !modal && !showLegacyAuth && <div id="notice" role="status">{notice}</div>}
       {state === undefined && <p className="p-6" role="status">Loading workspace…</p>}
-      {state === null && (clerkSignOut ? <div className="workspace-setup">
+      {state === null && clerkSignOut && <div className="workspace-setup">
         {!notice && <p role="alert">Cowork couldn’t verify your sign-in.</p>}
         <div className="setup-controls">
           <Button variant="quiet" type="button" onClick={() => void refresh()}>Try again</Button>
           <Button variant="quiet" type="button" onClick={() => void run(clerkSignOut)}>Sign out</Button>
         </div>
-      </div> : <AuthForm initialMode={initialMode} busy={busy} submit={(mode, data) => void run(async () => { await write(mode, data); })} />)}
+      </div>}
+      {showLegacyAuth && <AuthForm initialMode={initialMode} busy={busy} notice={notice} clearNotice={() => setNotice('')}
+        submit={(mode, data) => void run(async () => { await write(mode, data); })} />}
       {state && workspace && <section id="workspace">
         <header className="workspace-header">
           <div><h1>{current?.Title || titles[view]}</h1>{threadId === undefined && <p className="workspace-page-description">{descriptions[view]}</p>}{current && state.members.length > 1 && <span id="chat-members-count">{state.members.length} workspace members</span>}</div>
