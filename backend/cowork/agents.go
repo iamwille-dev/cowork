@@ -160,6 +160,9 @@ func removeWorkspaceAgent(w http.ResponseWriter, r *http.Request, d *database, a
 			return
 		}
 		space.Agents = append(space.Agents[:index], space.Agents[index+1:]...)
+		for _, memories := range space.AgentMemories {
+			delete(memories, agent.ID)
+		}
 		space.Role = space.Agents[0].Role
 		if space.RemovedAgentRoles == nil {
 			space.RemovedAgentRoles = make(map[string]bool)

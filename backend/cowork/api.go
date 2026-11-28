@@ -47,6 +47,7 @@ type Task struct {
 	AgentID                                             string `json:",omitempty"`
 	AgentRole                                           string `json:",omitempty"`
 	AssigneeMemberID                                    string `json:",omitempty"`
+	MemoryMemberID                                      string `json:",omitempty"`
 	UI                                                  bool
 	Steps                                               []string
 	Artifacts                                           []Artifact
@@ -76,10 +77,11 @@ type Workspace struct {
 	Tasks                   []Task
 	Reminders               []Reminder
 	Channels                map[string]string
-	AgentConnectionEnabled  bool             `json:",omitempty"`
-	Agents                  []workspaceAgent `json:",omitempty"`
-	RemovedAgentRoles       map[string]bool  `json:",omitempty"`
-	OnboardingStep          string           `json:",omitempty"`
+	AgentConnectionEnabled  bool                              `json:",omitempty"`
+	Agents                  []workspaceAgent                  `json:",omitempty"`
+	AgentMemories           map[string]map[string]agentMemory `json:",omitempty"`
+	RemovedAgentRoles       map[string]bool                   `json:",omitempty"`
+	OnboardingStep          string                            `json:",omitempty"`
 }
 
 var roles = map[string]bool{"Developer": true, "Product Manager": true, "Sales Lead": true, "Social Media": true}
@@ -118,6 +120,8 @@ func tokenFor(r *http.Request) string {
 }
 func view(w http.ResponseWriter, d *database, a Account) {
 	space := *d.Workspaces[a.Workspace]
+	agentMemories := space.AgentMemories[a.ID]
+	space.AgentMemories = nil
 	members := []string{}
 	directory := []memberInfo{}
 	invitations := []ThreadInvite{}
@@ -144,7 +148,7 @@ func view(w http.ResponseWriter, d *database, a Account) {
 	if !isOwner {
 		space.Invite = ""
 	}
-	jsonReply(w, 200, map[string]any{"name": a.Name, "admin": isOwner, "workspace": space, "members": members, "directory": directory, "viewerId": a.ID, "threadInvitations": invitations, "gitTokenStatus": gitTokenStatus(d.GitTokens[space.ID]), "telegramBot": d.TelegramBots[space.ID].Username, "telegramAgents": telegramAgentSettings(d, space.ID), "agentConnectionHasKey": isOwner && d.AgentConnectionKeys[space.ID] != "", "managedConnections": clerkEnabled() && os.Getenv("AGENT_CONNECTIONS_ENABLED") == "1"})
+	jsonReply(w, 200, map[string]any{"name": a.Name, "admin": isOwner, "workspace": space, "members": members, "directory": directory, "viewerId": a.ID, "threadInvitations": invitations, "agentMemories": agentMemories, "gitTokenStatus": gitTokenStatus(d.GitTokens[space.ID]), "telegramBot": d.TelegramBots[space.ID].Username, "telegramAgents": telegramAgentSettings(d, space.ID), "agentConnectionHasKey": isOwner && d.AgentConnectionKeys[space.ID] != "", "managedConnections": clerkEnabled() && os.Getenv("AGENT_CONNECTIONS_ENABLED") == "1"})
 }
 
 type credentials struct{ Name, Email, Password, Role, Invite string }
@@ -212,15 +216,17 @@ type workerRequest struct {
 	ThreadID                 string            `json:",omitempty"`
 	Task                     Task
 	Role                     string
-	AgentName                string `json:",omitempty"`
+	AgentName                string   `json:",omitempty"`
+	AgentMemory              []string `json:",omitempty"`
 	TimeZone                 string
 	Messages                 []Message
 }
 type workerResponse struct {
-	Reply     string
-	Steps     []string
-	Artifacts []Artifact
-	Error     string
+	Reply       string
+	AgentMemory *[]string
+	Steps       []string
+	Artifacts   []Artifact
+	Error       string
 }
 
 var workerClient = &http.Client{Timeout: 90 * time.Second}
@@ -394,6 +400,10 @@ func API(w http.ResponseWriter, r *http.Request) {
 		updateWorkspaceAgent(w, r, d, account, space)
 		return
 	}
+	if route == "agent/memory" {
+		updateAgentMemory(w, r, d, account, space)
+		return
+	}
 	if route == "agent/remove" {
 		removeWorkspaceAgent(w, r, d, account, space)
 		return
@@ -562,6 +572,7 @@ func runAgent(w http.ResponseWriter, r *http.Request, d *database, a Account, sp
 		}
 	}
 	request := workerRequest{Role: agent.Role, AgentName: agent.Name, WorkspaceID: space.ID, ThreadID: input.ThreadID}
+	hasGuests := hasActiveGuestGrant(d, space.ID, input.ThreadID)
 	if route == "chat" {
 		if telegramThread(space, input.ThreadID) || slackLinked(space, input.ThreadID) {
 			fail(w, 403, "Reply to this conversation in its messaging channel.")
@@ -577,7 +588,7 @@ func runAgent(w http.ResponseWriter, r *http.Request, d *database, a Account, sp
 			location = time.UTC
 		}
 		request.TimeZone = location.String()
-		request.UseWorkspaceMemory = !hasActiveGuestGrant(d, space.ID, input.ThreadID)
+		request.UseWorkspaceMemory = !hasGuests
 		*messages = append(*messages, Message{Author: a.Name, Text: input.Text, At: time.Now(), SenderID: a.ID})
 		request.Messages = (*messages)[max(0, len(*messages)-24):]
 	} else {
@@ -612,6 +623,10 @@ func runAgent(w http.ResponseWriter, r *http.Request, d *database, a Account, sp
 		}
 	}
 
+	memory := space.memoryFor(a.ID, agent.ID)
+	if !hasGuests {
+		request.AgentMemory = memory.Items
+	}
 	if agent.ID != "" {
 		ids := append([]string{}, agent.ConnectionIDs...)
 		request.AgentConnectionIDs = &ids
@@ -689,6 +704,17 @@ func runAgent(w http.ResponseWriter, r *http.Request, d *database, a Account, sp
 		if messages == nil {
 			fail(w, 404, "Conversation not found.")
 			return
+		}
+		if request.UseWorkspaceMemory && result.AgentMemory != nil {
+			items, memoryErr := normalizeAgentMemory(*result.AgentMemory)
+			if memoryErr == nil {
+				memoryErr = space.replaceAgentMemory(a.ID, agent.ID, memory.Revision, items)
+			}
+			confirmation := "Agent memory updated. View it in Settings → Agents."
+			if memoryErr != nil {
+				confirmation = memoryErr.Error()
+			}
+			result.Reply = strings.TrimSpace(result.Reply + "\n\n" + confirmation)
 		}
 		*messages = append(*messages, Message{Author: request.AgentName, Text: result.Reply, At: time.Now(), Agent: true})
 	}

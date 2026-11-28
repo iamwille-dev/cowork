@@ -61,7 +61,8 @@ func scheduleTask(w http.ResponseWriter, r *http.Request, d *database, a Account
 	}
 	task := Task{
 		ID: key(), Title: title, Brief: brief, Author: a.Name, Status: "Scheduled",
-		ThreadID: input.ThreadID, AgentID: agent.ID, AgentRole: agent.Role, ScheduledFor: &due, ScheduledTimeZone: location.String(),
+		MemoryMemberID: a.ID,
+		ThreadID:       input.ThreadID, AgentID: agent.ID, AgentRole: agent.Role, ScheduledFor: &due, ScheduledTimeZone: location.String(),
 	}
 	if input.Recurrence != "" {
 		task.Recurrence, task.RecurrenceStart = input.Recurrence, &due
@@ -153,6 +154,7 @@ func updateSchedule(w http.ResponseWriter, r *http.Request, d *database, a Accou
 				task.RecurrenceStart = task.ScheduledFor
 			}
 			task.Title, task.Brief, task.Recurrence = title, brief, input.Recurrence
+			task.MemoryMemberID = a.ID
 		default:
 			fail(w, 400, "Choose a schedule action.")
 			return
@@ -254,7 +256,8 @@ func claimScheduledTask(now time.Time) (string, workerRequest, error) {
 	if task == nil {
 		return "", workerRequest{}, nil
 	}
-	if _, active := space.agent(task.AgentID); !active {
+	agent, active := space.agent(task.AgentID)
+	if !active {
 		// Let a claimed run finish, and cancel recovery if its lease expired after removal.
 		task.Status, task.ScheduledStarted = "Canceled", nil
 		return "", workerRequest{}, save(d)
@@ -285,7 +288,11 @@ func claimScheduledTask(now time.Time) (string, workerRequest, error) {
 			role = agent.Role
 		}
 	}
-	return space.ID, workerRequest{Task: run, Role: role, TimeZone: run.ScheduledTimeZone}, nil
+	request := workerRequest{Task: run, Role: role, TimeZone: run.ScheduledTimeZone}
+	if run.MemoryMemberID != "" && agent.Role == role && !hasActiveGuestGrant(d, space.ID, run.ThreadID) {
+		request.AgentMemory = space.memoryFor(run.MemoryMemberID, agent.ID).Items
+	}
+	return space.ID, request, nil
 }
 
 func runScheduledTask() error {

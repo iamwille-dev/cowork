@@ -1,9 +1,9 @@
 import { PlusIcon, SparklesIcon } from '@heroicons/react/24/outline';
 import { useEffect, useId, useRef, useState } from 'react';
-import { agentCatalog, type AgentChannel, type AgentSetup, type AgentUpdate, type WorkspaceAgent } from '../lib/workspace-agents';
+import { agentCatalog, type AgentChannel, type AgentMemory, type AgentMemoryUpdate, type AgentSetup, type AgentUpdate, type WorkspaceAgent } from '../lib/workspace-agents';
 import { Button } from './button';
 import { Modal } from './forms';
-import { Input } from './input';
+import { Input, Textarea } from './input';
 import { Select } from './select';
 
 const channelNames = { cowork: 'Cowork', slack: 'Slack', telegram: 'Telegram' } satisfies Record<AgentChannel, string>;
@@ -11,6 +11,70 @@ type AgentDetails = { name: string; channel: AgentChannel };
 const defaultDetails: AgentDetails = { name: '', channel: 'cowork' };
 type UpdateAgent = (input: AgentUpdate, onError: (message: string) => void) => Promise<boolean>;
 type RemoveAgent = (id: string, onError: (message: string) => void) => Promise<boolean>;
+type SaveMemory = (input: AgentMemoryUpdate, onError: (message: string) => void) => Promise<boolean>;
+
+const emptyMemory: AgentMemory = { Revision: '', Items: [] };
+
+function AgentMemorySummary({ agent, memory, busy, save }: {
+  agent: WorkspaceAgent; memory: AgentMemory; busy: boolean; save: SaveMemory;
+}) {
+  const [revision, setRevision] = useState<string>();
+  const [draft, setDraft] = useState('');
+  const [error, setError] = useState('');
+  const [status, setStatus] = useState('');
+  const summary = useRef<HTMLElement>(null);
+  const editor = useRef<HTMLTextAreaElement>(null);
+  const labelId = useId();
+  const editing = revision !== undefined;
+  useEffect(() => { if (editing) editor.current?.focus(); }, [editing]);
+
+  function closeEditor() {
+    setRevision(undefined);
+    setError('');
+    summary.current?.focus();
+  }
+
+  return <details className="mt-2 text-sm">
+    <summary ref={summary} className="w-fit cursor-pointer rounded py-2 font-medium" aria-label={`Memory for ${agent.Name}`}>
+      Memory{memory.Items.length > 0 && <span className="ml-2 font-normal">({memory.Items.length})</span>}
+    </summary>
+    <div className="grid gap-3 border-t border-[var(--line)] pt-3">
+      <p className="text-[var(--muted)]">This agent uses your saved facts and preferences in Cowork.</p>
+      {editing ? <form className="grid gap-3" onSubmit={async (event) => {
+        event.preventDefault();
+        if (busy) return;
+        setError('');
+        const Items = [...new Set(draft.split(/\r?\n/).map((line) => line.trim()).filter(Boolean))];
+        if (await save({ ID: agent.ID, Revision: revision, Items }, setError)) {
+          closeEditor();
+          setStatus('Memory saved.');
+        }
+      }}>
+        <label className="grid gap-1.5">
+          Memory items
+          <Textarea ref={editor} rows={5} value={draft} disabled={busy} aria-describedby={labelId}
+            onChange={(event) => setDraft(event.target.value)} />
+        </label>
+        <p id={labelId} className="text-[var(--muted)]">Enter one item per line. To clear the list, delete all the lines and save.</p>
+        {error && <p role="alert">{error}</p>}
+        <div className="setup-controls">
+          <Button type="submit" disabled={busy}>Save memory</Button>
+          <Button variant="quiet" disabled={busy} onClick={closeEditor}>Cancel</Button>
+        </div>
+      </form> : <>
+        {memory.Items.length ? <ul className="grid list-disc gap-1.5 pl-5" aria-label={`Saved memory for ${agent.Name}`}>
+          {memory.Items.map((item) => <li className="wrap-anywhere" key={item}>{item}</li>)}
+        </ul> : <p className="text-[var(--muted)]">No saved items yet. Tell the agent what to remember in chat or add an item here.</p>}
+        <Button variant="quiet" className="justify-self-start" disabled={busy} onClick={() => {
+          setDraft(memory.Items.join('\n'));
+          setRevision(memory.Revision);
+          setStatus('');
+        }}>{memory.Items.length ? 'Edit memory' : 'Add memory'}</Button>
+      </>}
+      <p role="status" className={status ? 'text-[var(--muted)]' : 'sr-only'}>{status}</p>
+    </div>
+  </details>;
+}
 
 function AgentFields({ role, telegram, details, setDetails, busy, channelHelp }: {
   role: string; telegram: boolean; details: AgentDetails; setDetails: (details: AgentDetails) => void; busy: boolean;
@@ -90,13 +154,15 @@ function EditAgentForm({ agent, telegram, busy, updateAgent, canRemove, removeAg
   </>;
 }
 
-export function SettingsAgents({ agents, owner, busy, addAgent, updateAgent, removeAgent, openTools, openChannels }: {
+export function SettingsAgents({ agents, owner, busy, addAgent, updateAgent, removeAgent, memories, saveMemory, openTools, openChannels }: {
   agents: WorkspaceAgent[];
   owner: boolean;
   busy: boolean;
   addAgent: (input: AgentSetup, onError: (message: string) => void) => Promise<boolean>;
   updateAgent: UpdateAgent;
   removeAgent: RemoveAgent;
+  memories: Record<string, AgentMemory>;
+  saveMemory: SaveMemory;
   openTools?: () => void;
   openChannels: () => void;
 }) {
@@ -151,6 +217,7 @@ export function SettingsAgents({ agents, owner, busy, addAgent, updateAgent, rem
                 setMessage('');
               }}>Edit</Button>}
           </div>
+          {!isEditing && <AgentMemorySummary agent={agent} memory={memories[agent.ID] ?? emptyMemory} busy={busy} save={saveMemory} />}
           {owner && isEditing && <EditAgentForm agent={agent} telegram={messaging} busy={busy} updateAgent={updateAgent}
             canRemove={agents.length > 1} removeAgent={removeAgent}
             close={() => { setEditing(undefined); editTrigger.current?.focus(); }}

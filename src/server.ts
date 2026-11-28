@@ -50,7 +50,7 @@ async function worker(request: IncomingMessage, response: ServerResponse) {
     const payload = JSON.parse(Buffer.concat(chunks).toString());
     const session = request.headers['x-cowork-session'];
     let result;
-    if (url === '/task') result = await runTask({ ...payload.Task, WorkspaceID: payload.WorkspaceID });
+    if (url === '/task') result = await runTask({ ...payload.Task, WorkspaceID: payload.WorkspaceID }, payload.AgentMemory);
     else if (url === '/scheduled-task') result = await runScheduledTask(payload);
     else if (payload.ChannelActor?.Channel === 'telegram') {
       const reply = liveModel && await respondFromChannel(mastra, payload.ChannelActor, payload.Messages, { telegramThreadId: payload.ThreadID });

@@ -21,7 +21,7 @@ import { ClerkSignIn, useClerkMode } from './clerk-auth';
 import type { AccountMode } from './account-access';
 import { ConnectionActivity } from './managed-connections';
 import { WorkspaceOnboarding } from './onboarding';
-import type { WorkspaceAgent } from '../lib/workspace-agents';
+import type { AgentMemory, WorkspaceAgent } from '../lib/workspace-agents';
 import { AssigneeOptions, TaskBoard, type ScheduleAction, type Task, type TaskAssignee, type TaskChanges } from './tasks';
 
 type Reminder = { ID: string; Text: string; Due: string; Author: string; Done: boolean };
@@ -29,6 +29,7 @@ type WorkspaceData = {
   name: string;
   admin: boolean;
   agentConnectionHasKey?: boolean;
+  agentMemories?: Record<string, AgentMemory>;
   managedConnections?: boolean;
   telegramBot?: string;
   telegramAgents?: Partial<Record<ChannelAgent, { Username: string; Destination: string }>>;
@@ -370,6 +371,8 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
           </p>}
         </div>}
         {view === 'settings' && <section className="page"><Settings theme={theme} members={state.directory} owner={state.admin}
+          agentMemories={state.agentMemories ?? {}}
+          saveAgentMemory={(memory, onError) => run(async () => { await write('agent/memory', memory); }, onError)}
           agents={workspaceAgents} busy={busy} addAgent={(settings, onError) => run(async () => { await write('agent/add', settings); }, onError)}
           updateAgent={(settings, onError) => run(async () => { await write('agent/update', settings); }, onError)}
           removeAgent={(id, onError) => run(async () => { await write('agent/remove', { ID: id }); }, onError)}

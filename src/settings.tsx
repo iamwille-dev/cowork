@@ -6,7 +6,7 @@ import { channelAgents, channelAgentIds, type ChannelAgent } from './channel-age
 import { api } from './app/components/api';
 import { ManagedConnections, type AgentGrants } from './app/components/managed-connections';
 import { SettingsAgents } from './app/components/settings-agents';
-import type { AgentSetup, AgentUpdate, WorkspaceAgent } from './app/lib/workspace-agents';
+import type { AgentMemory, AgentMemoryUpdate, AgentSetup, AgentUpdate, WorkspaceAgent } from './app/lib/workspace-agents';
 
 const sections = [
   { id: 'appearance', title: 'Appearance' },
@@ -26,6 +26,8 @@ type SettingsProps = {
   members: { ID: string; Name: string; Email: string; Role: string }[];
   owner: boolean;
   agents: WorkspaceAgent[];
+  agentMemories: Record<string, AgentMemory>;
+  saveAgentMemory: (input: AgentMemoryUpdate, onError: (message: string) => void) => Promise<boolean>;
   busy: boolean;
   addAgent: (input: AgentSetup, onError: (message: string) => void) => Promise<boolean>;
   updateAgent: (input: AgentUpdate, onError: (message: string) => void) => Promise<boolean>;
@@ -427,6 +429,7 @@ export function Settings(props: SettingsProps) {
         {active === 'agents' && (
           <SettingsSection title="Workspace agents" description="These agents are available for conversations and task assignments.">
             <SettingsAgents agents={props.agents} owner={props.owner} busy={props.busy} addAgent={props.addAgent} updateAgent={props.updateAgent}
+              memories={props.agentMemories} saveMemory={props.saveAgentMemory}
               removeAgent={props.removeAgent}
               openTools={props.managedConnections ? () => openSection('agent-connection') : undefined}
               openChannels={() => openSection('channels')} />

@@ -1,5 +1,6 @@
 import { developer, liveModel } from '../agents/index.ts';
 import { createStep, createWorkflow } from '@mastra/core/workflows';
+import type { RequestContext } from '@mastra/core/request-context';
 import { chromium } from 'playwright';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -29,7 +30,7 @@ interface Runner {
   supports?(task: Task): boolean;
   create(task: Task, directory: string): Promise<unknown>;
   checkout(sandbox: unknown, repository: string): Promise<void>;
-  implement(sandbox: unknown, task: Task, plan: string): Promise<Implementation>;
+  implement(sandbox: unknown, task: Task, plan: string, requestContext?: RequestContext): Promise<Implementation>;
   openPullRequest(sandbox: unknown, task: Task, implementation: Implementation): Promise<string | null>;
 }
 
@@ -40,7 +41,7 @@ const fixtureRunner: Runner = {
   async checkout() {
     throw new Error('Repository checkout requires a configured sandbox runner.');
   },
-  async implement(_sandbox, task) {
+  async implement(_sandbox, task, _plan, requestContext) {
     if (!task.UI) {
       throw new Error('The built-in runner supports UI previews. Implementation of other tasks requires a configured sandbox runner.');
     }
@@ -51,7 +52,7 @@ const fixtureRunner: Runner = {
         title: task.Title,
         brief: task.Brief,
       }) },
-    ], { activeTools: [], abortSignal: AbortSignal.timeout(50_000) });
+    ], { activeTools: [], requestContext, abortSignal: AbortSignal.timeout(50_000) });
     const html = result.text.trim().replace(/^```(?:html)?\s*/i, '').replace(/\s*```$/, '');
     if (!/^<!doctype html>\s*<html\b/i.test(html) || !/<body\b/i.test(html) || !/<\/html>\s*$/i.test(html) || Buffer.byteLength(html) > 256 * 1024) {
       throw new Error('The model did not produce a complete standalone HTML page.');
@@ -77,7 +78,7 @@ const execute = createStep({
   id: 'developer-delivery',
   inputSchema: taskSchema,
   outputSchema: resultSchema,
-  execute: async ({ inputData: task }) => {
+  execute: async ({ inputData: task, requestContext }) => {
     const runner = configuredRunner.supports?.(task) === false ? fixtureRunner : configuredRunner;
     const directory = resolve(dataRoot, task.ID);
     const result: z.infer<typeof resultSchema> = { Steps: [], Artifacts: [], Error: '' };
@@ -96,12 +97,14 @@ const execute = createStep({
       }
 
       const plan = liveModel
-        ? (await developer.generate(`Write an implementation plan in Markdown, with verification and acceptance criteria. Task: ${JSON.stringify(task)}`, { activeTools: [], abortSignal: AbortSignal.timeout(18_000) })).text
+        ? (await developer.generate(`Write an implementation plan in Markdown, with verification and acceptance criteria. Task: ${JSON.stringify(task)}`, { activeTools: [], requestContext, abortSignal: AbortSignal.timeout(18_000) })).text
         : `# ${task.Title}\n\n## Brief\n\n${task.Brief}\n\n## Plan\n\n1. Build the requested UI as a standalone preview.\n2. Verify the page renders at 1280 × 800.\n3. Share the preview and screenshot for review.\n`;
       await publish('plan.md', 'Implementation plan', plan);
       result.Steps.push('Saved implementation plan');
 
-      const implementation = await runner.implement(sandbox, task, plan);
+      const implementation = runner === fixtureRunner
+        ? await fixtureRunner.implement(sandbox, task, plan, requestContext)
+        : await runner.implement(sandbox, task, plan);
       result.Steps.push('Implemented the task');
 
       if (task.UI || implementation.uiChanged) {
