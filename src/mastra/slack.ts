@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { resolve } from 'node:path';
 import { coworkStateDir } from '../state.ts';
-import { createSlackAdapter, type SlackAdapter } from '@chat-adapter/slack';
+import { createSlackAdapter, SlackFormatConverter, type SlackAdapter } from '@chat-adapter/slack';
 import { verifySlackRequest } from '@chat-adapter/slack/webhook';
 import { MemoryStateAdapter } from '@chat-adapter/state-memory';
 import { createClient } from '@libsql/client';
@@ -14,11 +14,14 @@ import { bodyLimit } from 'hono/body-limit';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { channelAgents, channelAgentIds, roleAgentId, type ChannelAgent } from '../channel-agents.ts';
 import type { Role } from './agents/index.ts';
+import { channelReplyGuidance, normalizeChannelReply } from './channels/format.ts';
 
 const settingsPath = '/settings?section=channels';
 const callbackSuffix = '/oauth/callback';
 const cookieName = 'cowork_slack_state';
 const oauthLifetime = 15 * 60;
+const slackFormat = new SlackFormatConverter();
+const slackMarkdownLimit = 12_000;
 const scopes = 'app_mentions:read,chat:write,chat:write.customize,channels:history,channels:read,groups:history,groups:read,im:history,im:read,mpim:history,mpim:read,users:read';
 
 type OAuthResult = {
@@ -746,10 +749,11 @@ async function handleSlackMessage(
       const messages = await slackMessages(thread, message);
       const reply = await mastra.getAgent(role).generate(
         `Respond to the last Slack message only. Conversation in chronological order:\n${JSON.stringify(messages)}`,
-        { activeTools: [] },
+        { activeTools: [], system: channelReplyGuidance },
       );
-      if (reply.text.trim() && await installationActive() &&
-          (!agentId || await channelAgentInstance(actor) === actor.AgentInstance)) await thread.post(reply.text);
+      const markdown = normalizeChannelReply(reply.text);
+      if (markdown && await installationActive() &&
+          (!agentId || await channelAgentInstance(actor) === actor.AgentInstance)) await thread.post(slackReply(markdown));
     }
     return;
   }
@@ -784,12 +788,13 @@ async function handleSlackMessage(
       },
     });
     if (reply && await installationActive() && (!agentId || await channelAgentInstance(actor) === actor.AgentInstance)) {
+      const outbound = slackReply(reply);
       let replyId: string | undefined;
       if (name !== settings.name) {
         const response = await fetch('https://slack.com/api/chat.postMessage', {
           method: 'POST', headers: { Authorization: 'Bearer ' + token },
           body: new URLSearchParams({
-            channel, ...(threadTs && { thread_ts: threadTs }), text: reply, username: name,
+            channel, ...(threadTs && { thread_ts: threadTs }), ...slackFormat.toSlackPayload(outbound), username: name,
             unfurl_links: 'false', unfurl_media: 'false',
           }),
           signal: AbortSignal.timeout(10_000),
@@ -798,7 +803,7 @@ async function handleSlackMessage(
         if (posted.ok && posted.ts) replyId = posted.ts;
         else if (posted.error !== 'missing_scope') throw new Error('Slack could not post the reply.');
       }
-      replyId ??= (await thread.post(reply)).id;
+      replyId ??= (await thread.post(outbound)).id;
       log('slack.reply.sent', { ...source, replyId });
       if (mirrored?.Sync) {
         await saveSlackMessage(actor, { ID: replyId, Text: reply.slice(0, 12000), At: new Date().toISOString(), Reply: true });
@@ -808,6 +813,11 @@ async function handleSlackMessage(
   } finally {
     await thread.startTyping('').catch(() => undefined);
   }
+}
+
+function slackReply(markdown: string) {
+  const message = { markdown };
+  return markdown.length <= slackMarkdownLimit ? message : { raw: slackFormat.toResponseUrlText(message) };
 }
 
 function slackTimeZone(timeZone: unknown): string | undefined {

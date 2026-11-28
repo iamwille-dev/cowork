@@ -8,6 +8,7 @@ import { agentConnection, type AgentConnectionContext } from './tools/agent-conn
 import { workspaceRepositoryTools } from './tools/repository-inventory.ts';
 import type { GitTokens } from './tools/repositories.ts';
 import type { WorkspaceFindTasks, WorkspaceWrite } from './tools/workspace.ts';
+import { channelReplyGuidance, normalizeChannelReply } from './channels/format.ts';
 
 export type SlackAgentKey = ChannelAgent | '' | `agent:${string}`;
 
@@ -170,7 +171,7 @@ export async function respondFromChannel(
     repositories = workspaceRepositoryTools(connection, context.GitTokens);
     const toolsets = { ...tools, repositories: repositories.tools };
     if (!await installationActive()) return;
-    const options = { requestContext, maxSteps: 5, system, toolsets };
+    const options = { requestContext, maxSteps: 5, system: `${system} ${channelReplyGuidance}`, toolsets };
     let reply: string;
     if (progress) {
       const result = await agent.stream(prompt, options);
@@ -183,7 +184,7 @@ export async function respondFromChannel(
     } else {
       reply = (await agent.generate(prompt, options)).text;
     }
-    return [reply.trim(), confirmations.join('\n')].filter(Boolean).join('\n\n');
+    return [normalizeChannelReply(reply), confirmations.join('\n')].filter(Boolean).join('\n\n');
   } catch (error) {
     if (confirmations.length) return confirmations.join('\n');
     throw error;

@@ -27,8 +27,13 @@ test('Slack provisions named apps and routes managed and legacy installs to regi
   let rotations = 0;
   let reminderWrites = 0;
   const due = new Date(Date.now() + 3_600_000).toISOString();
+  const taskList = "Here's what's on the board:\n\n1. **Build Next.js kids book fair landing page** — Failed\n2. **Get Mails** — Assigned";
+  const fencedTaskList = '```vbnet\n' + taskList + '\n```';
+  const longReply = '**Long reply**\n\n' + 'Line. '.repeat(2_000);
   const posted: (string | undefined)[] = [];
-  const sdk = createServer((req, res) => {
+  const sdkPosts = new Map<string | undefined, Record<string, string>>();
+  const customPosts = new Map<string | null, URLSearchParams>();
+  const sdk = createServer(async (req, res) => {
     const path = req.url?.split('?')[0];
     const user = { id: 'UMEMBER', team_id: team, real_name: 'Workspace Member' };
     const replies: Record<string, object> = {
@@ -39,7 +44,14 @@ test('Slack provisions named apps and routes managed and legacy installs to regi
       '/chat.postMessage': { ts: '1700000001.000001' },
       '/assistant.threads.setStatus': {},
     };
-    if (path === '/chat.postMessage') posted.push(req.headers.authorization);
+    if (path === '/chat.postMessage') {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(chunk);
+      const body = Buffer.concat(chunks).toString();
+      sdkPosts.set(req.headers.authorization, req.headers['content-type']?.includes('application/json')
+        ? JSON.parse(body) : Object.fromEntries(new URLSearchParams(body)));
+      posted.push(req.headers.authorization);
+    }
     res.setHeader('Content-Type', 'application/json');
     res.end(JSON.stringify(path && replies[path] ? { ok: true, ...replies[path] } : { ok: false, error: 'unknown_method' }));
   });
@@ -96,6 +108,13 @@ test('Slack provisions named apps and routes managed and legacy installs to regi
       }
       case '/api/users.info':
         return Response.json({ ok: true, user: { team_id: team, tz: 'America/Regina' } });
+      case '/api/chat.postMessage': {
+        const token = new Headers(init?.headers).get('authorization');
+        customPosts.set(token, init?.body as URLSearchParams);
+        if (token === 'Bearer token-Atlas') return Response.json({ ok: false, error: 'missing_scope' });
+        posted.push(token ?? undefined);
+        return Response.json({ ok: true, ts: '1700000001.000001' });
+      }
       case '/api/conversations.info':
         return Response.json({ ok: true, channel: { name: 'workspace', is_channel: true, is_private: url.searchParams.get('channel') === 'CPRIVATE' } });
       case '/internal/channel-tools/available': {
@@ -111,7 +130,7 @@ test('Slack provisions named apps and routes managed and legacy installs to regi
           assert.ok(agent);
           assert.equal(actor.Agent, 'agent:' + agent.ID);
           return Response.json({
-            Role: agent.Role, AgentName: agent.Name,
+            Role: agent.Role, AgentName: agent.Name + ' Updated',
             AgentConnectionWorkspace: workspace, AgentConnectionKey: 'workspace-key',
             AgentConnectionIDs: agent.ID === 'product-manager' ? ['granted-mail'] : [],
           });
@@ -198,7 +217,7 @@ test('Slack provisions named apps and routes managed and legacy installs to regi
     const tools = await developer.listTools({ requestContext });
     assert.deepEqual(Object.keys(tools), Object.keys(workspaceTools));
     modelCalls.push(prompt);
-    return { text: Promise.resolve('Cowork reply'), fullStream: [] };
+    return { text: Promise.resolve(prompt.includes('long formatted reply') ? longReply : 'Cowork reply'), fullStream: [] };
   });
 
   const request = (path: string, options?: RequestInit) => new Request('https://cowork.example' + path, options);
@@ -247,8 +266,10 @@ test('Slack provisions named apps and routes managed and legacy installs to regi
     authorizations: [{ team_id: team, user_id: bot, is_bot: true }],
     event: { type: 'app_mention', user: 'UMEMBER', text: `<@${bot}> Hello from Slack`, channel, ts: '1700000000.000001' },
   });
+  const longReplyEvent = event(installs.shared);
+  longReplyEvent.event.text += '. Please send a long formatted reply.';
   const results = await Promise.all([
-    send('/integrations/slack/events', event(installs.shared), installs.shared.secret),
+    send('/integrations/slack/events', longReplyEvent, installs.shared.secret),
     send(canonical, event(installs.ada), installs.ada.secret),
   ]);
   assert.deepEqual(results.map(({ status }) => status), [200, 200]);
@@ -257,6 +278,9 @@ test('Slack provisions named apps and routes managed and legacy installs to regi
   assert.equal(modelCalls.length, 2);
   assert.ok(modelCalls.every((prompt) => prompt.includes('Hello from Slack')));
   assert.deepEqual(posted.sort(), ['Bearer ada-token', 'Bearer shared-token']);
+  assert.match(sdkPosts.get('Bearer shared-token')?.text ?? '', /^\*Long reply\*\n\nLine\./);
+  assert.equal(sdkPosts.get('Bearer shared-token')?.markdown_text, undefined);
+  assert.equal(sdkPosts.get('Bearer ada-token')?.markdown_text, 'Cowork reply');
 
   for (const [index, agent] of workspaceAgents.entries()) {
     const endpoint = '/api/slack/agents/' + agent.ID;
@@ -329,11 +353,18 @@ test('Slack provisions named apps and routes managed and legacy installs to regi
       } else {
         assert.equal(toolsets.agentConnection.gmail_search, undefined);
       }
-      return { text: Promise.resolve(agent.Name + ' reply'), fullStream: [] };
+      return { text: Promise.resolve(fencedTaskList), fullStream: [] };
     });
     assert.equal((await send(pending.app.webhook, event(pending.app, 'CPRIVATE'), pending.app.secret)).status, 200);
     await Promise.all(turns);
     assert.equal(posted.at(-1), 'Bearer ' + pending.app.token);
+    const post = customPosts.get('Bearer ' + pending.app.token);
+    assert.equal(post?.get('username'), agent.Name + ' Updated');
+    assert.equal(post?.get('thread_ts'), '1700000000.000001');
+    assert.equal(post?.has('text'), false);
+    const expected = index === 0 ? taskList + '\n\nReminder saved:' : taskList;
+    assert.ok(post?.get('markdown_text')?.startsWith(expected));
+    if (index !== 0) assert.equal(sdkPosts.get('Bearer ' + pending.app.token)?.markdown_text, taskList);
     assert.match(modelCalls.at(-1) ?? '', new RegExp('^' + agent.ID));
   }
   assert.equal(rotations, 1);

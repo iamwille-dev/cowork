@@ -32,7 +32,7 @@ const recordMessage = ({ WorkspaceID, Agent, Version }: Installation): ChannelHa
   });
   if (!response.ok) throw new Error(`Cowork could not process Telegram message (HTTP ${response.status}).`);
   const { reply } = await response.json() as { reply?: string };
-  if (reply) await thread.post(reply);
+  if (reply) await thread.post({ markdown: reply });
 };
 
 async function connect(mastra: Mastra, installation: Installation) {
