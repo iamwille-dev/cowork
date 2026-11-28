@@ -2,9 +2,11 @@
 
 import { Button } from './button';
 import { Input } from './input';
-import { useState, type ReactNode } from 'react';
-import { ChatBubbleLeftRightIcon, ClipboardDocumentListIcon, CodeBracketIcon, MegaphoneIcon, UserGroupIcon } from '@heroicons/react/24/outline';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { ClipboardDocumentListIcon, CodeBracketIcon, MegaphoneIcon, UserGroupIcon } from '@heroicons/react/24/outline';
 import { Dialog, DialogBackdrop, DialogPanel, DialogTitle } from '@headlessui/react';
+import { AccountAccess, AccountModeSwitch, type AccountMode } from './account-access';
+import styles from './account-access.module.css';
 
 const roles = [
   { name: 'Developer', detail: 'Plans, previews, and screenshots', icon: CodeBracketIcon },
@@ -15,84 +17,85 @@ const roles = [
 
 type Details = { Name?: FormDataEntryValue; Email?: FormDataEntryValue; Password?: FormDataEntryValue; Invite?: FormDataEntryValue };
 
-export function AuthForm({ submit, busy, initialMode = 'login' }: {
-  submit: (mode: string, values: object) => void; busy: boolean; initialMode?: 'signup' | 'login';
+export function AuthForm({ submit, busy, notice, clearNotice, initialMode = 'login' }: {
+  submit: (mode: AccountMode, values: object) => void;
+  busy: boolean;
+  notice: string;
+  clearNotice: () => void;
+  initialMode?: AccountMode;
 }) {
-  const [mode, setMode] = useState<string>(initialMode);
+  const [mode, setMode] = useState(initialMode);
   const [step, setStep] = useState<'details' | 'agent'>('details');
   const [details, setDetails] = useState<Details>({});
   const [role, setRole] = useState<(typeof roles)[number]['name']>('Developer');
   const [joining, setJoining] = useState(false);
+  const heading = useRef<HTMLHeadingElement>(null);
+  const focusHeading = useRef(false);
   const signup = mode === 'signup';
   const choosing = signup && step === 'agent';
 
-  function changeMode(next: string) {
-    setMode(next);
+  useEffect(() => {
+    if (focusHeading.current) heading.current?.focus();
+    focusHeading.current = false;
+  }, [mode, step, joining]);
+
+  function changeMode() {
+    clearNotice();
+    focusHeading.current = true;
+    setMode(signup ? 'login' : 'signup');
     setStep('details');
     setDetails({});
     setJoining(false);
   }
 
-  return <section className={signup ? "onboarding" : "onboarding sign-in-gate"}>
-    <div className="onboarding-story">
-      <div>
-        {signup ? <>
-          <h1>Good work<br /> has <em>company.</em></h1>
-          <p>Give your team a shared place to talk with an AI coworker, delegate work, and keep track of what comes next.</p>
-        </> : <>
-          <h1>Pick up where<br /> you <em>left off.</em></h1>
-          <p>Your threads, teammates, and agent are all in your workspace.</p>
-        </>}
-      </div>
-      <div className="onboarding-preview">
-        <span className="onboarding-preview-icon" aria-hidden="true"><ChatBubbleLeftRightIcon className="size-5" /></span>
-        <div><strong>One conversation, shared by the team</strong><small>Ask questions, assign tasks, and set reminders in chat.</small></div>
-      </div>
-    </div>
-    <div className="onboarding-form-side">
-      <div className="onboarding-form-wrap">
-        <div className="onboarding-switch" role="group" aria-label="Account access">
-          <button type="button" aria-pressed={!signup} onClick={() => changeMode('login')}>Sign in</button>
-          <button type="button" aria-pressed={signup} onClick={() => changeMode('signup')}>Create account</button>
-        </div>
-        <form className="onboarding-form" key={mode + step} onSubmit={(event) => {
-          event.preventDefault();
-          if (choosing) { submit(mode, { ...details, Role: role }); return; }
-          const values = Object.fromEntries(new FormData(event.currentTarget));
-          if (!signup || joining) { submit(mode, values); return; }
-          setDetails(values);
-          setStep('agent');
-        }}>
-          <header>
-            {signup && !joining && <p className="onboarding-step">{choosing ? 'Step 2 of 2' : 'Step 1 of 2'}</p>}
-            <h2>{choosing ? 'Choose your agent' : signup ? (joining ? 'Join your workspace' : 'Create your account') : 'Sign in to Cowork'}</h2>
-            <p>{choosing ? 'Pick a role that matches the work you want to delegate.' : signup ? (joining ? 'Use the invite code your teammate shared.' : 'Start with your details to set up a workspace.') : 'Use your account to open your conversations.'}</p>
-          </header>
-          {choosing ? <>
-            <fieldset className="onboarding-roles">
-              <legend className="sr-only">Choose an agent</legend>
-              {roles.map(({ name, detail, icon: Icon }) => (
-                <label key={name} className="onboarding-role">
-                  <Icon aria-hidden="true" className="size-5" />
-                  <span><strong>{name}</strong><small>{detail}</small></span>
-                  <input type="radio" name="Role" value={name} checked={role === name} onChange={() => setRole(name)} />
-                </label>
-              ))}
-            </fieldset>
-            <Button type="submit" disabled={busy}>{busy ? 'Creating workspace…' : 'Create workspace'}</Button>
-            <button type="button" className="onboarding-link" onClick={() => setStep('details')} disabled={busy}>Back to your details</button>
-          </> : <>
-            {signup && <label>Your name<Input name="Name" autoComplete="name" maxLength={80} defaultValue={String(details.Name ?? '')} required /></label>}
-            <label>Email<Input name="Email" type="email" autoComplete="email" maxLength={254} defaultValue={String(details.Email ?? '')} required /></label>
-            <label>Password<Input name="Password" type="password" autoComplete={signup ? 'new-password' : 'current-password'} minLength={8} maxLength={128} defaultValue={String(details.Password ?? '')} required /></label>
-            {signup && joining && <label>Workspace invite code<Input name="Invite" autoComplete="off" required /></label>}
-            <Button type="submit" disabled={busy}>{busy ? 'Please wait…' : signup ? (joining ? 'Join workspace' : 'Continue') : 'Sign in'}</Button>
-            {signup && <button type="button" className="onboarding-link" onClick={() => setJoining(!joining)}>{joining ? 'Create a workspace instead' : 'I have a workspace invite'}</button>}
-          </>}
-        </form>
-      </div>
-    </div>
-  </section>;
+  return <AccountAccess>
+    <form className={`${styles.card} ${styles.form}`} key={mode + step} onSubmit={(event) => {
+      event.preventDefault();
+      if (choosing) { submit(mode, { ...details, Role: role }); return; }
+      const values = Object.fromEntries(new FormData(event.currentTarget));
+      if (!signup || joining) { submit(mode, values); return; }
+      setDetails(values);
+      focusHeading.current = true;
+      setStep('agent');
+    }}>
+      <header className={styles.heading}>
+        {signup && !joining && <p className={styles.progress}>{choosing ? 'Step 2 of 2' : 'Step 1 of 2'}</p>}
+        <h1 className={styles.title} ref={heading} tabIndex={-1}>{choosing ? 'Choose your agent' : signup ? (joining ? 'Join your workspace' : 'Create your account') : 'Sign in to Cowork'}</h1>
+        <p>{choosing ? 'Pick a role that matches the work you want to delegate.' : signup ? (joining ? 'Use the invite code your teammate shared.' : 'Start with your details to set up a workspace.') : 'Use your account to open your conversations.'}</p>
+      </header>
+      {notice && <p className={styles.notice} role="alert">{notice}</p>}
+      {choosing ? <>
+        <fieldset className="onboarding-roles" disabled={busy}>
+          <legend className="sr-only">Choose an agent</legend>
+          {roles.map(({ name, detail, icon: Icon }) => (
+            <label key={name} className="onboarding-role">
+              <Icon aria-hidden="true" className="size-5" />
+              <span><strong>{name}</strong><small>{detail}</small></span>
+              <input type="radio" name="Role" value={name} checked={role === name} onChange={() => setRole(name)} />
+            </label>
+          ))}
+        </fieldset>
+        <Button className={styles.primary} type="submit" disabled={busy}>{busy ? 'Creating workspace…' : 'Create workspace'}</Button>
+        <button type="button" className={styles.textButton} onClick={() => {
+          clearNotice();
+          focusHeading.current = true;
+          setStep('details');
+        }} disabled={busy}>Back to your details</button>
+      </> : <>
+        {signup && <label>Your name<Input className={styles.field} name="Name" autoComplete="name" maxLength={80} defaultValue={String(details.Name ?? '')} required /></label>}
+        <label>Email<Input className={styles.field} name="Email" type="email" autoComplete="email" maxLength={254} defaultValue={String(details.Email ?? '')} required /></label>
+        <label>Password<Input className={styles.field} name="Password" type="password" autoComplete={signup ? 'new-password' : 'current-password'} minLength={8} maxLength={128} defaultValue={String(details.Password ?? '')} required /></label>
+        {signup && joining && <label>Workspace invite code<Input className={styles.field} name="Invite" autoComplete="off" required /></label>}
+        <Button className={styles.primary} type="submit" disabled={busy}>{busy ? 'Please wait…' : signup ? (joining ? 'Join workspace' : 'Continue') : 'Sign in'}</Button>
+        {signup && <button type="button" className={styles.textButton} onClick={() => {
+          clearNotice();
+          focusHeading.current = true;
+          setJoining(!joining);
+        }} disabled={busy}>{joining ? 'Create a workspace instead' : 'I have a workspace invite'}</button>}
+      </>}
+    </form>
+    <AccountModeSwitch signup={signup} disabled={busy} onSwitch={changeMode} />
+  </AccountAccess>;
 }
 
 export function Modal({ title, close, children }: { title: string; close: () => void; children: ReactNode }) {
