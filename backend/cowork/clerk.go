@@ -299,11 +299,7 @@ func onboardingAPI(w http.ResponseWriter, r *http.Request, d *database, profile 
 				return
 			}
 			for i := range space.Agents {
-				agent := &space.Agents[i]
-				agent.Channel = "cowork"
-				if input.Channel == "slack" || agent.Role == "Developer" || agent.Role == "Sales Lead" {
-					agent.Channel = input.Channel
-				}
+				space.Agents[i].Channel = input.Channel
 			}
 			space.OnboardingStep = ""
 		default:

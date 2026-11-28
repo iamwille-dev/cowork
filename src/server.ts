@@ -10,7 +10,7 @@ import { checkTaskScope } from './mastra/classifiers/agent-request.ts';
 import { startDockerSandboxCleanup } from './mastra/docker-workspace.ts';
 import { mastra } from './mastra/index.ts';
 import { liveModel } from './mastra/agents/index.ts';
-import { startTelegram } from './mastra/channels/telegram.ts';
+import { createTelegramHandler, startTelegram } from './mastra/channels/telegram.ts';
 import { handleWebChat } from './mastra/channels/web.ts';
 
 const types: Record<string, string> = {
@@ -70,8 +70,13 @@ async function worker(request: IncomingMessage, response: ServerResponse) {
 createServer(worker).listen(4401, '127.0.0.1');
 
 const slackListener = getRequestListener(createSlackHandler(mastra, liveModel));
+const telegramListener = getRequestListener(createTelegramHandler(mastra));
 createServer(async (request, response) => {
   const path = request.url?.split('?', 1)[0];
+  if (path && /^\/api\/agents\/[^/]+\/channels\/telegram\/webhook$/.test(path)) {
+    await telegramListener(request, response);
+    return;
+  }
   if (path === '/api/slack' || path?.startsWith('/api/slack/') || path?.startsWith('/integrations/slack/') ||
       (path && /^\/api\/agents\/[^/]+\/channels\/slack\/webhook$/.test(path))) {
     await slackListener(request, response);

@@ -34,9 +34,6 @@ type SettingsProps = {
   removeAgent: (id: string, onError: (message: string) => void) => Promise<boolean>;
   invite: string;
   channels: Partial<Record<'WhatsApp' | 'Telegram', string>>;
-  telegramBot?: string;
-  telegramAgents?: Partial<Record<ChannelAgent, { Username: string; Destination: string }>>;
-  saveTelegram: (settings: { Agent?: ChannelAgent; Token?: string; Destination?: string; Remove?: boolean }) => Promise<boolean>;
   changeTheme: (theme: Theme) => void;
   saveChannel: (provider: 'WhatsApp', destination: string, button: HTMLButtonElement) => void;
   agentConnection: { enabled: boolean; hasKey: boolean };
@@ -272,62 +269,98 @@ export function SlackConnectionForm({ owner, agent, workspaceAgent, existingOnly
   );
 }
 
-export function TelegramForm({ owner, agent, name, destination, telegramBot, saveTelegram }: Pick<SettingsProps, 'owner' | 'telegramBot' | 'saveTelegram'> & {
+type TelegramConnection = { configured: boolean; connected: boolean; username: string; groupTitle: string; groupLink: string };
+
+export function TelegramConnectionForm({ owner, workspaceAgent, agent, existingOnly, onConnected }: {
+  owner: boolean;
+  workspaceAgent?: WorkspaceAgent;
   agent?: ChannelAgent;
-  name?: string;
-  destination?: string;
+  existingOnly?: boolean;
+  onConnected?: (connected: boolean) => void;
 }) {
-  const [busy, setBusy] = useState(false);
+  const binding = workspaceAgent ? `agent:${workspaceAgent.ID}` : agent ?? '';
+  const name = workspaceAgent?.Name ?? (agent ? channelAgents[agent].name : 'Cowork');
+  const endpoint = 'telegram?agent=' + encodeURIComponent(binding);
+  const [connection, setConnection] = useState<TelegramConnection>();
+  const [attempt, setAttempt] = useState(0);
+  const [busy, setBusy] = useState<'connect' | 'disconnect' | 'link'>();
+  const [error, setError] = useState('');
   const token = useRef<HTMLInputElement>(null);
-  async function save(settings: Parameters<SettingsProps['saveTelegram']>[0]) {
-    setBusy(true);
+  const waiting = owner && Boolean(connection?.groupLink);
+
+  useEffect(() => {
+    let canceled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    async function load() {
+      try {
+        const value = await api<TelegramConnection>(endpoint);
+        if (canceled) return;
+        setConnection(value);
+        if (owner && value.groupLink) timer = setTimeout(load, 2_000);
+      } catch (error) {
+        if (canceled) return;
+        if (waiting) timer = setTimeout(load, 3_000);
+        else setError((error as Error).message);
+      }
+    }
+    void load();
+    return () => { canceled = true; clearTimeout(timer); };
+  }, [endpoint, owner, attempt, waiting]);
+
+  useEffect(() => {
+    if (connection) onConnected?.(connection.connected);
+  }, [connection, onConnected]);
+
+  async function update(action: NonNullable<typeof busy>, value?: string) {
+    setBusy(action);
+    setError('');
     try {
-      if (await saveTelegram({ ...settings, Agent: agent }) && token.current) token.current.value = '';
+      const next = await api<TelegramConnection>('telegram', { Agent: binding, Action: action, ...(value && { Token: value }) });
+      setConnection(next);
+      if (token.current) token.current.value = '';
+      setAttempt((previous) => previous + 1);
+    } catch (error) {
+      setError((error as Error).message);
     } finally {
-      setBusy(false);
+      setBusy(undefined);
     }
   }
+
+  if (existingOnly && !connection?.username) return null;
   return <div className="grid gap-y-3">
-    <h4 className="font-semibold">{agent ? `${name ?? channelAgents[agent].name} · ${channelAgents[agent].role}` : 'Cowork'}</h4>
-    <p>{telegramBot ? `Saved bot @${telegramBot}` : 'Add the workspace bot to your Telegram group and disable group privacy in BotFather.'}</p>
-    {owner && <form className="settings-channel-form grid gap-y-3" onSubmit={(event) => {
-      event.preventDefault();
-      const data = new FormData(event.currentTarget);
-      void save({ Token: String(data.get('Token')), Destination: String(data.get('Destination')) });
-    }}>
-      <label>BotFather token
-        <Input ref={token} name="Token" type="password" autoComplete="off" required={!telegramBot}
-          placeholder={telegramBot ? 'Enter a token to replace the saved bot' : 'Paste the bot token'} />
-      </label>
-      <label>Telegram group ID
-        <Input name="Destination" defaultValue={destination ?? ''} required placeholder="Negative group ID" />
-      </label>
-      <details className="text-sm">
-        <summary className="cursor-pointer font-medium">Setup info</summary>
-        <p className="mt-2">Find the group ID before connecting your bot in Cowork.</p>
-        <ol className="mt-2 list-decimal space-y-2 pl-5">
-          <li>Add your bot to the Telegram group and send a message in that group.</li>
-          <li>
-            Open <code className="break-all">https://api.telegram.org/bot&lt;yourtoken&gt;/getUpdates</code> in your browser,
-            replacing <code>&lt;yourtoken&gt;</code> with your BotFather token. Keep the resulting URL private.
-          </li>
-          <li>
-            In the JSON response, find the <code>chat</code> object for your group.
-            Copy its <code>id</code>, including the minus sign, into the Telegram group ID field.
-          </li>
-        </ol>
-        <p className="mt-2">
-          If Telegram returns <code>409</code> because a webhook is active, use a dedicated bot for Cowork if
-          another service still uses that webhook. If you’re moving this bot to Cowork, open{' '}
-          <code className="break-all">https://api.telegram.org/bot&lt;yourtoken&gt;/deleteWebhook</code>{' '}
-          to stop webhook delivery. Then send a fresh message in the group and retry <code>getUpdates</code>.
-        </p>
-      </details>
-      <div className="flex flex-wrap gap-3">
-        <Button type="submit" disabled={busy}>Save Telegram settings</Button>
-        {telegramBot && <Button variant="quiet" type="button" disabled={busy} onClick={() => void save({ Remove: true })}>Disconnect bot</Button>}
-      </div>
-    </form>}
+    <h4 className="font-semibold">{name}</h4>
+    {connection ? <>
+      {connection.connected && <p role="status">
+        <strong>Connected{connection.groupTitle ? ' to ' + connection.groupTitle : ''}</strong> · @{connection.username}
+      </p>}
+      {connection.connected && <p>Send <code>/ask@{connection.username}</code> followed by a message, or reply to the bot in Telegram.</p>}
+      {connection.username && !connection.connected && <p role="status">Bot @{connection.username} is ready. Choose a group to finish connecting. Messages the bot receives there appear in Cowork.</p>}
+      {!connection.configured && owner && <p role="status">Telegram setup is unavailable on this Cowork server.</p>}
+      {!connection.username && !owner && <p>A workspace owner can connect this agent to Telegram.</p>}
+      {!connection.username && owner && connection.configured && <form className="settings-channel-form grid gap-y-3" onSubmit={(event) => {
+        event.preventDefault();
+        void update('connect', token.current?.value.trim());
+      }}>
+        <p>Open <a className="underline underline-offset-2" href="https://t.me/BotFather" target="_blank" rel="noreferrer">BotFather</a>, send <code>/newbot</code>, and paste the token here.</p>
+        <label>BotFather token
+          <Input ref={token} name="Token" type="password" autoComplete="off" required placeholder="Paste bot token" disabled={Boolean(busy)} />
+        </label>
+        <Button className="justify-self-start" type="submit" disabled={Boolean(busy)}>{busy === 'connect' ? 'Connecting…' : 'Connect bot'}</Button>
+      </form>}
+      {connection.username && owner && <div className="flex flex-wrap items-center gap-3">
+        {connection.groupLink && <a className={buttonClassName('primary')} href={connection.groupLink} target="_blank" rel="noreferrer">Choose Telegram group</a>}
+        {!connection.connected && !connection.groupLink && connection.configured &&
+          <Button disabled={Boolean(busy)} onClick={() => void update('link')}>{busy === 'link' ? 'Generating…' : 'Get a new group link'}</Button>}
+        <Button variant="quiet" disabled={Boolean(busy)} onClick={() => void update('disconnect')}>
+          {busy === 'disconnect' ? 'Disconnecting…' : 'Disconnect bot'}
+        </Button>
+      </div>}
+    </> : !error && <p role="status">Checking Telegram connection…</p>}
+    {error && <p role="alert">{error}</p>}
+    {!connection && error && <Button variant="quiet" className="justify-self-start" onClick={() => {
+      setError('');
+      setAttempt((previous) => previous + 1);
+    }}>Retry</Button>}
   </div>;
 }
 
@@ -511,16 +544,9 @@ export function Settings(props: SettingsProps) {
             </SettingsGroup>
             <SettingsGroup id="telegram-settings" title="Telegram" logo="telegram">
               <div className="settings-provider-entries">
-                {channelAgentIds.map((agent) => {
-                  const telegram = props.telegramAgents?.[agent];
-                  return (
-                    <TelegramForm key={JSON.stringify([agent, telegram?.Username, telegram?.Destination])} owner={props.owner}
-                      agent={agent} name={props.agents.find(({ ID, Role }) => ID && Role === channelAgents[agent].role)?.Name}
-                      telegramBot={telegram?.Username} destination={telegram?.Destination} saveTelegram={props.saveTelegram} />
-                  );
-                })}
-                {props.telegramBot && <TelegramForm key={JSON.stringify([props.telegramBot, props.channels.Telegram])}
-                  owner={props.owner} telegramBot={props.telegramBot} destination={props.channels.Telegram} saveTelegram={props.saveTelegram} />}
+                {props.agents.filter(({ ID }) => ID).map((agent) => <TelegramConnectionForm key={agent.ID} owner={props.owner} workspaceAgent={agent} />)}
+                {(['ada', 'sam'] as const).map((agent) => <TelegramConnectionForm key={agent} owner={props.owner} agent={agent} existingOnly />)}
+                <TelegramConnectionForm owner={props.owner} existingOnly />
               </div>
             </SettingsGroup>
             <SettingsGroup id="whatsapp-settings" title="WhatsApp" logo="whatsapp">

@@ -11,7 +11,6 @@ import { WorkspaceGuestTopbar, WorkspaceShell } from '../../sidebar';
 import { Conversation } from '../../chat';
 import { ConversationIndex, threadRoute, type Message, type Thread } from '../../conversations';
 import { ReminderCalendar } from '../../reminders';
-import type { ChannelAgent } from '../../mastra/channels/agents';
 import { Settings, type GitProvider } from '../../settings';
 import { api, initials, localDay } from './api';
 import { AuthForm, Modal } from './forms';
@@ -31,8 +30,6 @@ type WorkspaceData = {
   agentConnectionHasKey?: boolean;
   agentMemories?: Record<string, AgentMemory>;
   managedConnections?: boolean;
-  telegramBot?: string;
-  telegramAgents?: Partial<Record<ChannelAgent, { Username: string; Destination: string }>>;
   gitTokenStatus?: Partial<Record<GitProvider, boolean>>;
   viewerId: string;
   members: string[];
@@ -275,13 +272,12 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
       </header>
       {notice && <div id="notice" role="alert">{notice}</div>}
       <WorkspaceOnboarding setup={state ?? undefined} busy={busy} configured={Boolean(state?.agentConnectionHasKey)}
-        telegram={state?.telegramAgents} managed={Boolean(state?.managedConnections)} grants={grants} saveGrants={saveGrants}
+        managed={Boolean(state?.managedConnections)} grants={grants} saveGrants={saveGrants}
         save={(settings) => run(async () => {
           const data = await write('onboarding', settings);
           setNeedsSetup(false);
           if (!data.workspace.OnboardingStep) router.replace('/conversations');
         })}
-        saveTelegram={(settings) => run(async () => { await write('telegram', settings); })}
       />
     </main>
   );
@@ -387,11 +383,6 @@ function WorkspaceContent({ view, threadId, initialMode, clerkSignOut }: Workspa
           saveGitToken={(settings) => run(async () => {
             await write('git-token', settings);
             setNotice(settings.Remove ? 'Git token removed.' : 'Git token saved.');
-          })}
-          telegramBot={state.telegramBot} telegramAgents={state.telegramAgents}
-          saveTelegram={(settings) => run(async () => {
-            await write('telegram', settings);
-            setNotice(settings.Remove ? 'Telegram bot disconnected.' : 'Telegram settings saved.');
           })}
           saveChannel={(channel, destination, button) => {
             button.disabled = true;

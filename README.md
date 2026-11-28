@@ -105,12 +105,14 @@ Each Slack workspace is associated with one Cowork workspace. When the workspace
 
 ## Telegram group conversations
 
-1. Create a dedicated bot with [BotFather](https://t.me/BotFather), disable group privacy with `/setprivacy`, and add the bot to your test group. Let the group know that Cowork mirrors its messages to the workspace.
-2. Set a random `COWORK_TELEGRAM_BRIDGE_SECRET` on the Mastra worker and Encore. In Coolify, set it once as a runtime variable on the Cowork application. Bot tokens are managed in Cowork.
-3. As the workspace owner, open **Settings → Messaging channels → Telegram** and save the BotFather token and numeric group ID, including its leading minus sign. Cowork checks and encrypts the token and starts polling within a few seconds. Use a dedicated bot for each workspace.
-4. Send text from two Telegram accounts and mention the bot or reply to its message. Open **Conversations** in Cowork to see both participants and the agent's reply. Replies are sent from Telegram. The bot mirrors new text messages it receives and keeps forum topics separate.
+1. Open [BotFather](https://t.me/BotFather), send `/newbot`, and create a dedicated bot for the Cowork agent.
+2. In **Settings → Messaging channels → Telegram**, choose the agent and paste the BotFather token. Cowork verifies the bot and registers its webhook.
+3. Select **Choose Telegram group** and pick the group in Telegram. Cowork shows the linked group in Settings.
+4. Send `/ask@your_bot_username` followed by a message, or reply to the bot. Cowork keeps each group's conversation and forum topics separate. Messages the bot receives in the linked group appear in Cowork Conversations.
 
-Mastra Channels uses the [Telegram adapter](https://mastra.ai/blog/introducing-channels) in polling mode. Run one worker per deployment. Slack and Telegram use the connected Cowork workspace’s tool configuration.
+Cowork registers the official [Mastra Telegram adapter](https://mastra.ai/integrations/channels/telegram#self-managed-setup) on its existing agents. New connections use the public HTTPS `MASTRA_SERVER_URL` or `COWORK_PUBLIC_URL` for the agent's Telegram webhook. Local development without public HTTPS uses polling. Run one worker per deployment when using polling.
+
+Use the same `MASTRA_ENCRYPTION_KEY` on the worker and Encore, or set the same `COWORK_TELEGRAM_BRIDGE_SECRET` as an override. Cowork encrypts saved bot tokens with the workspace credential key. Telegram's default group privacy supports `/ask@username` and replies. To mirror all group messages or use plain mentions, disable group privacy in BotFather and re-add the bot to the group.
 
 ## Fixed-name Slack apps and Telegram bots
 
@@ -122,13 +124,13 @@ The fixed-name apps use `/api/agents/developer/channels/slack/webhook` for Ada a
 
 Cowork uses the workspace's chosen agent name on replies when Slack grants `chat:write.customize`. Update the Slack app manifest and reauthorize existing installations to grant this scope. The installed app listing and @mention use Slack's configured bot identity.
 
-For Telegram, create a distinct bot for each agent in BotFather. In Cowork, save each bot’s token and Telegram group ID in its agent’s section. Both bots can use the same Telegram group. Cowork displays each verified Telegram handle in Settings. Existing Cowork bot connections can still be managed there.
+Use one Telegram bot per Cowork agent. Several agents can connect to the same group. Existing polling installations appear in Telegram settings alongside the workspace agents.
 
 ## Workspace tools in Slack and Telegram
 
 After a Cowork workspace owner connects Slack or Telegram, people in the linked channel can create, find, update, and schedule Cowork tasks. Developer tasks run through the linked workspace’s configured workflow and sandbox. Other roles create assigned tasks for tracking.
 
-Slack and Telegram inherit the agent’s existing Agent Connections grants from Cowork web chat. Tool results in replies are visible to people who can read the conversation. Slack tool access is limited to full members of the installed Slack workspace. Externally shared Slack Connect channels are excluded. Telegram access covers participants in the configured group. Set the same `MASTRA_ENCRYPTION_KEY` on the worker and Encore for Slack tools. Telegram uses the existing `COWORK_TELEGRAM_BRIDGE_SECRET`.
+Slack and Telegram inherit the agent’s existing Agent Connections grants from Cowork web chat. Tool results in replies are visible to people who can read the conversation. Slack tool access is limited to full members of the installed Slack workspace. Externally shared Slack Connect channels are excluded. Telegram access covers participants in the configured group. Set the same `MASTRA_ENCRYPTION_KEY` on the worker and Encore for channel tools. Telegram also supports a `COWORK_TELEGRAM_BRIDGE_SECRET` override.
 
 Ask an agent in either channel to save a reminder with a due date and time. The reminder appears on the Cowork Reminders page. Slack supplies the requester’s time zone when available.
 

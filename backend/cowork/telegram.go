@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -43,8 +42,8 @@ func recordTelegramMessage(space *Workspace, input telegramMessage) (*Thread, bo
 		if input.Title == "" {
 			title = "Telegram group"
 		}
-		if agent := namedChannelAgents[input.Agent].Name; agent != "" {
-			title = agent + " · " + title
+		if agent, ok := telegramAgent(space, input.Agent); ok && input.Agent != "" {
+			title = agent.Name + " · " + title
 		}
 		space.Threads = append(space.Threads, Thread{
 			ID: key(), Title: title, Author: input.Author, CreatedAt: input.At, TelegramTopic: input.Topic,
@@ -90,18 +89,8 @@ func receiveTelegramMessage(w http.ResponseWriter, r *http.Request) {
 		jsonReply(w, 200, map[string]string{})
 		return
 	}
-	role := channelAgentRole(space, input.Agent)
-	agentName := role + " agent"
-	if input.Agent != "" {
-		agentName = namedChannelAgents[input.Agent].Name
-	}
-	for _, agent := range space.Agents {
-		if agent.Role == role && agent.ID != "" {
-			agentName = agent.Name
-			thread.AgentID = agent.ID
-			break
-		}
-	}
+	agent, _ := telegramAgent(space, input.Agent)
+	thread.AgentID = agent.ID
 	if save(d) != nil {
 		fail(w, 500, "Could not save Telegram message.")
 		return
@@ -111,12 +100,15 @@ func receiveTelegramMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	turn := workerRequest{
-		Role: role, AgentName: agentName, WorkspaceID: space.ID, ThreadID: thread.ID, TimeZone: "UTC",
+		Role: agent.Role, AgentName: agent.Name, WorkspaceID: space.ID, ThreadID: thread.ID, TimeZone: "UTC",
 		ChannelActor: &channelActor{
 			WorkspaceID: space.ID, Channel: "telegram", Agent: input.Agent, Installation: input.Version,
 			Conversation: input.ChatID, ThreadID: thread.ID, SenderID: input.SenderID, Author: input.Author,
 		},
 		Messages: thread.Messages[max(0, len(thread.Messages)-24):],
+	}
+	if strings.HasPrefix(input.Agent, "agent:") {
+		turn.ChannelActor.AgentInstance = &agent.ID
 	}
 	mutex.Unlock()
 	result, err := worker(r.Context(), "chat", turn, "")
@@ -160,6 +152,8 @@ func telegramThread(space *Workspace, id string) bool {
 type telegramBot struct {
 	ID                                             int64
 	Username, Version, EncryptedToken, Destination string
+	WebhookURL, LinkCode, GroupTitle               string    `json:",omitempty"`
+	LinkUntil                                      time.Time `json:",omitempty"`
 }
 
 func telegramBotKey(workspace, agent string) string {
@@ -169,16 +163,38 @@ func telegramBotKey(workspace, agent string) string {
 	return workspace + ":" + agent
 }
 
-func telegramInstallationMatches(d *database, space *Workspace, agent, version, destination string) bool {
-	if (agent != "" && namedChannelAgents[agent].Name == "") || version == "" || space.channelAgentRemoved(agent) {
-		return false
+func telegramAgent(space *Workspace, binding string) (workspaceAgent, bool) {
+	if id, managed := strings.CutPrefix(binding, "agent:"); managed {
+		agent, ok := space.agent(id)
+		return agent, id != "" && ok
 	}
-	bot := d.TelegramBots[telegramBotKey(space.ID, agent)]
-	group := bot.Destination
-	if agent == "" {
-		group = space.Channels["Telegram"]
+	if (binding != "" && namedChannelAgents[binding].Name == "") || space.channelAgentRemoved(binding) {
+		return workspaceAgent{}, false
 	}
-	return bot.Version == version && group == destination
+	role := channelAgentRole(space, binding)
+	for _, agent := range space.Agents {
+		if agent.Role == role {
+			return agent, true
+		}
+	}
+	name := namedChannelAgents[binding].Name
+	if name == "" {
+		name = role + " agent"
+	}
+	return workspaceAgent{Role: role, Name: name}, true
+}
+
+func telegramGroup(space *Workspace, binding string, bot telegramBot) string {
+	if binding == "" {
+		return space.Channels["Telegram"]
+	}
+	return bot.Destination
+}
+
+func telegramInstallationMatches(d *database, space *Workspace, binding, version, destination string) bool {
+	_, active := telegramAgent(space, binding)
+	bot := d.TelegramBots[telegramBotKey(space.ID, binding)]
+	return active && version != "" && bot.Version == version && telegramDestination(destination) && telegramGroup(space, binding, bot) == destination
 }
 
 func telegramAgentSettings(d *database, workspace string) map[string]struct{ Username, Destination string } {
@@ -200,10 +216,14 @@ func updateTelegramBot(w http.ResponseWriter, r *http.Request, d *database, acco
 		return
 	}
 	var input struct {
-		Token, Destination, Agent string
-		Remove                    bool
+		Token, Destination, Agent, Action string
+		Remove                            bool
 	}
 	if !decode(w, r, &input) {
+		return
+	}
+	if input.Action != "" {
+		manageTelegramConnection(w, r, d, account, space, input.Agent, input.Action, strings.TrimSpace(input.Token))
 		return
 	}
 	if input.Agent != "" && namedChannelAgents[input.Agent].Name == "" {
@@ -301,7 +321,7 @@ func updateTelegramBot(w http.ResponseWriter, r *http.Request, d *database, acco
 
 //encore:api public raw method=GET,POST path=/internal/telegram/*route
 func TelegramBridge(w http.ResponseWriter, r *http.Request) {
-	secret := strings.TrimSpace(os.Getenv("COWORK_TELEGRAM_BRIDGE_SECRET"))
+	secret := channelBridgeSecret("telegram")
 	if secret == "" || subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+secret)) != 1 {
 		fail(w, 403, "Telegram bridge access required.")
 		return
@@ -311,6 +331,10 @@ func TelegramBridge(w http.ResponseWriter, r *http.Request) {
 		receiveTelegramMessage(w, r)
 	case r.Method == "GET" && r.URL.Path == "/internal/telegram/installations":
 		listTelegramInstallations(w)
+	case r.Method == "GET" && r.URL.Path == "/internal/telegram/installation":
+		telegramWebhookInstallation(w, r.URL.Query().Get("version"))
+	case r.Method == "POST" && r.URL.Path == "/internal/telegram/link":
+		linkTelegramGroup(w, r)
 	default:
 		fail(w, 404, "Unknown Telegram endpoint.")
 	}
@@ -324,22 +348,18 @@ func listTelegramInstallations(w http.ResponseWriter) {
 		fail(w, 500, "Could not load Telegram settings.")
 		return
 	}
-	type installation struct{ WorkspaceID, Agent, Version, Token string }
-	result := []installation{}
-	if len(d.TelegramBots) > 0 {
-		aead, err := agentConnectionCipher(false)
+	result := []telegramInstallation{}
+	for id, bot := range d.TelegramBots {
+		if bot.WebhookURL != "" {
+			continue
+		}
+		installation, valid, err := resolveTelegramInstallation(d, id, bot)
 		if err != nil {
-			fail(w, 500, "Could not unlock Telegram tokens.")
+			fail(w, 500, "Could not unlock Telegram token.")
 			return
 		}
-		for id, bot := range d.TelegramBots {
-			token, err := openAgentConnectionKey(aead, "telegram:"+id, bot.EncryptedToken)
-			if err != nil {
-				fail(w, 500, "Could not unlock Telegram token.")
-				return
-			}
-			workspace, agent, _ := strings.Cut(id, ":")
-			result = append(result, installation{workspace, agent, bot.Version, token})
+		if valid {
+			result = append(result, installation)
 		}
 	}
 	jsonReply(w, 200, result)

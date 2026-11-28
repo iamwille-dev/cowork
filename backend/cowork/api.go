@@ -338,6 +338,10 @@ func API(w http.ResponseWriter, r *http.Request) {
 	}
 	space := d.Workspaces[account.Workspace]
 	if r.Method == "GET" {
+		if route == "telegram" {
+			viewTelegramConnection(w, d, account, space, r.URL.Query().Get("agent"))
+			return
+		}
 		if route == "slack-context" {
 			type slackAgentSummary struct{ ID, Role, Name string }
 			agents := make([]slackAgentSummary, 0, len(space.Agents))

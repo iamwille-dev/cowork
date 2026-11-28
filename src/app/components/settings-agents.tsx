@@ -76,8 +76,8 @@ function AgentMemorySummary({ agent, memory, busy, save }: {
   </details>;
 }
 
-function AgentFields({ role, telegram, details, setDetails, busy, channelHelp }: {
-  role: string; telegram: boolean; details: AgentDetails; setDetails: (details: AgentDetails) => void; busy: boolean;
+function AgentFields({ role, details, setDetails, busy, channelHelp }: {
+  role: string; details: AgentDetails; setDetails: (details: AgentDetails) => void; busy: boolean;
   channelHelp?: string;
 }) {
   const helpId = useId();
@@ -90,7 +90,7 @@ function AgentFields({ role, telegram, details, setDetails, busy, channelHelp }:
       <label>Preferred channel
         <Select value={details.channel} disabled={busy} aria-describedby={channelHelp ? helpId : undefined}
           onChange={(event) => setDetails({ ...details, channel: event.target.value as AgentChannel })}>
-          {Object.entries(channelNames).filter(([id]) => telegram || id !== 'telegram').map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+          {Object.entries(channelNames).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
         </Select>
       </label>
       {channelHelp && <small id={helpId}>{channelHelp}</small>}
@@ -98,8 +98,8 @@ function AgentFields({ role, telegram, details, setDetails, busy, channelHelp }:
   </>;
 }
 
-function EditAgentForm({ agent, telegram, busy, updateAgent, canRemove, removeAgent, close, saved, removed }: {
-  agent: WorkspaceAgent; telegram: boolean; busy: boolean; updateAgent: UpdateAgent; close: () => void; saved: () => void;
+function EditAgentForm({ agent, busy, updateAgent, canRemove, removeAgent, close, saved, removed }: {
+  agent: WorkspaceAgent; busy: boolean; updateAgent: UpdateAgent; close: () => void; saved: () => void;
   canRemove: boolean; removeAgent: RemoveAgent; removed: () => void;
 }) {
   const [initial] = useState<AgentDetails>(() => ({ name: agent.Name, channel: agent.Channel ?? 'cowork' }));
@@ -122,7 +122,7 @@ function EditAgentForm({ agent, telegram, busy, updateAgent, canRemove, removeAg
     if (await updateAgent(changes, setError)) saved();
   }}>
     <h3 id="edit-agent-heading" ref={heading} tabIndex={-1}>Edit agent</h3>
-    <AgentFields role={agent.Role} telegram={telegram} details={details} setDetails={setDetails} busy={busy}
+    <AgentFields role={agent.Role} details={details} setDetails={setDetails} busy={busy}
       channelHelp="Connect or disconnect Slack and Telegram in Messaging channels." />
     {error && <p role="alert">{error}</p>}
     <div className="setup-controls">
@@ -197,7 +197,6 @@ export function SettingsAgents({ agents, owner, busy, addAgent, updateAgent, rem
       {agents.map((agent) => {
         const option = agentCatalog.find(({ role }) => role === agent.Role);
         const Icon = option?.icon ?? SparklesIcon;
-        const messaging = Boolean(option && 'messaging' in option);
         const isEditing = editing === agent.ID;
         const roleLabel = agent.Name !== agent.Role ? agent.Role : '';
         const channelLabel = agent.Channel && agent.Channel !== 'cowork' ? `Prefers ${channelNames[agent.Channel]}` : '';
@@ -218,7 +217,7 @@ export function SettingsAgents({ agents, owner, busy, addAgent, updateAgent, rem
               }}>Edit</Button>}
           </div>
           {!isEditing && <AgentMemorySummary agent={agent} memory={memories[agent.ID] ?? emptyMemory} busy={busy} save={saveMemory} />}
-          {owner && isEditing && <EditAgentForm agent={agent} telegram={messaging} busy={busy} updateAgent={updateAgent}
+          {owner && isEditing && <EditAgentForm agent={agent} busy={busy} updateAgent={updateAgent}
             canRemove={agents.length > 1} removeAgent={removeAgent}
             close={() => { setEditing(undefined); editTrigger.current?.focus(); }}
             saved={() => { setEditing(undefined); setMessage('Agent settings saved.'); }}
@@ -258,7 +257,7 @@ export function SettingsAgents({ agents, owner, busy, addAgent, updateAgent, rem
           }} />
         </label>)}
       </fieldset>
-      {selected && <AgentFields role={selected.role} telegram={'messaging' in selected} details={details} setDetails={setDetails} busy={busy}
+      {selected && <AgentFields role={selected.role} details={details} setDetails={setDetails} busy={busy}
         channelHelp={details.channel === 'cowork' ? undefined : `Finish connecting ${channelNames[details.channel]} in Messaging channels.`} />}
       {error && <p role="alert">{error}</p>}
       <Button className="justify-self-start" type="submit" disabled={busy || !selected}>{busy ? 'Adding agent…' : 'Add to workspace'}</Button>

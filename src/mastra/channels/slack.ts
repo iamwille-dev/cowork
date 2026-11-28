@@ -19,6 +19,7 @@ import { guardrailReply } from '../guardrails/feedback.ts';
 import { conversationContext } from '../guardrails/input.ts';
 import { inChannelThread, participantMessage, sharedChannelMemory } from '../memory/multi-user-thread.ts';
 import { channelReplyGuidance, normalizeChannelReply } from './format.ts';
+import { CoworkTelegramAdapter, handleTelegramCommand, handleTelegramMessage, telegramInstallationId } from './telegram.ts';
 
 const settingsPath = '/settings?section=channels';
 const callbackSuffix = '/oauth/callback';
@@ -167,13 +168,12 @@ for (const agent of ['', ...channelAgentIds] as const) {
   }
 }
 
-class SlackState extends MemoryStateAdapter {
-  // A workspace can install the shared app and a named app for the same role.
-  // Keep each bot's subscriptions and message deduplication independent.
+class ChannelState extends MemoryStateAdapter {
+  // Keep subscriptions and message deduplication independent per installation.
   private installationKey(key: string) {
-    const event = delivery.getStore();
-    if (!event) throw new Error('Slack installation context is unavailable.');
-    return event.installationId + ':' + key;
+    const installation = delivery.getStore()?.installationId ?? telegramInstallationId();
+    if (!installation) throw new Error('Channel installation context is unavailable.');
+    return installation + ':' + key;
   }
 
   override subscribe(threadId: string) {
@@ -193,12 +193,10 @@ class SlackState extends MemoryStateAdapter {
   }
 }
 
-export function slackChannelConfig(role: Role): ChannelConfig | undefined {
+export function workspaceChannelConfig(role: Role): ChannelConfig {
   const workspaceRole = workspaceAgentRole(role);
   const settings = [...configuredApps.values()].find(({ agent }) => !agent || workspaceAgentRole(channelAgents[agent].role) === workspaceRole);
-  if (!settings && !workerSettings) return;
-
-  const adapter = createSlackAdapter({
+  const slack = settings || workerSettings ? createSlackAdapter({
     // Explicit OAuth configuration keeps Chat SDK in installation-provider mode.
     clientId: settings?.clientId ?? 'cowork-managed',
     // The Cowork webhook verifies the exact request against the receiving app's
@@ -212,22 +210,24 @@ export function slackChannelConfig(role: Role): ChannelConfig | undefined {
           : null;
       },
     },
-  });
-  const handle: ChannelHandler = async (thread, message, _defaultHandler, { mastra }) => {
+  }) : undefined;
+  const handle: ChannelHandler = async (thread, message, defaultHandler, context) => {
     const event = delivery.getStore();
-    if (!event || !mastra) return;
+    if (!event) return handleTelegramMessage(thread, message, defaultHandler, context);
+    const { mastra } = context;
+    if (!slack || !mastra) return;
     const memory = sharedChannelMemory({ Channel: 'slack', WorkspaceID: event.workspace,
       Installation: event.installationId, Agent: event.settings.agent, Conversation: thread.id });
-    await inChannelThread(memory.thread, () => handleSlackMessage(mastra, workspaceRole, adapter, thread, message));
+    await inChannelThread(memory.thread, () => handleSlackMessage(mastra, workspaceRole, slack, thread, message));
   };
   return {
-    adapters: { slack: adapter },
-    state: new SlackState(),
+    adapters: { ...(slack && { slack }), telegram: new CoworkTelegramAdapter() },
+    state: new ChannelState(),
     chatOptions: { concurrency: 'concurrent' },
     tools: false,
     handlers: {
       onDirectMessage: handle, onMention: handle, onSubscribedMessage: handle,
-      onMessage: false, onSlashCommand: false, onAction: false,
+      onMessage: handleTelegramMessage, onSlashCommand: handleTelegramCommand, onAction: false,
     },
   };
 }

@@ -67,7 +67,13 @@ var channelWorkspaceID = regexp.MustCompile(`^[a-f0-9]{48}$`)
 func channelBridgeSecret(channel string) string {
 	switch channel {
 	case "telegram":
-		return strings.TrimSpace(os.Getenv("COWORK_TELEGRAM_BRIDGE_SECRET"))
+		if secret := strings.TrimSpace(os.Getenv("COWORK_TELEGRAM_BRIDGE_SECRET")); secret != "" {
+			return secret
+		}
+		if key := strings.TrimSpace(os.Getenv("MASTRA_ENCRYPTION_KEY")); len(key) >= 32 {
+			digest := sha256.Sum256([]byte("cowork-telegram-tools\x00" + key))
+			return hex.EncodeToString(digest[:])
+		}
 	case "slack":
 		key := strings.TrimSpace(os.Getenv("MASTRA_ENCRYPTION_KEY"))
 		if len(key) >= 32 {
@@ -111,7 +117,7 @@ func ChannelToolBridge(w http.ResponseWriter, r *http.Request) {
 
 	role := channelAgentRole(space, input.Agent)
 	var activeAgent workspaceAgent
-	if id, managed := strings.CutPrefix(input.Agent, "agent:"); input.Channel == "slack" && managed {
+	if id, managed := strings.CutPrefix(input.Agent, "agent:"); managed {
 		var active bool
 		activeAgent, active = space.agent(id)
 		if id == "" || !active || input.AgentInstance == nil || *input.AgentInstance != id {

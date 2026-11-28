@@ -5,14 +5,12 @@ import { Input } from './input';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import Image from 'next/image';
 import { ArrowLeftIcon, ArrowRightIcon } from '@heroicons/react/24/outline';
-import { SlackConnectionForm, TelegramForm } from '../../settings';
-import type { ChannelAgent } from '../../mastra/channels/agents';
+import { SlackConnectionForm, TelegramConnectionForm } from '../../settings';
 import type { AgentChannel, WorkspaceAgent } from '../lib/workspace-agents';
 import { api } from './api';
 import { ManagedConnections, saveConnectionKey, type AgentGrants } from './managed-connections';
 import { AgentPicker, agentCatalog, type AgentChoices } from './agent-picker';
 import catalogStyles from './connection-catalog.module.css';
-type Telegram = { Username: string; Destination: string };
 type Setup = {
   workspace?: { Agents?: WorkspaceAgent[]; OnboardingStep?: 'tools' | 'channels' };
   LinkRequired?: boolean;
@@ -20,7 +18,7 @@ type Setup = {
   NewWorkspace?: boolean;
 };
 
-export function WorkspaceOnboarding<T extends Setup>({ setup, busy, save, configured, managed, grants, saveGrants, telegram, saveTelegram }: {
+export function WorkspaceOnboarding<T extends Setup>({ setup, busy, save, configured, managed, grants, saveGrants }: {
   setup?: T;
   busy: boolean;
   save: (input: object) => Promise<boolean>;
@@ -28,8 +26,6 @@ export function WorkspaceOnboarding<T extends Setup>({ setup, busy, save, config
   managed: boolean;
   grants: AgentGrants;
   saveGrants: (value: AgentGrants) => void;
-  telegram?: Partial<Record<ChannelAgent, Telegram>>;
-  saveTelegram: (settings: { Agent?: ChannelAgent; Token?: string; Destination?: string; Remove?: boolean }) => Promise<boolean>;
 }) {
   const [entry, setEntry] = useState<Setup>();
   const [lookupError, setLookupError] = useState('');
@@ -43,13 +39,10 @@ export function WorkspaceOnboarding<T extends Setup>({ setup, busy, save, config
   const [keySaved, setKeySaved] = useState(false);
   const [toolBusy, setToolBusy] = useState(false);
   const [connectedSlack, setConnectedSlack] = useState<Record<string, boolean>>({});
+  const [connectedTelegram, setConnectedTelegram] = useState<Record<string, boolean>>({});
   const heading = useRef<HTMLHeadingElement>(null);
   const stage = setup?.workspace?.OnboardingStep;
   const agents = setup?.workspace?.Agents ?? [];
-  const messagingAgents = agents.flatMap((agent) => {
-    const option = agentCatalog.find(({ id }) => id === agent.ID);
-    return option && 'messaging' in option ? [{ ...agent, slug: option.messaging }] : [];
-  });
 
   useEffect(() => {
     if (setup) return;
@@ -69,7 +62,7 @@ export function WorkspaceOnboarding<T extends Setup>({ setup, busy, save, config
 
   const channelReady = channel === 'cowork' || (channel === 'slack'
     ? agents.some(({ ID }) => connectedSlack[ID])
-    : messagingAgents.some(({ slug }) => Boolean(telegram?.[slug]?.Username)));
+    : Object.values(connectedTelegram).some(Boolean));
 
   const submit = (event: FormEvent<HTMLFormElement>, action: (form: FormData) => void) => {
     event.preventDefault();
@@ -159,8 +152,8 @@ export function WorkspaceOnboarding<T extends Setup>({ setup, busy, save, config
         {([
           ['cowork', 'Cowork', 'Start a conversation here in your workspace.'],
           ['slack', 'Slack', 'Install the app to chat in Slack. Public channel threads appear in Cowork.'],
-          ['telegram', 'Telegram', 'Connect an existing Telegram bot to a group.'],
-        ] as const).filter(([id]) => id !== 'telegram' || messagingAgents.length > 0).map(([id, title, description]) => (
+          ['telegram', 'Telegram', 'Connect a Telegram bot and choose a group.'],
+        ] as const).map(([id, title, description]) => (
           <label key={id} className="onboarding-role">
             <span><strong>{title}</strong><small>{description}</small></span>
             <input type="radio" name="where-to-work" value={id} checked={channel === id} onChange={() => setChannel(id)} />
@@ -173,8 +166,13 @@ export function WorkspaceOnboarding<T extends Setup>({ setup, busy, save, config
         }} />)}
       </div>}
       {channel === 'telegram' && <div className="setup-agents">
-        {messagingAgents.map(({ slug, Name }) => <TelegramForm key={slug} owner agent={slug} name={Name}
-          telegramBot={telegram?.[slug]?.Username} destination={telegram?.[slug]?.Destination} saveTelegram={saveTelegram} />)}
+        {agents.map((agent) => <TelegramConnectionForm key={agent.ID} owner workspaceAgent={agent} onConnected={(value) => {
+          setConnectedTelegram((current) => current[agent.ID] === value ? current : { ...current, [agent.ID]: value });
+        }} />)}
+        {(['ada', 'sam'] as const).map((agent) => <TelegramConnectionForm key={'legacy:' + agent} owner agent={agent} existingOnly onConnected={(value) => {
+          const id = 'legacy:' + agent;
+          setConnectedTelegram((current) => current[id] === value ? current : { ...current, [id]: value });
+        }} />)}
       </div>}
       <footer className="setup-controls">
         <Button disabled={busy || !channelReady} onClick={() => void save({ Step: 'complete', Channel: channel })}>

@@ -46,7 +46,7 @@ func TestManageWorkspaceAgents(t *testing.T) {
 	post("owner", "agent/add", `{"ID":"developer"}`, http.StatusConflict)
 	post("owner", "agent/add", `{"ID":"unknown"}`, http.StatusBadRequest)
 	post("owner", "agent/add", `{"ID":"sales-lead","Name":"Invalid\nName"}`, http.StatusBadRequest)
-	post("owner", "agent/add", `{"ID":"social-media","Channel":"telegram"}`, http.StatusBadRequest)
+	post("owner", "agent/add", `{"ID":"social-media","Channel":"discord"}`, http.StatusBadRequest)
 	post("owner", "agent/add", sales, http.StatusOK)
 	post("owner", "agent/add", sales, http.StatusOK)
 	post("owner", "agent/add", `{"ID":"sales-lead","Name":"Different"}`, http.StatusConflict)
@@ -103,7 +103,7 @@ func TestManageWorkspaceAgents(t *testing.T) {
 	post("owner", "agent/update", `{"ID":"sales-lead","Channel":"other"}`, http.StatusBadRequest)
 	post("owner", "agent/update", `{"ID":"sales-lead","Name":"Invalid\nName"}`, http.StatusBadRequest)
 	post("owner", "agent/add", `{"ID":"social-media"}`, http.StatusOK)
-	post("owner", "agent/update", `{"ID":"social-media","Channel":"telegram"}`, http.StatusBadRequest)
+	post("owner", "agent/update", `{"ID":"social-media","Channel":"telegram"}`, http.StatusOK)
 	const connectionID = "abcdefghijklmnopqrstuvwxyz0123456789"
 	post("owner", "agent-grants", `{"Grants":{"sales-lead":["`+connectionID+`"]}}`, http.StatusOK)
 	post("owner", "agent/update", edit, http.StatusOK)

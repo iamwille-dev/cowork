@@ -8,7 +8,7 @@ import { roleAgentId } from '../channels/agents.ts';
 import { roleScopes, workspaceAgentRole, type Role } from './roles.ts';
 import { agentMemoryInstructions } from '../agent-memory.ts';
 import { dockerAgentWorkspace } from '../docker-workspace.ts';
-import { slackChannelConfig } from '../channels/slack.ts';
+import { workspaceChannelConfig } from '../channels/slack.ts';
 import { inputGuardrails } from '../guardrails/input.ts';
 import { guardedOutput } from '../guardrails/output.ts';
 import { multiUserInstructions } from '../memory/multi-user-thread.ts';
@@ -42,7 +42,7 @@ export const agents = Object.fromEntries((Object.keys(roleScopes) as Role[]).map
     model,
     memory,
     workspace: dockerAgentWorkspace,
-    channels: slackChannelConfig(name),
+    channels: workspaceChannelConfig(name),
     tools: workspaceTools,
     inputProcessors: [inputGuardrails],
     outputProcessors: guardedOutput,

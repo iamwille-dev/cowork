@@ -30,16 +30,11 @@ func workspaceAgentName(name, fallback string) (string, error) {
 	return name, nil
 }
 
-func workspaceAgentChannel(role, channel string) (string, error) {
+func workspaceAgentChannel(channel string) (string, error) {
 	switch channel {
 	case "", "cowork":
 		return "cowork", nil
-	case "slack":
-		return channel, nil
-	case "telegram":
-		if role != "Developer" && role != "Sales Lead" {
-			return "", errors.New("This agent is available in Cowork.")
-		}
+	case "slack", "telegram":
 		return channel, nil
 	default:
 		return "", errors.New("Choose a supported messaging channel.")
@@ -60,7 +55,7 @@ func addWorkspaceAgent(w http.ResponseWriter, r *http.Request, d *database, acco
 		return
 	}
 	agent := agents[0]
-	agent.Channel, err = workspaceAgentChannel(agent.Role, input.Channel)
+	agent.Channel, err = workspaceAgentChannel(input.Channel)
 	if err != nil {
 		fail(w, http.StatusBadRequest, err.Error())
 		return
@@ -122,7 +117,7 @@ func updateWorkspaceAgent(w http.ResponseWriter, r *http.Request, d *database, a
 			}
 		}
 		if input.Channel != nil {
-			channel, err = workspaceAgentChannel(agent.Role, *input.Channel)
+			channel, err = workspaceAgentChannel(*input.Channel)
 			if err != nil {
 				fail(w, http.StatusBadRequest, err.Error())
 				return
@@ -180,7 +175,12 @@ func removeWorkspaceAgent(w http.ResponseWriter, r *http.Request, d *database, a
 				delete(d.TelegramBots, telegramBotKey(space.ID, slug))
 			}
 		}
-		saveWorkspaceAgentSettings(w, d, account)
+		botKey := telegramBotKey(space.ID, "agent:"+agent.ID)
+		bot := d.TelegramBots[botKey]
+		delete(d.TelegramBots, botKey)
+		if saveWorkspaceAgentSettings(w, d, account) {
+			removeStoredTelegramWebhook(r.Context(), botKey, bot)
+		}
 		return
 	}
 	fail(w, http.StatusNotFound, "Agent not found in this workspace.")
@@ -196,14 +196,15 @@ func (space *Workspace) threadHasRemovedAgent(id string) bool {
 	return false
 }
 
-func saveWorkspaceAgentSettings(w http.ResponseWriter, d *database, account Account) {
+func saveWorkspaceAgentSettings(w http.ResponseWriter, d *database, account Account) bool {
 	if err := save(d); err != nil {
 		if errors.Is(err, errStaleWorkspace) {
 			fail(w, http.StatusConflict, "The workspace changed. Try again.")
 		} else {
 			fail(w, http.StatusInternalServerError, "Could not save agent settings. Try again.")
 		}
-		return
+		return false
 	}
 	view(w, d, account)
+	return true
 }

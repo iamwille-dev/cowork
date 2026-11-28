@@ -6,6 +6,7 @@ export default {
       { source: '/.well-known/oauth-protected-resource/mcp', destination: 'http://127.0.0.1:4000/.well-known/oauth-protected-resource/mcp' },
       { source: '/api/web-chat', destination: 'http://127.0.0.1:4402/api/web-chat' },
       { source: '/api/agents/:agent(developer|sales-lead)/channels/slack/webhook', destination: 'http://127.0.0.1:4402/api/agents/:agent/channels/slack/webhook' },
+      { source: '/api/agents/:agent/channels/telegram/webhook', destination: 'http://127.0.0.1:4402/api/agents/:agent/channels/telegram/webhook' },
       { source: '/api/slack/agents/:agent', destination: 'http://127.0.0.1:4402/api/slack/agents/:agent' },
       { source: '/integrations/slack/managed/:id/oauth/callback', destination: 'http://127.0.0.1:4402/integrations/slack/managed/:id/oauth/callback' },
       { source: '/integrations/slack/managed/:id/events', destination: 'http://127.0.0.1:4402/integrations/slack/managed/:id/events' },

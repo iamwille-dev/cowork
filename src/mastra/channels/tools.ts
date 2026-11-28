@@ -13,6 +13,7 @@ import { workspaceRepositoryTools } from '../tools/repository-inventory.ts';
 import type { GitTokens } from '../tools/repositories.ts';
 import type { WorkspaceFindTasks, WorkspaceWrite } from '../tools/workspace.ts';
 import { channelReplyGuidance, normalizeChannelReply } from './format.ts';
+import { telegramBridgeSecret } from './telegram-auth.ts';
 
 export type SlackAgentKey = ChannelAgent | '' | `agent:${string}`;
 
@@ -50,7 +51,7 @@ function bridge(actor: ChannelActor, operation: 'available' | 'context' | 'slack
   const key = process.env.MASTRA_ENCRYPTION_KEY?.trim() ?? '';
   const secret = actor.Channel === 'slack'
     ? createHash('sha256').update('cowork-slack-tools\0').update(key).digest('hex')
-    : process.env.COWORK_TELEGRAM_BRIDGE_SECRET?.trim();
+    : telegramBridgeSecret();
   if (!secret) throw new Error('Channel tool bridge unavailable.');
   return fetch('http://127.0.0.1:4000/internal/channel-tools/' + operation, {
     method: 'POST',

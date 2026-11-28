@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createTelegramAdapter } from '@mastra/telegram';
+import { createTelegramAdapter } from '@chat-adapter/telegram';
 import { normalizeChannelReply } from './format.ts';
 
 test('unwraps an accidental prose fence while preserving real code fences', () => {
